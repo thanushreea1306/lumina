@@ -451,8 +451,9 @@ async def get_alerts_by_location(location: str):
         "location": location,
         "alerts": community_alerts.get_alerts_by_location(location),
         "count": len(community_alerts.get_alerts_by_location(location))
+    }
 
- # ============ SILENT INTERVENTION ENDPOINT ============
+# ============ SILENT INTERVENTION ENDPOINT ============
 @app.post("/api/silent-intervention")
 async def silent_intervention(features: CallFeatures, victim_name: str = "Family Member"):
     """Trigger silent intervention without victim action"""
@@ -496,4 +497,3 @@ async def silent_intervention(features: CallFeatures, victim_name: str = "Family
     )
     
     return intervention
-   }

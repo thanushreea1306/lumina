@@ -85,6 +85,7 @@ if page == "📞 Call Detection":
                 "outgoing_activity_ratio": activity,
                 "day_of_week": 2
             }
+            st.session_state['current_payload'] = payload
             
             try:
                 r = requests.post("http://localhost:8000/api/score", json=payload, timeout=10)
@@ -141,18 +142,27 @@ Actions:
 3. If confirmed, dial 1930 (Cyber Helpline)
 """)
                 
+                # Trigger silent intervention button - FIXED
                 if st.button("🔕 Trigger Silent Intervention", use_container_width=True):
                     try:
-                        intervention_response = requests.post(
-                            "http://localhost:8000/api/silent-intervention",
-                            json=payload,
-                            params={"victim_name": "Family Member"}
-                        )
-                        if intervention_response.status_code == 200:
-                            intervention = intervention_response.json()
-                            st.success("✅ Silent intervention triggered successfully!")
-                            st.info("Trusted contacts have been alerted without victim action.")
-                            st.code(intervention.get("message", "Alert sent"))
+                        # Use payload from session state
+                        current_payload = st.session_state.get('current_payload', {})
+                        if not current_payload:
+                            st.error("Please analyze a call first")
+                        else:
+                            intervention_response = requests.post(
+                                "http://localhost:8000/api/silent-intervention",
+                                json=current_payload,
+                                params={"victim_name": "Family Member"},
+                                timeout=10
+                            )
+                            if intervention_response.status_code == 200:
+                                intervention = intervention_response.json()
+                                st.success("✅ Silent intervention triggered successfully!")
+                                st.info("Trusted contacts have been alerted without victim action.")
+                                st.code(intervention.get("message", "Alert sent"))
+                            else:
+                                st.error(f"Error: {intervention_response.status_code}")
                     except Exception as e:
                         st.error(f"Error: {e}")
             else:
