@@ -1,0 +1,7 @@
+data/datasets/Fraudzen-dataset/ 
+data/datasets/*.csv 
+*.df 
+venv/ 
+__pycache__/ 
+*.pkl 
+reports/*.pdf 
