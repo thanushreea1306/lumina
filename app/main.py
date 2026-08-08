@@ -497,3 +497,41 @@ async def silent_intervention(features: CallFeatures, victim_name: str = "Family
     )
     
     return intervention
+
+# ============ ISOLATION DETECTION ENDPOINT (NEW) ============
+@app.post("/api/detect-isolation")
+async def detect_isolation(telemetry: dict):
+    """Receive device telemetry and return isolation risk score"""
+    try:
+        from app.services.isolation_detector import DeviceTelemetry, IsolationDetector
+        
+        # Create DeviceTelemetry object
+        device_data = DeviceTelemetry(
+            call_duration_minutes=telemetry.get('call_duration_minutes', 0),
+            is_unknown_number=telemetry.get('is_unknown_number', False),
+            is_video_call=telemetry.get('is_video_call', False),
+            screen_time_on_call_percent=telemetry.get('screen_time_on_call_percent', 0),
+            num_app_switches=telemetry.get('num_app_switches', 0),
+            num_home_presses=telemetry.get('num_home_presses', 0),
+            has_sms_activity=telemetry.get('has_sms_activity', False),
+            has_social_app_activity=telemetry.get('has_social_app_activity', False),
+            location_change=telemetry.get('location_change', 0),
+            screen_brightness=telemetry.get('screen_brightness', 0),
+            screen_on_continuous_hours=telemetry.get('screen_on_continuous_hours', 0)
+        )
+        
+        detector = IsolationDetector()
+        result = detector.detect(device_data)
+        
+        if result['alert_triggered']:
+            alert = detector.generate_alert_message(
+                victim_name="Family Member",
+                score=result['isolation_score'],
+                factors=result['risk_factors']
+            )
+            result['alert_message'] = alert
+        
+        return result
+    except Exception as e:
+        print(f"Error in /api/detect-isolation: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
