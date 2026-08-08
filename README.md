@@ -1,11 +1,5 @@
 # 💡 LUMINA — AI Bridge Against Digital Arrest Isolation
 
-[![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://python.org)
-[![FastAPI](https://img.shields.io/badge/FastAPI-0.110.0-green.svg)](https://fastapi.tiangolo.com)
-[![Streamlit](https://img.shields.io/badge/Streamlit-1.32.0-red.svg)](https://streamlit.io)
-[![XGBoost](https://img.shields.io/badge/XGBoost-2.0-orange.svg)](https://xgboost.ai)
-[![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-
 ---
 
 ## 🚨 Tagline
@@ -71,7 +65,7 @@ That shift—from scam detection to victim intervention—is the core innovation
 LUMINA now detects **behavioral isolation patterns** on the victim's device:
 
 | Signal | What It Detects |
-|--------|-----------------|
+|---|---|
 | Call duration | Long calls (60+ min) |
 | Unknown caller | Scammer characteristic |
 | Video call | Intimidation tactic |
@@ -89,6 +83,7 @@ LUMINA now detects **behavioral isolation patterns** on the victim's device:
 
 ## ⚙️ System Workflow
 
+```text
 📞 Incoming Call
         │
         ▼
@@ -115,11 +110,13 @@ Monitoring       │
                  │
                  ▼
           📊 Streamlit Dashboard Update
+```
 
 ---
 
 ## 🏗 Architecture
 
+```text
 +---------------------------+
 |  Call Metadata Collector  |
 +------------+--------------+
@@ -134,26 +131,28 @@ Monitoring       │
 | XGBoost Risk Classifier   |
 +------------+--------------+
              |
-    +---------+---------+
-    |                   |
-    v                   v
-Explainability   Risk Engine
-    |                   |
-    +---------+---------+
+        +----+----+
+        |         |
+        v         v
+ Explainability  Risk Engine
+        |         |
+        +----+----+
              |
              v
-    Alert Service Layer
+      Alert Service Layer
    (SMS / WhatsApp / Dashboard)
              |
              v
-  Family Dashboard & PDF Report
+     Family Dashboard
+        & PDF Report
+```
 
 ---
 
 ## ✨ Features
 
 | Feature | Description | Status |
-|---------|-------------|:------:|
+|---|---|:---:|
 | 🧠 Behavioral Risk Detection | Machine Learning based scam detection | ✅ |
 | 📞 Call Pattern Analysis | Detects suspicious call behavior | ✅ |
 | 🔕 Silent Intervention | Alerts family without notifying scammer | ✅ |
@@ -171,7 +170,7 @@ Explainability   Risk Engine
 ### Behavioral Risk Model
 
 | Aspect | Details |
-|--------|---------|
+|---|---|
 | Model | XGBoost |
 | Learning Type | Supervised Classification |
 | Training Dataset | Synthetic behavioral prototype |
@@ -195,7 +194,7 @@ Explainability   Risk Engine
 ### Model Performance
 
 | Metric | Score |
-|--------|------:|
+|---|---:|
 | Accuracy | 94.2% |
 | Precision | 92.8% |
 | Recall | 91.5% |
@@ -208,6 +207,7 @@ Instead of only predicting risk, LUMINA explains **why** the prediction was made
 
 Example:
 
+```text
 Risk Level : CRITICAL
 
 Reasons:
@@ -216,6 +216,7 @@ Reasons:
 ✓ Isolation behavior detected
 ✓ Suspicious communication pattern
 ✓ High behavioral similarity to known digital arrest scenarios
+```
 
 ---
 
@@ -232,7 +233,7 @@ It is **not presented as a validated production system or law-enforcement tool**
 ## 🛠 Technology Stack
 
 | Layer | Technology |
-|-------|------------|
+|---|---|
 | Machine Learning | XGBoost, Scikit-learn |
 | Backend | FastAPI |
 | Dashboard | Streamlit |
@@ -249,6 +250,7 @@ It is **not presented as a validated production system or law-enforcement tool**
 
 ## 📁 Repository Structure
 
+```text
 lumina/
 ├── app/
 │   ├── api/
@@ -272,6 +274,7 @@ lumina/
 ├── run.py
 ├── requirements.txt
 └── README.md
+```
 
 ---
 
@@ -279,41 +282,57 @@ lumina/
 
 ### Clone Repository
 
+```bash
 git clone https://github.com/thanushreea1306/lumina.git
 cd lumina
+```
 
 ### Create Virtual Environment
 
+```bash
 python -m venv venv
+```
 
 ### Windows
 
+```bash
 venv\Scripts\activate
+```
 
 ### Linux / macOS
 
+```bash
 source venv/bin/activate
+```
 
 ### Install Requirements
 
+```bash
 pip install -r requirements.txt
+```
 
 ### Run Backend
 
+```bash
 python run.py
+```
 
 ### Launch Dashboard
 
+```bash
 streamlit run dashboard/app.py
+```
 
 ### Run Isolation Simulator
 
+```bash
 python -m app.services.android_simulator
+```
 
 ### Access the Application
 
 | Interface | URL |
-|-----------|-----|
+|---|---|
 | Backend API | http://localhost:8000 |
 | Swagger UI | http://localhost:8000/docs |
 | Dashboard | http://localhost:8501 |
@@ -374,7 +393,7 @@ Instead of asking the victim to act, LUMINA quietly empowers trusted contacts to
 ## 📈 Potential Impact (Projected)
 
 | Metric | Target |
-|--------|--------|
+|---|---|
 | Families Protected | 100,000+ |
 | High-Risk Incidents Flagged | 120,000+ |
 | Financial Loss Potentially Prevented | ₹200+ Crore |
@@ -461,7 +480,7 @@ Current prototype limitations include:
 ## 📡 API Overview
 
 | Endpoint | Purpose |
-|----------|---------|
+|---|---|
 | `/predict` | Predict behavioral scam risk |
 | `/alerts` | View generated alerts |
 | `/report` | Generate incident report |
@@ -476,7 +495,7 @@ Current prototype limitations include:
 ## 🏆 Why LUMINA Stands Out
 
 | Area | LUMINA |
-|------|--------|
+|---|---|
 | Problem | Solves an urgent and growing cybercrime |
 | Innovation | Focuses on victim isolation rather than only scam detection |
 | Machine Learning | Behavioral risk classification using XGBoost |
