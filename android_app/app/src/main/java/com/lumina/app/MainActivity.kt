@@ -64,14 +64,6 @@ class MainActivity : AppCompatActivity() {
             permissions.add(Manifest.permission.ACCESS_FINE_LOCATION)
         }
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            if (!Settings.canDrawOverlays(this)) {
-                Toast.makeText(this, "Please enable overlay permission", Toast.LENGTH_LONG).show()
-                val intent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION)
-                startActivity(intent)
-            }
-        }
-
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             if (!checkUsageStatsPermission()) {
                 Toast.makeText(this, "Please enable usage access", Toast.LENGTH_LONG).show()
