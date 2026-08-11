@@ -1,4 +1,4 @@
-﻿# dashboard/app.py
+# dashboard/app.py
 import os
 
 import pandas as pd
@@ -7,7 +7,10 @@ import streamlit as st
 
 API_BASE = os.getenv("LUMINA_API_BASE", "http://localhost:8000")
 
-st.set_page_config(page_title="LUMINA - Digital Arrest Protection", page_icon="ðŸ’¡", layout="wide")
+st.set_page_config(
+    page_title="LUMINA - Digital Arrest Protection",
+    layout="wide",
+)
 
 LEVEL_COLORS = {
     "critical": "#d32f2f",
@@ -40,7 +43,7 @@ TELEMETRY_KEYS = [
 DIGITAL_ARREST_SCENARIO = [
     {
         "t": 2,
-        "label": "Call connects â€” unknown number",
+        "label": "Call connects - unknown number",
         "signals": {
             "call_duration_min": 2, "is_unknown_number": 1, "is_video_call": 0,
             "hour_of_day": 10, "caller_call_history": 0, "outgoing_activity_ratio": 0.6,
@@ -52,7 +55,7 @@ DIGITAL_ARREST_SCENARIO = [
     },
     {
         "t": 20,
-        "label": "Caller switches to video â€” pressure builds",
+        "label": "Caller switches to video - pressure builds",
         "signals": {
             "call_duration_min": 25, "is_unknown_number": 1, "is_video_call": 1,
             "hour_of_day": 10, "caller_call_history": 0, "outgoing_activity_ratio": 0.45,
@@ -84,11 +87,11 @@ DIGITAL_ARREST_SCENARIO = [
             "has_sms_activity": 0, "has_social_app_activity": 0, "location_change": 10,
             "screen_brightness": 90, "screen_on_continuous_hours": 2, "persistence_hours": 1,
         },
-        "note": "No app switching, no movement â€” the victim is anchored to the call.",
+        "note": "No app switching, no movement - the victim is anchored to the call.",
     },
     {
         "t": 150,
-        "label": "Escalated threat â€” 'digital arrest'",
+        "label": "Escalated threat - digital arrest",
         "signals": {
             "call_duration_min": 165, "is_unknown_number": 1, "is_video_call": 1,
             "hour_of_day": 10, "caller_call_history": 0, "outgoing_activity_ratio": 0.03,
@@ -96,14 +99,14 @@ DIGITAL_ARREST_SCENARIO = [
             "has_sms_activity": 0, "has_social_app_activity": 0, "location_change": 2,
             "screen_brightness": 100, "screen_on_continuous_hours": 5, "persistence_hours": 3,
         },
-        "note": "Every digital-arrest indicator is now active â€” maximum escalation.",
+        "note": "Every digital-arrest indicator is now active - maximum escalation.",
     },
 ]
 
 NORMAL_CALL_SCENARIO = [
     {
         "t": 0,
-        "label": "Call connects â€” known family number",
+        "label": "Call connects - known family number",
         "signals": {
             "call_duration_min": 2, "is_unknown_number": 0, "is_video_call": 0,
             "hour_of_day": 14, "caller_call_history": 15, "outgoing_activity_ratio": 0.85,
@@ -159,13 +162,13 @@ NORMAL_CALL_SCENARIO = [
             "has_sms_activity": 1, "has_social_app_activity": 1, "location_change": 200,
             "screen_brightness": 30, "screen_on_continuous_hours": 0, "persistence_hours": 0,
         },
-        "note": "No isolation signals â€” low risk maintained.",
+        "note": "No isolation signals - low risk maintained.",
     },
 ]
 
 INTERVENTIONS = {
     "critical": {
-        "title": "ðŸš¨ IMMEDIATE FAMILY INTERVENTION REQUIRED",
+        "title": "[CRITICAL] IMMEDIATE FAMILY INTERVENTION REQUIRED",
         "steps": [
             "Call the person on an ALTERNATIVE number right now (the scammer may still be on the active line).",
             "If possible, visit their location in person.",
@@ -174,7 +177,7 @@ INTERVENTIONS = {
         ],
     },
     "high": {
-        "title": "âš ï¸ ALERT TRUSTED CONTACTS AND MONITOR CLOSELY",
+        "title": "[HIGH] ALERT TRUSTED CONTACTS AND MONITOR CLOSELY",
         "steps": [
             "Alert a trusted family member or friend to monitor the situation.",
             "Ask the person to verify the caller's identity through an official channel.",
@@ -182,7 +185,7 @@ INTERVENTIONS = {
         ],
     },
     "medium": {
-        "title": "ðŸŸ¡ KEEP MONITORING â€” VERIFY CALLER IDENTITY",
+        "title": "[MEDIUM] KEEP MONITORING - VERIFY CALLER IDENTITY",
         "steps": [
             "Continue monitoring the call pattern for escalation.",
             "Verify the caller's identity independently (do not call back on the same number).",
@@ -190,20 +193,20 @@ INTERVENTIONS = {
         ],
     },
     "low": {
-        "title": "ðŸŸ¢ NO ACTION NEEDED â€” NORMAL BEHAVIOR",
+        "title": "[LOW] NO ACTION NEEDED - NORMAL BEHAVIOR",
         "steps": [
             "This call shows no significant scam indicators.",
             "Continue normal monitoring.",
-            "Reminder: digital arrest has no legal standing â€” no agency arrests over video call.",
+            "Reminder: digital arrest has no legal standing - no agency arrests over video call.",
         ],
     },
 }
 
 ALERT_STATUS = {
-    "critical": ("ðŸš¨ ALERT TRIGGERED", "A family alert would be sent to trusted contacts immediately. High-risk digital-arrest pattern confirmed."),
-    "high": ("âš ï¸ ALERT TRIGGERED", "A family alert would be sent to trusted contacts. Closely monitor the call."),
-    "medium": ("ðŸŸ¡ MONITOR", "Risk indicators present but no alert fired â€” keep monitoring."),
-    "low": ("ðŸŸ¢ NO ALERT", "No alert needed. Call behavior looks normal."),
+    "critical": ("[CRITICAL] ALERT TRIGGERED", "A family alert would be sent to trusted contacts immediately. High-risk digital-arrest pattern confirmed."),
+    "high": ("[HIGH] ALERT TRIGGERED", "A family alert would be sent to trusted contacts. Closely monitor the call."),
+    "medium": ("[MEDIUM] MONITOR", "Risk indicators present but no alert fired - keep monitoring."),
+    "low": ("[LOW] NO ALERT", "No alert needed. Call behavior looks normal."),
 }
 
 st.markdown(
@@ -312,34 +315,34 @@ def risk_banner(level: str, score: float) -> str:
     """
 
 
-st.markdown('<div class="main-header">ðŸ’¡ LUMINA</div>', unsafe_allow_html=True)
+st.markdown('<div class="main-header">LUMINA</div>', unsafe_allow_html=True)
 st.markdown(
-    '<div class="main-sub">Digital Arrest Protection â€” detecting when someone is trapped inside a scam call, before they ask for help.</div>',
+    '<div class="main-sub">Digital Arrest Protection - detecting when someone is trapped inside a scam call, before they ask for help.</div>',
     unsafe_allow_html=True,
 )
 
 # ============ SCENARIO CONTROLS ============
 c1, c2, c3 = st.columns([1, 1, 1])
 with c1:
-    run_scam = st.button("ðŸš¨ RUN DIGITAL ARREST SCENARIO", type="primary", width='stretch')
+    run_scam = st.button("RUN DIGITAL ARREST SCENARIO", type="primary", width='stretch')
 with c2:
-    run_normal = st.button("âœ… RUN NORMAL CALL SCENARIO", width='stretch')
+    run_normal = st.button("RUN NORMAL CALL SCENARIO", width='stretch')
 with c3:
-    if st.button("â†© Reset", width='stretch'):
+    if st.button("Reset", width='stretch'):
         reset_state()
         st.rerun()
 
 if run_scam:
     try:
         st.session_state["timeline"] = run_scenario(DIGITAL_ARREST_SCENARIO, "Digital Arrest Scenario")
-        st.session_state["scenario_name"] = "ðŸš¨ Digital Arrest Scenario"
+        st.session_state["scenario_name"] = "Digital Arrest Scenario"
     except Exception as exc:
         st.error(f"Backend call failed: {exc}. Start it with `python run.py`.")
 
 if run_normal:
     try:
         st.session_state["timeline"] = run_scenario(NORMAL_CALL_SCENARIO, "Normal Call Scenario")
-        st.session_state["scenario_name"] = "âœ… Normal Call Scenario"
+        st.session_state["scenario_name"] = "Normal Call Scenario"
     except Exception as exc:
         st.error(f"Backend call failed: {exc}. Start it with `python run.py`.")
 
@@ -352,27 +355,27 @@ if timeline:
     score = last["score"]
 
     st.markdown(risk_banner(level, score), unsafe_allow_html=True)
-    st.caption(f"Latest assessment at {last['t']} min â€” {st.session_state.get('scenario_name', '')}")
+    st.caption(f"Latest assessment at {last['t']} min - {st.session_state.get('scenario_name', '')}")
 
     # ============ WHY WAS THIS DETECTED? ============
-    st.markdown('<div class="section-title">ðŸ§  WHY WAS THIS DETECTED?</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-title">WHY WAS THIS DETECTED?</div>', unsafe_allow_html=True)
     if level == "low":
-        st.success("No significant risk indicators â€” this matches normal call behavior.")
+        st.success("No significant risk indicators - this matches normal call behavior.")
         st.caption("For this call, none of the digital-arrest signals (long duration, unknown caller, video intimidation, isolation) crossed the detection threshold.")
     else:
         for factor in last["factors"][:6]:
-            st.markdown(f"- âš ï¸ **{factor}**")
+            st.markdown(f"- **{factor}**")
         st.caption(f"{len(last['factors'])} risk signal(s) active at this moment.")
 
     # ============ WHAT SHOULD HAPPEN? ============
-    st.markdown('<div class="section-title">ðŸ›Ÿ WHAT SHOULD HAPPEN?</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-title">WHAT SHOULD HAPPEN?</div>', unsafe_allow_html=True)
     rec = INTERVENTIONS[level]
     st.markdown(f"**{rec['title']}**")
     for step in rec["steps"]:
-        st.markdown(f"- âœ… {step}")
+        st.markdown(f"- {step}")
 
     # ============ RISK EVOLUTION ============
-    st.markdown('<div class="section-title">ðŸ“ˆ Risk Evolution</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-title">RISK EVOLUTION</div>', unsafe_allow_html=True)
     evolution = pd.DataFrame(
         [{"Time (min)": row["t"], "Risk Score": row["score"]} for row in timeline]
     )
@@ -382,7 +385,7 @@ if timeline:
     c_high.metric("End of call", f"{timeline[-1]['score']:.0f} / 100")
 
     # ============ BEHAVIOR TIMELINE ============
-    st.markdown('<div class="section-title">ðŸ• Behavior Timeline</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-title">BEHAVIOR TIMELINE</div>', unsafe_allow_html=True)
     rows = []
     for row in timeline:
         signals = row["signals"]
@@ -405,10 +408,10 @@ if timeline:
         )
     st.dataframe(pd.DataFrame(rows), width='stretch', hide_index=True)
     for row in timeline:
-        st.caption(f"**t={row['t']} min â€” {row['label']}:** {row['note']}")
+        st.caption(f"**t={row['t']} min - {row['label']}:** {row['note']}")
 
     # ============ EXPLANATION ============
-    st.markdown('<div class="section-title">ðŸ”¬ Explanation</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-title">EXPLANATION</div>', unsafe_allow_html=True)
     st.info(last["explanation"])
     st.markdown(
         f"Risk moved from **{timeline[0]['score']:.0f}/100** at t={timeline[0]['t']} min "
@@ -418,18 +421,18 @@ if timeline:
     st.write(last["alert_message"])
 
     # ============ ALERT STATUS ============
-    st.markdown('<div class="section-title">ðŸ”” Alert Status</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-title">ALERT STATUS</div>', unsafe_allow_html=True)
     status_title, status_desc = ALERT_STATUS[level]
     if level in ("critical", "high"):
-        st.error(f"{status_title} â€” {status_desc}")
+        st.error(f"{status_title} - {status_desc}")
     elif level == "medium":
-        st.warning(f"{status_title} â€” {status_desc}")
+        st.warning(f"{status_title} - {status_desc}")
     else:
-        st.success(f"{status_title} â€” {status_desc}")
+        st.success(f"{status_title} - {status_desc}")
 
     # ============ INCIDENT REPORT (PDF) ============
-    st.markdown('<div class="section-title">ðŸ“„ Incident Report</div>', unsafe_allow_html=True)
-    if st.button("ðŸ“„ Generate Incident Report (PDF)", width='stretch'):
+    st.markdown('<div class="section-title">INCIDENT REPORT</div>', unsafe_allow_html=True)
+    if st.button("Generate Incident Report (PDF)", width='stretch'):
         try:
             with st.spinner("Generating PDF report..."):
                 response = requests.post(
@@ -451,30 +454,30 @@ if timeline:
     if st.session_state.get("report_bytes"):
         meta = st.session_state["report_meta"]
         st.success(
-            f"Report generated â€” Risk {meta.get('risk_score')}/100 "
+            f"Report generated - Risk {meta.get('risk_score')}/100 "
             f"({meta.get('risk_level', '').upper()})"
         )
         st.download_button(
-            "â¬‡ï¸ Download Incident Report (PDF)",
+            "Download Incident Report (PDF)",
             data=st.session_state["report_bytes"],
             file_name=st.session_state["report_filename"],
             mime="application/pdf",
             width='stretch',
         )
 else:
-    st.info("ðŸ‘† Run a scenario to analyze an escalating digital-arrest call or a normal call.")
+    st.info("Run a scenario to analyze an escalating digital-arrest call or a normal call.")
     st.markdown(
         """
         **What the scenarios show:**
-        - **ðŸš¨ Digital Arrest Scenario** â€” signals accumulate over a ~2.5 hour call (unknown caller â†’ video intimidation â†’ authority claims â†’ isolation), and the risk score escalates as each signal stacks up.
-        - **âœ… Normal Call Scenario** â€” a short, known caller with normal device activity stays at low risk throughout.
+        - **Digital Arrest Scenario** - signals accumulate over a ~2.5 hour call (unknown caller, then video intimidation, then authority claims, then full isolation), and the risk score escalates as each signal stacks up.
+        - **Normal Call Scenario** - a short, known caller with normal device activity stays at low risk throughout.
         """
     )
 
 st.divider()
 
 # ============ HISTORICAL INCIDENTS ============
-st.markdown('<div class="section-title">ðŸ—‚ Historical Incidents</div>', unsafe_allow_html=True)
+st.markdown('<div class="section-title">HISTORICAL INCIDENTS</div>', unsafe_allow_html=True)
 st.caption("Recent risk assessments recorded in SQLite by the backend.")
 try:
     incidents_response = requests.get(f"{API_BASE}/api/incidents?limit=50", timeout=10)
@@ -501,6 +504,6 @@ except Exception:
 
 st.divider()
 st.markdown(
-    "ðŸ“ž **Helpline: 1930** Â· Report at [cybercrime.gov.in](https://cybercrime.gov.in) Â· "
-    "LUMINA is a research prototype â€” demo-mode alerts are simulated, not real SMS."
+    "Helpline: 1930 | Report at [cybercrime.gov.in](https://cybercrime.gov.in) | "
+    "LUMINA is a research prototype - demo-mode alerts are simulated, not real SMS."
 )
