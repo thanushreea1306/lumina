@@ -75,7 +75,7 @@ Feature Extraction ──────────────── 29-feature c
    Fused score 0–100  →  LOW / MEDIUM / HIGH / CRITICAL
         │
         ▼
-   safety_rule_contributions  →  human-readable "WHY" reasons
+   top_factors (from safety_rule_contributions)  →  human-readable "WHY" reasons
         │
         ▼
    SQLite incident log  →  PDF report  →  Streamlit dashboard
@@ -89,7 +89,7 @@ Feature Extraction ──────────────── 29-feature c
 |---|---|
 | **XGBoost classifier** ✅ | Converts call behavior (duration, unknown caller, video, hour, call history, outgoing activity, weekend, derived features) into scam probability |
 | **Fusion** ✅ | `risk_score = 0.5·ML_probability + 0.5·safety_rules` — ML never decides alone; explicit rules form a **hard evidence ceiling**. The fused score is capped below HIGH when the rule score is below 50 and below CRITICAL when the rule score is below 75, so ML corroborates rule evidence but cannot independently manufacture HIGH/CRITICAL risk. |
-| **Explainability** ✅ | Every prediction returns `safety_rule_contributions` (reason + weight per active signal), so the "why" is never a black box |
+| **Explainability** ✅ | Every prediction returns `top_factors`, derived from the engine's `safety_rule_contributions` (reason + weight per active signal), so the "why" is never a black box |
 | **Text scam scanner** ⚠️ | **Rule-based** phrase engine (authority impersonation, arrest threats, urgency, financial demand, secrecy). Not ML. A transformer is future work. |
 | **IsolationDetector service** ⚠️ | Heuristic weighted score, used by the telemetry simulator demo |
 
@@ -99,7 +99,7 @@ The model was deliberately kept small and interpretable: **11 features, 15,000 s
 
 ### What this model is / is not
 
-**It is:** an XGBoost binary risk classifier; an 11-feature call-behavior schema; trained on synthetic call snapshots (15,000 generated calls); a prototype/demo of the behavioral-isolation detection concept.
+**It is:** an XGBoost binary risk classifier; an 11-feature call-behavior schema; trained on synthetic call snapshots (15,000 generated calls); a prototype/demo component of the behavioral-isolation detection system — it corroborates call-behavior evidence only, while telemetry/isolation evidence comes from the rule layer.
 
 **It is not:** a validated real-world detector (the benchmark measures internal consistency with its synthetic generator); trained or validated on real-world call telemetry; a substitute for the explicit safety-rule layer, which is a **separate safety mechanism**.
 
@@ -107,10 +107,10 @@ The deployed score currently fuses ML and rules at **50/50**, gated so ML can on
 
 ### Verified behavior (tests + live runs)
 
-- **68/68 automated tests pass** (`pytest tests/ -v`): risk escalation, false-positive guards (unknown caller alone ≠ critical), missing-telemetry safety (including explicitly-null telemetry treated as missing), model-artifact loading failure behavior (unavailable/degraded states), alert abuse protection (cooldown, rate limiting, duplicate suppression), silent-intervention gating (never triggered below HIGH risk, no fake delivery), phase-2 scenario cases, API integration.
+- **130/130 automated tests pass** (`pytest tests/ -v`): risk escalation, false-positive guards (unknown caller alone ≠ critical), missing-telemetry safety (including explicitly-null telemetry treated as missing), model-artifact loading failure behavior (unavailable/degraded states), alert abuse protection (cooldown, rate limiting, duplicate suppression), silent-intervention gating (never triggered below HIGH risk, no fake delivery), phase-2 scenario cases, API integration.
 - **Live scenario runs through the real API:**
-  - Digital arrest: **6.4 → 16.1 → 78 → 100** as signals accumulate (unknown → video → authority claim → full isolation)
-  - Normal call: **0 → 0 → 5 → 0 → 0** (stays low despite a brief video segment)
+  - Digital arrest: **6.4 → 16.1 → 74.9 → 100 → 100** as signals accumulate (unknown → video → authority claim → full isolation)
+  - Normal call: **0 → 0 → 0 → 0 → 0** (stays low despite a brief video segment)
 
 ### Backend (FastAPI) — real, working endpoints
 

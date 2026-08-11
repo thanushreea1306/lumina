@@ -133,7 +133,7 @@ LUMINA detects **behavioral isolation patterns** that mark a person trapped insi
 🎯 Fused Score + Risk Level             ✅ 0–100 → LOW/MEDIUM/HIGH/CRITICAL
         │
         ▼
-💬 Human-readable reasons              ✅ safety_rule_contributions
+💬 Human-readable reasons              ✅ top_factors (from safety_rule_contributions)
         │
         ▼
 🗂 Incident logged to SQLite            ✅ data/incidents.db
@@ -232,7 +232,7 @@ The deployed classifier is an **XGBoost** model trained on **15,000 synthetic ca
 - An XGBoost binary risk classifier (`XGBClassifier`).
 - Built on an 11-feature call-behavior schema.
 - Trained on synthetic call snapshots (15,000 generated calls — no real call telemetry in the training set).
-- A prototype/demo of the behavioral-isolation detection concept.
+- A prototype/demo component of the behavioral-isolation detection system: the ML corroborates call-behavior evidence only, while telemetry/isolation evidence comes from the rule layer.
 
 **It is not:**
 - A validated real-world detector — its benchmark only measures internal consistency with the synthetic generator it was trained on.
@@ -256,7 +256,7 @@ The dominant feature being *outgoing activity* is exactly the isolation signal t
 
 ### Explainable AI ✅
 
-Instead of only predicting risk, LUMINA returns the **exact reasons** for every prediction via `safety_rule_contributions`:
+Instead of only predicting risk, LUMINA returns the **exact reasons** for every prediction as `top_factors`, derived from the engine's `safety_rule_contributions`:
 
 ```text
 Risk Level : CRITICAL   Risk Score: 100/100
@@ -296,7 +296,7 @@ Interactive docs at `http://localhost:8000/docs`.
 python -m pytest tests/ -v
 ```
 
-**Result: 68 passed.** Coverage includes the risk engine (escalation, false-positive guards, missing-telemetry safety including explicitly-null telemetry treated as missing), model-artifact loading failure behavior (unavailable/degraded states), phase-2 scenario cases, alert abuse protection (cooldown / rate-limit / duplicate suppression), silent-intervention gating (never triggered below HIGH risk, no fake delivery), panic-phrase detection, and API endpoint integration.
+**Result: 130 passed.** Coverage includes the risk engine (escalation, false-positive guards, missing-telemetry safety including explicitly-null telemetry treated as missing), model-artifact loading failure behavior (unavailable/degraded states), phase-2 scenario cases, alert abuse protection (cooldown / rate-limit / duplicate suppression), silent-intervention gating (never triggered below HIGH risk, no fake delivery), panic-phrase detection, and API endpoint integration.
 
 ---
 
