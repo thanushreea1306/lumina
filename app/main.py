@@ -192,11 +192,11 @@ Digital arrest scam pattern detected!
 
 Actions: Call them on another line. Visit if possible. Dial 1930 if confirmed."""
         elif risk_level == "high":
-            alert = "⚠️ LUMINA: High risk call detected. Monitor closely."
+            alert = "LUMINA: High risk call detected. Monitor closely."
         elif risk_level == "medium":
-            alert = "⚠️ LUMINA: Moderate risk indicators detected."
+            alert = "LUMINA: Moderate risk indicators detected."
         else:
-            alert = "✅ LUMINA: No significant risk detected."
+            alert = "LUMINA: No significant risk detected."
 
         return RiskResponse(
             risk_score=risk_result["risk_score"],
