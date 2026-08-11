@@ -4,5 +4,8 @@ data/datasets/*.csv
 venv/ 
 __pycache__/ 
 *.pkl 
+!models/saved/risk_classifier.pkl
+!models/saved/scaler.pkl
+!models/saved/features.pkl
 reports/*.pdf
 data/incidents.db 
