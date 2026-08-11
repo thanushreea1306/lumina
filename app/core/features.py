@@ -6,6 +6,28 @@ import numpy as np
 from typing import Any, Dict, Mapping
 
 
+# Telemetry-only fields captured by the device/Android layer. None of these
+# belong to the deployed 11-feature call-behavior model schema.
+TELEMETRY_FIELDS = (
+    "screen_time_on_call_percent",
+    "num_app_switches",
+    "num_home_presses",
+    "has_sms_activity",
+    "has_social_app_activity",
+    "location_change",
+    "screen_brightness",
+    "screen_on_continuous_hours",
+    "persistence_hours",
+)
+
+TELEMETRY_MISSING_FLAGS = tuple(f"is_missing_{name}" for name in TELEMETRY_FIELDS)
+
+# Every feature that must be excluded from ML inference. Missing telemetry is
+# represented by the is_missing_* flags (consumed by the safety-rule layer),
+# never by an observed 0.0/False fed into the model.
+MODEL_EXCLUDED_FEATURES = frozenset(TELEMETRY_FIELDS + TELEMETRY_MISSING_FLAGS)
+
+
 def canonical_feature_names() -> list[str]:
     """Return the canonical feature ordering used by the risk engine."""
     return [

@@ -6,10 +6,20 @@ from typing import Dict, List, Optional
 import joblib
 import pandas as pd
 
-from app.core.features import extract_features
+from app.core.features import MODEL_EXCLUDED_FEATURES, extract_features
 from app.core.db import log_incident
 
 logger = logging.getLogger(__name__)
+
+
+def _telemetry_in_schema(feature_names) -> list:
+    """Return telemetry-only names present in a candidate ML feature schema.
+
+    The deployed model is an 11-feature call-behavior schema; telemetry-only
+    fields (and their is_missing_* flags) must never appear in it, otherwise
+    missing telemetry would be silently coerced into observed 0.0 inputs.
+    """
+    return [name for name in (feature_names or []) if name in MODEL_EXCLUDED_FEATURES]
 
 
 class RiskEngine:
@@ -82,6 +92,15 @@ class RiskEngine:
             )
             return
 
+        telemetry_in_schema = _telemetry_in_schema(self.model_features)
+        if telemetry_in_schema:
+            self._set_status(
+                self.STATUS_DEGRADED,
+                f"Schema includes telemetry-only fields ({', '.join(telemetry_in_schema)}) that "
+                f"cannot be inferred safely from missing telemetry; ML is not served.",
+            )
+            return
+
         self._set_status(self.STATUS_AVAILABLE, None)
 
     def _set_status(self, status: str, error_detail: Optional[str]) -> None:
@@ -92,16 +111,32 @@ class RiskEngine:
         elif status == self.STATUS_DEGRADED:
             logger.error("ML degraded: %s", error_detail)
 
+    def _model_input_row(self, features: dict) -> pd.DataFrame:
+        """Build the ML input from ONLY the deployed model feature schema.
+
+        ML inference is restricted to the model's trained features
+        (features.pkl, the 11-feature call-behavior schema). Telemetry-only
+        fields and their is_missing_* flags are excluded by construction, so
+        an absent/null telemetry value is never coerced into a 0.0 model
+        input: missing telemetry cannot artificially raise (or lower) the ML
+        probability. Missing telemetry is represented solely by the
+        is_missing_* flags, which only the safety-rule layer consumes.
+        """
+        names = self.model_features
+        values = [features.get(name, 0.0) for name in names]
+        return pd.DataFrame([values], columns=names)
+
     def _ml_probability(self, features: dict) -> Optional[float]:
         """ML risk probability using the exact feature order from features.pkl.
 
-        Returns None when ML is unavailable/degraded. Never fabricates 0.5.
+        Input is limited to the deployed model schema via _model_input_row;
+        telemetry-only fields are excluded from inference. Returns None when
+        ML is unavailable/degraded. Never fabricates 0.5.
         """
         if self.model_status != self.STATUS_AVAILABLE:
             return None
         try:
-            names = self.model_features
-            row = pd.DataFrame([[features.get(name, 0.0) for name in names]], columns=names)
+            row = self._model_input_row(features)
             probability = self.model.predict_proba(self.scaler.transform(row))[0][1]
             self.error_detail = None
             return float(probability)
