@@ -156,3 +156,116 @@ def test_endpoints_use_same_risk_engine(client):
         elif path == "/api/send-alert":
             response = client.post(path, json={"call_duration_min": 10, "is_unknown_number": 0, "is_video_call": 0, "hour_of_day": 12, "caller_call_history": 5, "outgoing_activity_ratio": 0.6, "day_of_week": 2}, params={"elder_name": "Ada"})
         assert response.status_code in {200, 503}
+
+
+def _basic_call_payload():
+    return {
+        "call_duration_min": 10,
+        "is_unknown_number": 0,
+        "is_video_call": 0,
+        "hour_of_day": 14,
+        "caller_call_history": 10,
+        "outgoing_activity_ratio": 0.5,
+        "day_of_week": 2,
+    }
+
+
+def test_missing_telemetry_does_not_fire_telemetry_rules():
+    engine = RiskEngine()
+    result = engine.score(_basic_call_payload())
+    reasons = [item["reason"] for item in result["safety_rule_contributions"] if item.get("active")]
+    for reason in reasons:
+        assert "No SMS" not in reason
+        assert "app switching" not in reason
+        assert "home-screen" not in reason
+        assert "social-app" not in reason
+        assert "physical movement" not in reason
+        assert "brightness" not in reason
+        assert "persisting" not in reason
+    assert result["rule_contribution"] == 0.0
+    assert set(result["missing_telemetry"]) == {
+        "screen_time_on_call_percent",
+        "num_app_switches",
+        "num_home_presses",
+        "has_sms_activity",
+        "has_social_app_activity",
+        "location_change",
+        "screen_brightness",
+        "screen_on_continuous_hours",
+        "persistence_hours",
+    }
+    assert "not treated as behavioral signals" in result["explanation"]
+
+
+def test_explicit_zero_telemetry_still_fires_rules():
+    engine = RiskEngine()
+    result = engine.score({
+        **_basic_call_payload(),
+        "num_app_switches": 0,
+        "num_home_presses": 0,
+        "has_sms_activity": 0,
+        "has_social_app_activity": 0,
+        "location_change": 0,
+    })
+    reasons = [item["reason"] for item in result["safety_rule_contributions"] if item.get("active")]
+    assert any("app switching" in r for r in reasons)
+    assert any("home-screen" in r for r in reasons)
+    assert any("No SMS" in r for r in reasons)
+    assert any("social-app" in r for r in reasons)
+    assert any("physical movement" in r for r in reasons)
+    assert set(result["missing_telemetry"]) == {
+        "screen_time_on_call_percent",
+        "screen_brightness",
+        "screen_on_continuous_hours",
+        "persistence_hours",
+    }
+    assert result["rule_contribution"] == pytest.approx(33.0)
+
+
+def test_partial_telemetry_only_supplied_fields_contribute():
+    engine = RiskEngine()
+    result = engine.score({
+        **_basic_call_payload(),
+        "num_app_switches": 0,
+        "has_sms_activity": 0,
+    })
+    reasons = [item["reason"] for item in result["safety_rule_contributions"] if item.get("active")]
+    assert any("app switching" in r for r in reasons)
+    assert any("No SMS" in r for r in reasons)
+    assert not any("home-screen" in r for r in reasons)
+    assert not any("social-app" in r for r in reasons)
+    assert not any("physical movement" in r for r in reasons)
+    assert set(result["missing_telemetry"]) == {
+        "screen_time_on_call_percent",
+        "num_home_presses",
+        "has_social_app_activity",
+        "location_change",
+        "screen_brightness",
+        "screen_on_continuous_hours",
+        "persistence_hours",
+    }
+    assert result["rule_contribution"] == pytest.approx(15.0)
+
+
+def test_extract_features_marks_missing_telemetry():
+    features = extract_features(_basic_call_payload())
+    for field in [
+        "screen_time_on_call_percent",
+        "num_app_switches",
+        "num_home_presses",
+        "has_sms_activity",
+        "has_social_app_activity",
+        "location_change",
+        "screen_brightness",
+        "screen_on_continuous_hours",
+        "persistence_hours",
+    ]:
+        assert features[f"is_missing_{field}"] == 1
+    assert features["num_app_switches"] == 0
+    assert features["has_sms_activity"] == 0
+
+    supplied = extract_features({**_basic_call_payload(), "num_app_switches": 0, "has_sms_activity": 0})
+    assert supplied["is_missing_num_app_switches"] == 0
+    assert supplied["is_missing_has_sms_activity"] == 0
+    assert supplied["num_app_switches"] == 0
+    assert supplied["has_sms_activity"] == 0

@@ -42,9 +42,9 @@ This shift — from *detecting the scam* to *detecting the victim's powerlessnes
 
 ## Real-World Impact
 
-- **₹3,000+ crore** lost to digital arrest scams annually in India
-- **1.2+ lakh** cases reported — and an estimated **95% never reported** because victims only realize the scam *after* the money is gone
-- Victims typically isolated **6–24 hours** — a wide window in which every other safety system is silent
+- **₹3,000+ crore** reportedly lost to digital-arrest scams annually in India and **1.2+ lakh** cases reported (press-reported figures, not independently verified)
+- An estimated **95% of victims never report** — largely because they only realize the scam *after* the money is gone (public estimate, not independently verified)
+- Victims are commonly described as isolated **6–24 hours** — a wide window in which every other safety system is silent
 - Digital arrest has **no legal standing in India** — no agency arrests over video call or demands money by phone. This is a pure psychological attack, and psychological attacks need a behavioral (not forensic) defense.
 
 **The impact thesis:** every hour of isolation is an hour the scammer uses to erode the victim's judgment. If LUMINA shortens that window from *hours* to *minutes* — by putting a family member on an alternative number before the transfer — it converts unreportable losses into preventable ones. One prevented transfer at ₹10–50 lakh pays for the entire system.
@@ -63,7 +63,7 @@ Feature Extraction ──────────────── 29-feature c
         │
         ▼
    ┌────┴────────────┐
-   │  XGBoost model   │  ← ML probability (11 call-behavior features)
+   │  XGBoost model   │  ← ML probability (11 call-behavior features, synthetic-demo)
    │  (probability)   │
    └────┬────────────┘
         │  +  0.5
@@ -93,13 +93,21 @@ Feature Extraction ──────────────── 29-feature c
 | **Text scam scanner** ⚠️ | **Rule-based** phrase engine (authority impersonation, arrest threats, urgency, financial demand, secrecy). Not ML. A transformer is future work. |
 | **IsolationDetector service** ⚠️ | Heuristic weighted score, used by the telemetry simulator demo |
 
-The model was deliberately kept small and interpretable: **11 features, 15,000 synthetic samples**. Feature importance shows the isolation thesis directly — `outgoing_activity_ratio` (60%) dominates, i.e., *a person who has stopped reaching out* is the single strongest signal.
+The model was deliberately kept small and interpretable: **11 features, 15,000 synthetic samples**. Feature importance on synthetic data shows the isolation thesis directly — `outgoing_activity_ratio` (60%) dominates, i.e., *a person who has stopped reaching out* is the single strongest signal.
 
-> **Synthetic benchmark (honest):** accuracy 99.88% / F1 99.60% / ROC-AUC 1.00 — measured on data from the *same generator used at training time*. These are **not** real-world validation numbers; see Limitations.
+> **Synthetic benchmark (honest):** the deployed classifier is an **XGBoost** model trained on **15,000 synthetic call snapshots**; accuracy 99.88% / F1 99.60% / ROC-AUC 1.00 were measured on data from the *same synthetic generator used at training time*. This is **not** real-world validation — real-world detection performance has **not been measured**; see Limitations.
+
+### What this model is / is not
+
+**It is:** an XGBoost binary risk classifier; an 11-feature call-behavior schema; trained on synthetic call snapshots (15,000 generated calls); a prototype/demo of the behavioral-isolation detection concept.
+
+**It is not:** a validated real-world detector (the benchmark measures internal consistency with its synthetic generator); trained or validated on real-world call telemetry; a substitute for the explicit safety-rule layer, which is a **separate safety mechanism**.
+
+The deployed score currently fuses ML and rules at **50/50**.
 
 ### Verified behavior (tests + live runs)
 
-- **21/21 automated tests pass** (`pytest tests/ -v`): risk escalation, false-positive guards (unknown caller alone ≠ critical), missing-telemetry safety, alert abuse protection (cooldown, rate limiting, duplicate suppression), phase-2 scenario cases, API integration.
+- **32/32 automated tests pass** (`pytest tests/ -v`): risk escalation, false-positive guards (unknown caller alone ≠ critical), missing-telemetry safety, model-artifact loading failure behavior (unavailable/degraded states), alert abuse protection (cooldown, rate limiting, duplicate suppression), phase-2 scenario cases, API integration.
 - **Live scenario runs through the real API:**
   - Digital arrest: **6.4 → 16.1 → 78 → 100** as signals accumulate (unknown → video → authority claim → full isolation)
   - Normal call: **0 → 0 → 5 → 0 → 0** (stays low despite a brief video segment)
@@ -140,7 +148,7 @@ The UX philosophy mirrors the safety philosophy: **the person in danger does not
 
 This is a research prototype, and we say so plainly:
 
-1. **Synthetic model.** Trained on 15,000 generated calls. Real-world detection performance is unmeasured and requires ethically collected datasets. The benchmark numbers are synthetic-only.
+1. **Synthetic model.** Trained on 15,000 generated calls. Real-world detection performance is unmeasured and requires ethically collected datasets. The benchmark numbers are synthetic-only. The real datasets under `data/datasets/` (Hinglish scam texts, FraudZen CDRs) are **not** used by the deployed model — they were explored only in archived experiments.
 2. **Simulated alerts.** SMS is simulated by default; real delivery needs Twilio credentials.
 3. **No live integration.** No telecom call-metadata API, no real Android on-device capture (the Kotlin app is a skeleton).
 4. **Rule-based text scanner.** No NLP model yet.

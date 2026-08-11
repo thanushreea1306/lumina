@@ -116,6 +116,10 @@ class RiskEngine:
     def _safety_rules(self, telemetry: dict, features: dict) -> tuple:
         """Evaluate explicit, non-ML safety signals into explainable contributions.
 
+        Telemetry-dependent rules are gated by their is_missing_* flags: an absent
+        telemetry field is never interpreted as a real zero/false behavioral signal,
+        so no behavioral claim is fabricated from missing data.
+
         Returns (contributions, total_weight) where total_weight is capped at 1.0.
         """
         contributions: List[Dict] = []
@@ -136,6 +140,19 @@ class RiskEngine:
         screen_brightness = float(features.get("screen_brightness", 0.0))
         persistence_hours = float(features.get("persistence_hours", 0.0))
 
+        missing_telemetry = {
+            "screen_time_on_call_percent": bool(features.get("is_missing_screen_time_on_call_percent", 0)),
+            "num_app_switches": bool(features.get("is_missing_num_app_switches", 0)),
+            "num_home_presses": bool(features.get("is_missing_num_home_presses", 0)),
+            "has_sms_activity": bool(features.get("is_missing_has_sms_activity", 0)),
+            "has_social_app_activity": bool(features.get("is_missing_has_social_app_activity", 0)),
+            "location_change": bool(features.get("is_missing_location_change", 0)),
+            "screen_brightness": bool(features.get("is_missing_screen_brightness", 0)),
+            "screen_on_continuous_hours": bool(features.get("is_missing_screen_on_continuous_hours", 0)),
+            "persistence_hours": bool(features.get("is_missing_persistence_hours", 0)),
+        }
+        missing_signal_names = [name for name, is_missing in missing_telemetry.items() if is_missing]
+
         if call_duration >= 120:
             add(0.30, f"Very long call ({call_duration:.0f} min) is a sustained isolation signal.")
         elif call_duration >= 60:
@@ -146,23 +163,23 @@ class RiskEngine:
             add(0.10, "Video call is often used to intimidate and monitor the victim.")
         if outgoing_activity < 0.2:
             add(0.20, "Very low outgoing activity suggests the victim is isolated from normal contacts.")
-        if screen_time >= 80:
+        if not missing_telemetry["screen_time_on_call_percent"] and screen_time >= 80:
             add(0.15, f"Screen locked to the call ({screen_time:.0f}%) — user is not leaving the interaction.")
-        elif screen_time >= 50:
+        elif not missing_telemetry["screen_time_on_call_percent"] and screen_time >= 50:
             add(0.08, "Elevated screen time on the call is a mild isolation signal.")
-        if num_app_switches <= 1:
+        if not missing_telemetry["num_app_switches"] and num_app_switches <= 1:
             add(0.10, "No app switching suggests the user is trapped in the interaction.")
-        if num_home_presses <= 1:
+        if not missing_telemetry["num_home_presses"] and num_home_presses <= 1:
             add(0.08, "No home-screen presses indicate abnormal device behavior.")
-        if not has_sms:
+        if not missing_telemetry["has_sms_activity"] and not has_sms:
             add(0.05, "No SMS activity during the call.")
-        if not has_social:
+        if not missing_telemetry["has_social_app_activity"] and not has_social:
             add(0.05, "No social-app activity — user is not reaching out normally.")
-        if location_change <= 20:
+        if not missing_telemetry["location_change"] and location_change <= 20:
             add(0.05, "No physical movement suggests the user is anchored to the call.")
-        if screen_brightness >= 80:
+        if not missing_telemetry["screen_brightness"] and screen_brightness >= 80:
             add(0.04, "High screen brightness suggests heightened vigilance.")
-        if persistence_hours >= 2.0:
+        if not missing_telemetry["persistence_hours"] and persistence_hours >= 2.0:
             add(0.10, f"Interaction persisting over {persistence_hours:.0f} hours escalates the signal.")
 
         total_weight = min(sum(c["weight"] for c in contributions), 1.0)
@@ -180,6 +197,12 @@ class RiskEngine:
         features = extract_features(telemetry)
         ml_score = self._ml_probability(features)
         contributions, rule_score = self._safety_rules(telemetry, features)
+
+        missing_telemetry = [
+            name.replace("is_missing_", "")
+            for name, value in features.items()
+            if name.startswith("is_missing_") and value
+        ]
 
         model_status = self.model_status
         error_detail = self.error_detail
@@ -215,6 +238,12 @@ class RiskEngine:
                 f"rule contribution {round(rule_score * 100, 1)}%)."
             )
 
+        if missing_telemetry:
+            explanation += (
+                f" Telemetry unavailable for: {', '.join(sorted(missing_telemetry))}. "
+                "Missing fields are not treated as behavioral signals."
+            )
+
         result = {
             "risk_score": round(fused_score, 1),
             "risk_level": risk_level,
@@ -222,6 +251,7 @@ class RiskEngine:
             "rule_contribution": round(rule_score * 100, 1),
             "features": features,
             "safety_rule_contributions": contributions,
+            "missing_telemetry": missing_telemetry,
             "model_status": model_status,
             "error_detail": error_detail,
             "explanation": explanation,
