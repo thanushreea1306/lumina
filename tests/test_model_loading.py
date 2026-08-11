@@ -10,6 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from app.core.features import extract_features
 from app.core.risk_engine import RiskEngine
 
 ARTIFACTS = ROOT / "models" / "saved"
@@ -211,3 +212,50 @@ def test_health_reports_consistent_status(client):
     body = response.json()
     assert body["model_status"] == main.risk_engine.model_status
     assert body["model_loaded"] == (main.risk_engine.model_status == "available")
+
+
+# ---------- ML inference regression: same input -> same probability ----------
+
+REGRESSION_PAYLOAD = {
+    "call_duration_min": 30,
+    "is_unknown_number": 1,
+    "is_video_call": 0,
+    "hour_of_day": 14,
+    "caller_call_history": 2,
+    "outgoing_activity_ratio": 0.4,
+    "has_social_app_activity": True,
+}
+
+# Pinned against the deployed artifact (models/saved/*). Any change to the
+# inference path, feature ordering, or model artifact must keep this value.
+EXPECTED_RAW_ML_PROBABILITY = 0.8865391612052917
+
+
+def test_ml_inference_is_deterministic_and_pinned(make_engine):
+    engine = make_engine()
+    engine.load()
+    assert engine.model_status == "available"
+
+    first = engine._ml_probability(extract_features(dict(REGRESSION_PAYLOAD)))
+    second = engine._ml_probability(extract_features(dict(REGRESSION_PAYLOAD)))
+
+    assert first == pytest.approx(EXPECTED_RAW_ML_PROBABILITY, abs=1e-6)
+    assert second == first
+
+    result = engine.score(dict(REGRESSION_PAYLOAD))
+    assert result["ml_probability"] == pytest.approx(round(EXPECTED_RAW_ML_PROBABILITY * 100, 1), abs=0.05)
+
+
+def test_ml_inference_emits_no_feature_names_warning(make_engine):
+    import warnings
+
+    engine = make_engine()
+    engine.load()
+    assert engine.model_status == "available"
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        result = engine.score(dict(REGRESSION_PAYLOAD))
+
+    assert result["ml_probability"] is not None
+    assert not any("valid feature names" in str(w.message) for w in caught)
