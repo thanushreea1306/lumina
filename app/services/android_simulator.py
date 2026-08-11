@@ -44,11 +44,11 @@ class AndroidDeviceSimulator:
     def run_demo(self):
         """Run a complete demo of the system"""
         print("="*60)
-        print("🏃 LUMINA ISOLATION DETECTION DEMO")
+        print("[RUN] LUMINA ISOLATION DETECTION DEMO")
         print("="*60)
         
         # High-risk scam scenario
-        print("\n📞 SCENARIO 1: Digital Arrest Scam (180 minutes)")
+        print("\n[TEL] SCENARIO 1: Digital Arrest Scam (180 minutes)")
         scam_telemetry = self.generate_scam_scenario(180)
         scam_result = self.detector.detect(scam_telemetry)
         
@@ -57,17 +57,17 @@ class AndroidDeviceSimulator:
         print(f"Risk Factors: {', '.join(scam_result['risk_factors'])}")
         
         if scam_result['alert_triggered']:
-            print("\n🚨 ALERT TRIGGERED! Family will be notified.")
+            print("\n[ALERT] ALERT TRIGGERED! Family will be notified.")
             alert = self.detector.generate_alert_message(
                 victim_name="Family Member",
                 score=scam_result['isolation_score'],
                 factors=scam_result['risk_factors']
             )
-            print(alert)
+            print(alert.replace("\U0001F6A8", "[ALERT]").replace("\U00002705", "[OK]"))
         
         # Normal call scenario
         print("\n" + "-"*60)
-        print("\n📞 SCENARIO 2: Normal Call (5 minutes)")
+        print("\n[TEL] SCENARIO 2: Normal Call (5 minutes)")
         normal_telemetry = self.generate_normal_scenario()
         normal_result = self.detector.detect(normal_telemetry)
         
@@ -75,12 +75,12 @@ class AndroidDeviceSimulator:
         print(f"Risk Level: {normal_result['risk_level']}")
         
         if not normal_result['alert_triggered']:
-            print("✅ No alert triggered (normal behavior)")
+            print("[OK] No alert triggered (normal behavior)")
         
         print("\n" + "="*60)
-        print("✅ Demo Complete!")
+        print("[OK] Demo Complete!")
         print("""
-        💡 LUMINA detects isolation patterns on the device itself.
+        [TIP] LUMINA detects isolation patterns on the device itself.
         No telecom access needed. No external APIs required.
         Runs locally on the victim's phone.
         """)

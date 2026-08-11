@@ -252,10 +252,16 @@ async def create_report(features: CallFeatures):
 
 @app.get("/api/download-report/{filename}")
 async def download_report(filename: str):
-    file_path = f"reports/{filename}"
-    if not os.path.exists(file_path):
+    reports_dir = os.path.abspath("reports")
+    safe_name = os.path.basename(filename)
+    if not safe_name or safe_name in {".", ".."}:
         raise HTTPException(status_code=404, detail="Report not found")
-    return FileResponse(file_path, media_type="application/pdf", filename=filename)
+    file_path = os.path.abspath(os.path.join(reports_dir, safe_name))
+    if not file_path.startswith(reports_dir + os.sep):
+        raise HTTPException(status_code=404, detail="Report not found")
+    if not os.path.isfile(file_path):
+        raise HTTPException(status_code=404, detail="Report not found")
+    return FileResponse(file_path, media_type="application/pdf", filename=safe_name)
 
 @app.post("/api/send-alert")
 async def send_alert(features: CallFeatures, elder_name: str = "Family Member"):

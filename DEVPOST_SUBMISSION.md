@@ -107,7 +107,7 @@ The deployed score currently fuses ML and rules at **50/50**.
 
 ### Verified behavior (tests + live runs)
 
-- **32/32 automated tests pass** (`pytest tests/ -v`): risk escalation, false-positive guards (unknown caller alone ≠ critical), missing-telemetry safety, model-artifact loading failure behavior (unavailable/degraded states), alert abuse protection (cooldown, rate limiting, duplicate suppression), phase-2 scenario cases, API integration.
+- **45/45 automated tests pass** (`pytest tests/ -v`): risk escalation, false-positive guards (unknown caller alone ≠ critical), missing-telemetry safety, model-artifact loading failure behavior (unavailable/degraded states), alert abuse protection (cooldown, rate limiting, duplicate suppression), phase-2 scenario cases, API integration.
 - **Live scenario runs through the real API:**
   - Digital arrest: **6.4 → 16.1 → 78 → 100** as signals accumulate (unknown → video → authority claim → full isolation)
   - Normal call: **0 → 0 → 5 → 0 → 0** (stays low despite a brief video segment)

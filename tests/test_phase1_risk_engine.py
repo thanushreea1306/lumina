@@ -30,19 +30,19 @@ def test_missing_signals_do_not_crash():
 def test_unknown_caller_alone_is_not_critical():
     engine = RiskEngine()
     result = engine.score({"is_unknown_number": 1, "call_duration_min": 10})
-    assert result["risk_level"] != "CRITICAL"
+    assert result["risk_level"] != "critical"
 
 
 def test_long_call_alone_is_not_critical():
     engine = RiskEngine()
     result = engine.score({"call_duration_min": 120, "is_unknown_number": 0, "is_video_call": 0})
-    assert result["risk_level"] != "CRITICAL"
+    assert result["risk_level"] != "critical"
 
 
 def test_video_call_alone_is_not_critical():
     engine = RiskEngine()
     result = engine.score({"is_video_call": 1, "call_duration_min": 10, "is_unknown_number": 0})
-    assert result["risk_level"] != "CRITICAL"
+    assert result["risk_level"] != "critical"
 
 
 def test_multiple_isolation_signals_increase_risk():
@@ -97,7 +97,7 @@ def test_contradictory_signals_do_not_blindly_crash_to_critical():
         "location_change": 500,
         "screen_brightness": 30,
     })
-    assert result["risk_level"] != "CRITICAL"
+    assert result["risk_level"] != "critical"
 
 
 def test_feature_ordering_is_deterministic():

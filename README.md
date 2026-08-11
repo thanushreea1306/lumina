@@ -294,7 +294,7 @@ Interactive docs at `http://localhost:8000/docs`.
 python -m pytest tests/ -v
 ```
 
-**Result: 32 passed.** Coverage includes the risk engine (escalation, false-positive guards, missing-telemetry safety), model-artifact loading failure behavior (unavailable/degraded states), phase-2 scenario cases, alert abuse protection (cooldown / rate-limit / duplicate suppression), panic-phrase detection, and API endpoint integration.
+**Result: 45 passed.** Coverage includes the risk engine (escalation, false-positive guards, missing-telemetry safety), model-artifact loading failure behavior (unavailable/degraded states), phase-2 scenario cases, alert abuse protection (cooldown / rate-limit / duplicate suppression), panic-phrase detection, and API endpoint integration.
 
 ---
 
