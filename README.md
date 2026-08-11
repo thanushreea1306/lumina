@@ -48,7 +48,7 @@ Instead of waiting for victims to report fraud, LUMINA analyzes behavioral indic
 - reduced outgoing activity
 - suspicious communication behavior
 
-When multiple signals indicate high risk, LUMINA silently builds a trusted-contact alert so family can intervene before financial loss occurs. In demo mode the alert is **built but not delivered** — the API explicitly marks it `SIMULATED` / `delivered: false` unless a real delivery channel (Twilio + `LUMINA_TRUSTED_CONTACTS`) is configured. The victim never needs to recognize the scam or press an emergency button.
+When multiple signals indicate high risk, LUMINA silently builds a trusted-contact alert so family can intervene before financial loss occurs. In demo mode the alert is **built but not delivered** — the API explicitly marks it `SIMULATED` / `delivered: false` unless a real delivery channel is configured (`LUMINA_ALERT_MODE=real` + Twilio credentials + `LUMINA_TRUSTED_CONTACTS`). The victim never needs to recognize the scam or press an emergency button.
 
 ---
 
@@ -82,7 +82,7 @@ That shift—from scam detection to victim intervention—is the core innovation
 | 📊 Streamlit Dashboard | Risk header, WHY/WHAT sections, scenario runner, charts, history | ✅ IMPLEMENTED |
 | 🎬 Scenario Simulator | Scripted digital-arrest + normal-call snapshots that drive the real engine | 🟡 SIMULATED (scripted data) |
 | 🤖 Android Device Simulator | Python-generated telemetry for scam/normal device states | 🟡 SIMULATED |
-| 📱 Android App (on-device) | Kotlin skeleton (`CallReceiver`, `LuminaService`) | 📝 FUTURE (skeleton) |
+| 📱 Android App (on-device) | Kotlin skeleton (`MainActivity` demo UI, `CallReceiver`, `LuminaService`); its "Simulate Scam Call" button is a UI simulation and does not prove alert delivery | 📝 FUTURE (skeleton) |
 | 📡 Telecom / call-metadata integration | Live call capture from a phone/network | 📝 FUTURE |
 | 🗣 NLP (BERT/RoBERTa) transcript model | Currently rule-based phrase matching | 📝 FUTURE |
 
@@ -329,7 +329,7 @@ python -m app.services.android_simulator   # 🟡 telemetry demo
 ### Design principles
 
 - Consent-based monitoring
-- Trusted contacts chosen by the user
+- Trusted contacts configured via the `LUMINA_TRUSTED_CONTACTS` environment variable
 - No continuous call recording
 - Minimal metadata collection
 - Explainable AI decisions
@@ -345,7 +345,7 @@ This prototype stores incident metadata in a **plain SQLite database** (`data/in
 
 - Model trained on **synthetic** data — real-world detection performance is unmeasured
 - The real datasets under `data/datasets/` (Hinglish scam texts, FraudZen CDRs) are **not** used by the deployed model — they appear only in archived experiments (`archive/ml_pipeline/`)
-- **Simulated** SMS alerts (Twilio works only if env vars are configured)
+- **Simulated** SMS alerts (real delivery needs `LUMINA_ALERT_MODE=real` + Twilio credentials + `LUMINA_TRUSTED_CONTACTS`)
 - No live telecom / call-metadata integration
 - No real Android on-device capture (skeleton only)
 - Text scanner is **rule-based**, not an NLP model

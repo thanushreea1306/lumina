@@ -80,9 +80,9 @@ class AndroidDeviceSimulator:
         print("\n" + "="*60)
         print("[OK] Demo Complete!")
         print("""
-        [TIP] LUMINA detects isolation patterns on the device itself.
-        No telecom access needed. No external APIs required.
-        Runs locally on the victim's phone.
+        [TIP] LUMINA evaluates simulated phone telemetry through the backend
+        risk engine. Real on-device capture on the victim's phone is future
+        work (the Android app is currently a skeleton).
         """)
 
 if __name__ == "__main__":

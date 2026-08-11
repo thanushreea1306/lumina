@@ -34,7 +34,7 @@ LUMINA answers a completely different question:
 
 This shift — from *detecting the scam* to *detecting the victim's powerlessness* — is the innovation. Three design consequences follow from it:
 
-1. **Zero victim action.** No panic button, no "report this call" screen. The system works on telemetry the phone already has.
+1. **Zero victim action.** No panic button, no "report this call" screen. The system is designed to work on telemetry a phone already has — in this demo the telemetry comes from a Python simulator / API call snapshots, and real on-device capture is skeleton-only FUTURE work.
 2. **Silent intervention.** The alert targets *trusted contacts* (family), not the victim — the scammer is literally on the other end of the victim's phone and must never know an alarm has been raised. In this demo the alert delivery is **simulated**: the endpoint only builds the alert for HIGH/CRITICAL risk and explicitly returns `delivered: false` with a `SIMULATED` status unless a real delivery channel (Twilio + `LUMINA_TRUSTED_CONTACTS`) is configured.
 3. **Explainable, human-centered escalation.** The family gets plain-language reasons ("she's stopped using her phone for 3 hours on an unknown video call"), not a black-box probability.
 
@@ -126,7 +126,7 @@ The deployed score currently fuses ML and rules at **50/50**, gated so ML can on
 
 ### Alert service with abuse protection
 
-Demo mode returns `SIMULATED DELIVERY` (no message is actually sent). Real Twilio SMS activates only when env vars are set. Either way, an `AlertGuard` enforces cooldown, per-victim rate limits, and duplicate-incident suppression — abuse-protection built in from day one.
+Demo mode returns `SIMULATED DELIVERY` (no message is actually sent). Real Twilio SMS activates only when env vars are set. `/api/send-alert` is protected by an `AlertGuard` that enforces cooldown, per-victim rate limits, and duplicate-incident suppression; `/api/silent-intervention` builds the alert without those guardrails.
 
 ---
 
