@@ -1,83 +1,77 @@
-from __future__ import annotations
-
+# app/core/risk_engine.py
 import os
-import pickle
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Dict, List
 
 import joblib
-import numpy as np
-import pandas as pd
 
-from app.core.explainer import Explainer
-from app.core.features import canonical_feature_names, extract_features
+from app.core.features import extract_features
+from app.core.db import log_incident
+
+CALL_MODEL_FEATURES = [
+    "call_duration_min",
+    "is_unknown_number",
+    "is_video_call",
+    "hour_of_day",
+    "caller_call_history",
+    "outgoing_activity_ratio",
+    "is_weekend",
+    "call_duration_log",
+    "is_early_morning",
+    "is_late_night",
+    "activity_category",
+]
 
 
 class RiskEngine:
-    """Canonical risk engine for LUMINA.
-
-    Pipeline:
-    1. Canonical feature extraction
-    2. XGBoost behavioral probability (if model is available)
-    3. Safety-rule evaluation (explicitly non-ML)
-    4. Fused score and thresholding
-    5. Human-readable explanation
-    """
-
-    def __init__(self, model_path: Optional[str] = None, scaler_path: Optional[str] = None, features_path: Optional[str] = None) -> None:
-        self.model_path = model_path or "models/saved/risk_classifier.pkl"
-        self.scaler_path = scaler_path or "models/saved/scaler.pkl"
-        self.features_path = features_path or "models/saved/features.pkl"
+    def __init__(self):
+        self.model_path = "models/saved/risk_classifier.pkl"
+        self.scaler_path = "models/saved/scaler.pkl"
+        self.features_path = "models/saved/features.pkl"
         self.model = None
         self.scaler = None
         self.model_features = None
-        self.explainer = Explainer()
-        self._load_model_artifacts()
+        self.model_loaded = False
 
-    def _load_model_artifacts(self) -> None:
-        if os.path.exists(self.model_path):
+    def load(self):
+        if os.path.exists(self.model_path) and os.path.exists(self.scaler_path):
             self.model = joblib.load(self.model_path)
-        if os.path.exists(self.scaler_path):
             self.scaler = joblib.load(self.scaler_path)
-        if os.path.exists(self.features_path):
-            self.model_features = joblib.load(self.features_path)
-        else:
-            self.model_features = canonical_feature_names()
+            try:
+                self.model_features = joblib.load(self.features_path)
+            except Exception:
+                self.model_features = list(CALL_MODEL_FEATURES)
+            if not self.model_features:
+                self.model_features = list(CALL_MODEL_FEATURES)
+            self.model_loaded = True
 
-    def _prepare_features(self, signals: Dict[str, Any]) -> Tuple[Dict[str, Any], pd.DataFrame]:
-        feature_map = extract_features(signals)
-        feature_names = canonical_feature_names()
-        ordered = {name: feature_map.get(name, 0.0) for name in feature_names}
-        frame = pd.DataFrame([ordered], columns=feature_names)
-        return ordered, frame
-
-    def _predict_behavioral(self, frame: pd.DataFrame) -> Tuple[float, Dict[str, Any]]:
-        if self.model is None or self.scaler is None:
-            return 0.5, {"active": False, "reason": "Model artifact unavailable"}
-
-        expected_features = list(self.model_features or [])
-        if not expected_features:
-            return 0.5, {"active": False, "reason": "Model feature list unavailable"}
-
-        if set(expected_features) != set(canonical_feature_names()):
-            return 0.5, {
-                "active": False,
-                "reason": f"Model schema mismatch: expected {expected_features}, canonical {canonical_feature_names()}",
-            }
-
+    def _ml_probability(self, features: dict) -> float:
+        """XGBoost probability using the trained model's 11 feature schema."""
+        if not self.model_loaded:
+            return 0.5
         try:
-            X_scaled = self.scaler.transform(frame[expected_features])
-            probability = float(self.model.predict_proba(X_scaled)[0][1])
-            return probability, {"active": True, "probability": probability}
-        except Exception as exc:
-            return 0.5, {"active": False, "reason": f"Prediction failed: {exc}"}
+            names = list(self.model_features or CALL_MODEL_FEATURES)
+            import numpy as np
 
-    def _evaluate_safety_rules(self, signals: Dict[str, Any], features: Dict[str, Any]) -> Tuple[float, List[Dict[str, Any]]]:
-        score = 0.0
-        contributions: List[Dict[str, Any]] = []
+            row = np.array([[features.get(name, 0.0) for name in names]])
+            probability = self.model.predict_proba(self.scaler.transform(row))[0][1]
+            return float(probability)
+        except Exception:
+            return 0.5
+
+    def _safety_rules(self, telemetry: dict, features: dict) -> tuple:
+        """Evaluate explicit, non-ML safety signals into explainable contributions.
+
+        Returns (contributions, total_weight) where total_weight is capped at 1.0.
+        """
+        contributions: List[Dict] = []
+
+        def add(weight: float, reason: str) -> None:
+            contributions.append({"active": True, "weight": weight, "reason": reason})
 
         call_duration = float(features.get("call_duration_min", 0.0))
         is_unknown = int(features.get("is_unknown_number", 0)) == 1
         is_video = int(features.get("is_video_call", 0)) == 1
+        outgoing_activity = float(features.get("outgoing_activity_ratio", 0.5))
         screen_time = float(features.get("screen_time_on_call_percent", 0.0))
         num_app_switches = int(features.get("num_app_switches", 0))
         num_home_presses = int(features.get("num_home_presses", 0))
@@ -88,106 +82,90 @@ class RiskEngine:
         persistence_hours = float(features.get("persistence_hours", 0.0))
 
         if call_duration >= 120:
-            score += 18.0
-            contributions.append({"active": True, "reason": "Long call duration is a sustained isolation signal.", "weight": 18.0})
+            add(0.30, f"Very long call ({call_duration:.0f} min) is a sustained isolation signal.")
         elif call_duration >= 60:
-            score += 10.0
-            contributions.append({"active": True, "reason": "Moderate call duration is a weak isolation signal.", "weight": 10.0})
-
+            add(0.15, f"Long call ({call_duration:.0f} min) is a moderate isolation signal.")
         if is_unknown:
-            score += 10.0
-            contributions.append({"active": True, "reason": "Unknown caller increases suspicion.", "weight": 10.0})
-
+            add(0.10, "Unknown caller with no verification history is a common scam tactic.")
         if is_video:
-            score += 8.0
-            contributions.append({"active": True, "reason": "Video call suggests an intimidation-style interaction.", "weight": 8.0})
-
+            add(0.10, "Video call is often used to intimidate and monitor the victim.")
+        if outgoing_activity < 0.2:
+            add(0.20, "Very low outgoing activity suggests the victim is isolated from normal contacts.")
         if screen_time >= 80:
-            score += 12.0
-            contributions.append({"active": True, "reason": "Extended screen time on call indicates the user is focused on the live interaction.", "weight": 12.0})
+            add(0.15, f"Screen locked to the call ({screen_time:.0f}%) — user is not leaving the interaction.")
         elif screen_time >= 50:
-            score += 6.0
-            contributions.append({"active": True, "reason": "Elevated screen time is a mild isolation signal.", "weight": 6.0})
-
+            add(0.08, "Elevated screen time on the call is a mild isolation signal.")
         if num_app_switches <= 1:
-            score += 12.0
-            contributions.append({"active": True, "reason": "Very few app switches suggest the victim is not leaving the interaction.", "weight": 12.0})
-        elif num_app_switches <= 3:
-            score += 5.0
-            contributions.append({"active": True, "reason": "Limited app switching is a moderate isolation signal.", "weight": 5.0})
-
+            add(0.10, "No app switching suggests the user is trapped in the interaction.")
         if num_home_presses <= 1:
-            score += 10.0
-            contributions.append({"active": True, "reason": "Few home presses indicate the device is not being used normally.", "weight": 10.0})
-        elif num_home_presses <= 3:
-            score += 4.0
-            contributions.append({"active": True, "reason": "Low home activity is a mild isolation signal.", "weight": 4.0})
-
+            add(0.08, "No home-screen presses indicate abnormal device behavior.")
         if not has_sms:
-            score += 6.0
-            contributions.append({"active": True, "reason": "No SMS activity suggests the user is not communicating normally.", "weight": 6.0})
-
+            add(0.05, "No SMS activity during the call.")
         if not has_social:
-            score += 6.0
-            contributions.append({"active": True, "reason": "No social-app activity suggests the user is isolating from normal contacts.", "weight": 6.0})
-
+            add(0.05, "No social-app activity — user is not reaching out normally.")
         if location_change <= 20:
-            score += 5.0
-            contributions.append({"active": True, "reason": "Little movement suggests the user is staying fixed to the interaction.", "weight": 5.0})
-
+            add(0.05, "No physical movement suggests the user is anchored to the call.")
         if screen_brightness >= 80:
-            score += 4.0
-            contributions.append({"active": True, "reason": "High brightness suggests heightened vigilance.", "weight": 4.0})
-
+            add(0.04, "High screen brightness suggests heightened vigilance.")
         if persistence_hours >= 2.0:
-            score += 10.0
-            contributions.append({"active": True, "reason": "Persistent interaction over time increases the escalation signal.", "weight": 10.0})
+            add(0.10, f"Interaction persisting over {persistence_hours:.0f} hours escalates the signal.")
 
-        return score, contributions
+        total_weight = min(sum(c["weight"] for c in contributions), 1.0)
+        return contributions, total_weight
 
-    def _fuse_scores(self, ml_probability: float, rule_score: float) -> Tuple[float, str, List[str]]:
-        fused = (ml_probability * 100.0) * 0.6 + rule_score * 0.4
-        if rule_score >= 45.0 and ml_probability >= 0.6:
-            fused = min(100.0, fused + 8.0)
-        elif rule_score >= 25.0 and ml_probability >= 0.4:
-            fused = min(100.0, fused + 4.0)
-        fused = max(0.0, min(100.0, fused))
-        if fused >= 85.0:
-            risk_level = "CRITICAL"
-        elif fused >= 65.0:
-            risk_level = "HIGH"
-        elif fused >= 35.0:
-            risk_level = "MEDIUM"
+    def score(self, telemetry: dict, mode: str = "demo") -> Dict:
+        """Main scoring method: fuse ML probability with explicit safety rules."""
+        if not self.model_loaded:
+            self.load()
+
+        features = extract_features(telemetry)
+        ml_score = self._ml_probability(features)
+        contributions, rule_score = self._safety_rules(telemetry, features)
+
+        fused_score = (0.5 * ml_score + 0.5 * rule_score) * 100
+        fused_score = min(max(fused_score, 0), 100)
+
+        risk_level = self._get_risk_level(fused_score, telemetry)
+
+        if risk_level in ("critical", "high"):
+            alert_status = "triggered"
+        elif risk_level == "medium":
+            alert_status = "monitor"
         else:
-            risk_level = "LOW"
-        return fused, risk_level, [risk_level]
+            alert_status = "none"
 
-    def score(self, signals: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-        payload = dict(signals or {})
-        features, frame = self._prepare_features(payload)
-        ml_probability, ml_contribution = self._predict_behavioral(frame)
-        rule_score, rule_contributions = self._evaluate_safety_rules(payload, features)
-        fused_score, risk_level, _ = self._fuse_scores(ml_probability, rule_score)
-        explanation = self.explainer.explain(
-            risk_score=fused_score,
-            risk_level=risk_level,
-            signals=payload,
-            rule_contributions=rule_contributions,
-            ml_contribution=ml_contribution,
-            evidence=[f"ML probability: {ml_probability:.2f}", f"Safety rule score: {rule_score:.1f}"],
-        )
-        return {
+        result = {
             "risk_score": round(fused_score, 1),
             "risk_level": risk_level,
-            "risk_level_lower": risk_level.lower(),
+            "ml_probability": round(ml_score * 100, 1),
+            "rule_contribution": round(rule_score * 100, 1),
             "features": features,
-            "explanation": explanation,
-            "ml_probability": round(ml_probability, 4),
-            "safety_rule_score": round(rule_score, 1),
-            "ml_contribution": ml_contribution,
-            "safety_rule_contributions": rule_contributions,
-            "model_status": "available" if ml_contribution.get("active") else "unavailable",
+            "safety_rule_contributions": contributions,
+            "model_status": "available" if self.model_loaded else "unavailable",
+            "explanation": (
+                f"Risk level '{risk_level}' with score {round(fused_score, 1)}/100 "
+                f"(ML probability {round(ml_score * 100, 1)}%, "
+                f"rule contribution {round(rule_score * 100, 1)}%)."
+            ),
         }
 
+        log_incident(
+            risk_score=result["risk_score"],
+            risk_level=risk_level,
+            detected_signals=features,
+            explanation=result["explanation"],
+            alert_status=alert_status,
+            mode=mode,
+        )
 
-engine = RiskEngine()
+        return result
+
+    def _get_risk_level(self, score: float, telemetry: dict) -> str:
+        if score >= 75:
+            return "critical"
+        elif score >= 50:
+            return "high"
+        elif score >= 30:
+            return "medium"
+        else:
+            return "low"

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import math
+
+import numpy as np
 from typing import Any, Dict, Mapping
 
 
@@ -163,3 +165,22 @@ def extract_features(signals: Mapping[str, Any] | None = None) -> Dict[str, Any]
         "is_missing_screen_on_continuous_hours": 1 if "screen_on_continuous_hours" not in payload else 0,
         "is_missing_persistence_hours": 1 if "persistence_hours" not in payload else 0,
     }
+
+
+def features_to_array(features: Dict) -> np.ndarray:
+    """Convert features dict to numpy array for model input"""
+    order = [
+        'call_duration_min', 'is_unknown_number', 'is_video_call',
+        'hour_of_day', 'caller_call_history', 'outgoing_activity_ratio',
+        'is_weekend', 'call_duration_log', 'is_early_morning',
+        'is_late_night', 'activity_category',
+        'screen_time_on_call_percent', 'num_app_switches', 'num_home_presses',
+        'has_sms_activity', 'has_social_app_activity', 'location_change',
+        'screen_brightness', 'screen_on_continuous_hours', 'persistence_hours',
+        'is_missing_screen_time_on_call_percent', 'is_missing_num_app_switches',
+        'is_missing_num_home_presses', 'is_missing_has_sms_activity',
+        'is_missing_has_social_app_activity', 'is_missing_location_change',
+        'is_missing_screen_brightness', 'is_missing_screen_on_continuous_hours',
+        'is_missing_persistence_hours'
+    ]
+    return np.array([features.get(f, 0.0) for f in order])

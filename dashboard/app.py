@@ -1,493 +1,506 @@
-# dashboard/app.py
-import streamlit as st
-import requests
-import random
-from datetime import datetime, timedelta
+﻿# dashboard/app.py
+import os
 
-st.set_page_config(
-    page_title="LUMINA - Digital Arrest Protection",
-    page_icon="💡",
-    layout="wide"
+import pandas as pd
+import requests
+import streamlit as st
+
+API_BASE = os.getenv("LUMINA_API_BASE", "http://localhost:8000")
+
+st.set_page_config(page_title="LUMINA - Digital Arrest Protection", page_icon="ðŸ’¡", layout="wide")
+
+LEVEL_COLORS = {
+    "critical": "#d32f2f",
+    "high": "#f57c00",
+    "medium": "#f9a825",
+    "low": "#2e7d32",
+}
+
+CALL_KEYS = [
+    "call_duration_min",
+    "is_unknown_number",
+    "is_video_call",
+    "hour_of_day",
+    "caller_call_history",
+    "outgoing_activity_ratio",
+]
+
+TELEMETRY_KEYS = [
+    "screen_time_on_call_percent",
+    "num_app_switches",
+    "num_home_presses",
+    "has_sms_activity",
+    "has_social_app_activity",
+    "location_change",
+    "screen_brightness",
+    "screen_on_continuous_hours",
+    "persistence_hours",
+]
+
+DIGITAL_ARREST_SCENARIO = [
+    {
+        "t": 2,
+        "label": "Call connects â€” unknown number",
+        "signals": {
+            "call_duration_min": 2, "is_unknown_number": 1, "is_video_call": 0,
+            "hour_of_day": 10, "caller_call_history": 0, "outgoing_activity_ratio": 0.6,
+            "screen_time_on_call_percent": 30, "num_app_switches": 5, "num_home_presses": 4,
+            "has_sms_activity": 1, "has_social_app_activity": 1, "location_change": 120,
+            "screen_brightness": 35, "screen_on_continuous_hours": 0, "persistence_hours": 0,
+        },
+        "note": "Unknown number connects. Victim still uses the phone normally.",
+    },
+    {
+        "t": 20,
+        "label": "Caller switches to video â€” pressure builds",
+        "signals": {
+            "call_duration_min": 25, "is_unknown_number": 1, "is_video_call": 1,
+            "hour_of_day": 10, "caller_call_history": 0, "outgoing_activity_ratio": 0.45,
+            "screen_time_on_call_percent": 55, "num_app_switches": 3, "num_home_presses": 2,
+            "has_sms_activity": 1, "has_social_app_activity": 1, "location_change": 60,
+            "screen_brightness": 50, "screen_on_continuous_hours": 0, "persistence_hours": 0,
+        },
+        "note": "Victim is moved to a video call; screen time rises, app use drops.",
+    },
+    {
+        "t": 50,
+        "label": "Authority claim + secrecy demand",
+        "signals": {
+            "call_duration_min": 55, "is_unknown_number": 1, "is_video_call": 1,
+            "hour_of_day": 10, "caller_call_history": 0, "outgoing_activity_ratio": 0.25,
+            "screen_time_on_call_percent": 70, "num_app_switches": 1, "num_home_presses": 1,
+            "has_sms_activity": 0, "has_social_app_activity": 0, "location_change": 25,
+            "screen_brightness": 70, "screen_on_continuous_hours": 0, "persistence_hours": 0,
+        },
+        "note": "Caller impersonates authority. Victim stops messaging and social apps.",
+    },
+    {
+        "t": 90,
+        "label": "Isolation deepens",
+        "signals": {
+            "call_duration_min": 95, "is_unknown_number": 1, "is_video_call": 1,
+            "hour_of_day": 10, "caller_call_history": 0, "outgoing_activity_ratio": 0.1,
+            "screen_time_on_call_percent": 90, "num_app_switches": 0, "num_home_presses": 0,
+            "has_sms_activity": 0, "has_social_app_activity": 0, "location_change": 10,
+            "screen_brightness": 90, "screen_on_continuous_hours": 2, "persistence_hours": 1,
+        },
+        "note": "No app switching, no movement â€” the victim is anchored to the call.",
+    },
+    {
+        "t": 150,
+        "label": "Escalated threat â€” 'digital arrest'",
+        "signals": {
+            "call_duration_min": 165, "is_unknown_number": 1, "is_video_call": 1,
+            "hour_of_day": 10, "caller_call_history": 0, "outgoing_activity_ratio": 0.03,
+            "screen_time_on_call_percent": 98, "num_app_switches": 0, "num_home_presses": 0,
+            "has_sms_activity": 0, "has_social_app_activity": 0, "location_change": 2,
+            "screen_brightness": 100, "screen_on_continuous_hours": 5, "persistence_hours": 3,
+        },
+        "note": "Every digital-arrest indicator is now active â€” maximum escalation.",
+    },
+]
+
+NORMAL_CALL_SCENARIO = [
+    {
+        "t": 0,
+        "label": "Call connects â€” known family number",
+        "signals": {
+            "call_duration_min": 2, "is_unknown_number": 0, "is_video_call": 0,
+            "hour_of_day": 14, "caller_call_history": 15, "outgoing_activity_ratio": 0.85,
+            "screen_time_on_call_percent": 20, "num_app_switches": 15, "num_home_presses": 12,
+            "has_sms_activity": 1, "has_social_app_activity": 1, "location_change": 400,
+            "screen_brightness": 30, "screen_on_continuous_hours": 0, "persistence_hours": 0,
+        },
+        "note": "Known number, normal screen use, phone used normally.",
+    },
+    {
+        "t": 10,
+        "label": "Catching up with family",
+        "signals": {
+            "call_duration_min": 12, "is_unknown_number": 0, "is_video_call": 0,
+            "hour_of_day": 14, "caller_call_history": 15, "outgoing_activity_ratio": 0.8,
+            "screen_time_on_call_percent": 30, "num_app_switches": 18, "num_home_presses": 14,
+            "has_sms_activity": 1, "has_social_app_activity": 1, "location_change": 300,
+            "screen_brightness": 35, "screen_on_continuous_hours": 0, "persistence_hours": 0,
+        },
+        "note": "Normal app and message activity continues.",
+    },
+    {
+        "t": 20,
+        "label": "Conversation continues (brief video)",
+        "signals": {
+            "call_duration_min": 25, "is_unknown_number": 0, "is_video_call": 1,
+            "hour_of_day": 14, "caller_call_history": 15, "outgoing_activity_ratio": 0.75,
+            "screen_time_on_call_percent": 40, "num_app_switches": 14, "num_home_presses": 10,
+            "has_sms_activity": 1, "has_social_app_activity": 1, "location_change": 250,
+            "screen_brightness": 40, "screen_on_continuous_hours": 0, "persistence_hours": 0,
+        },
+        "note": "Even with video, normal outgoing activity keeps risk low.",
+    },
+    {
+        "t": 35,
+        "label": "Wrapping up the call",
+        "signals": {
+            "call_duration_min": 38, "is_unknown_number": 0, "is_video_call": 0,
+            "hour_of_day": 14, "caller_call_history": 15, "outgoing_activity_ratio": 0.7,
+            "screen_time_on_call_percent": 35, "num_app_switches": 16, "num_home_presses": 11,
+            "has_sms_activity": 1, "has_social_app_activity": 1, "location_change": 220,
+            "screen_brightness": 35, "screen_on_continuous_hours": 0, "persistence_hours": 0,
+        },
+        "note": "Behavior remains normal throughout.",
+    },
+    {
+        "t": 45,
+        "label": "Call ends naturally",
+        "signals": {
+            "call_duration_min": 45, "is_unknown_number": 0, "is_video_call": 0,
+            "hour_of_day": 14, "caller_call_history": 15, "outgoing_activity_ratio": 0.65,
+            "screen_time_on_call_percent": 30, "num_app_switches": 12, "num_home_presses": 9,
+            "has_sms_activity": 1, "has_social_app_activity": 1, "location_change": 200,
+            "screen_brightness": 30, "screen_on_continuous_hours": 0, "persistence_hours": 0,
+        },
+        "note": "No isolation signals â€” low risk maintained.",
+    },
+]
+
+INTERVENTIONS = {
+    "critical": {
+        "title": "ðŸš¨ IMMEDIATE FAMILY INTERVENTION REQUIRED",
+        "steps": [
+            "Call the person on an ALTERNATIVE number right now (the scammer may still be on the active line).",
+            "If possible, visit their location in person.",
+            "Do NOT let them share OTPs, UPI PINs or bank details with anyone on the call.",
+            "If the scam is confirmed, dial 1930 (National Cyber Helpline) and file a report at cybercrime.gov.in.",
+        ],
+    },
+    "high": {
+        "title": "âš ï¸ ALERT TRUSTED CONTACTS AND MONITOR CLOSELY",
+        "steps": [
+            "Alert a trusted family member or friend to monitor the situation.",
+            "Ask the person to verify the caller's identity through an official channel.",
+            "If any money or OTP demand is made, hang up and dial 1930.",
+        ],
+    },
+    "medium": {
+        "title": "ðŸŸ¡ KEEP MONITORING â€” VERIFY CALLER IDENTITY",
+        "steps": [
+            "Continue monitoring the call pattern for escalation.",
+            "Verify the caller's identity independently (do not call back on the same number).",
+            "Remind the person: no government agency arrests over video call or demands money by phone.",
+        ],
+    },
+    "low": {
+        "title": "ðŸŸ¢ NO ACTION NEEDED â€” NORMAL BEHAVIOR",
+        "steps": [
+            "This call shows no significant scam indicators.",
+            "Continue normal monitoring.",
+            "Reminder: digital arrest has no legal standing â€” no agency arrests over video call.",
+        ],
+    },
+}
+
+ALERT_STATUS = {
+    "critical": ("ðŸš¨ ALERT TRIGGERED", "A family alert would be sent to trusted contacts immediately. High-risk digital-arrest pattern confirmed."),
+    "high": ("âš ï¸ ALERT TRIGGERED", "A family alert would be sent to trusted contacts. Closely monitor the call."),
+    "medium": ("ðŸŸ¡ MONITOR", "Risk indicators present but no alert fired â€” keep monitoring."),
+    "low": ("ðŸŸ¢ NO ALERT", "No alert needed. Call behavior looks normal."),
+}
+
+st.markdown(
+    """
+    <style>
+        .main-header {
+            font-size: 2.2rem;
+            font-weight: 800;
+            color: #1a237e;
+            text-align: center;
+            margin-bottom: 0.2rem;
+        }
+        .main-sub {
+            text-align: center;
+            color: #64748b;
+            font-size: 1rem;
+            margin-bottom: 1rem;
+        }
+        .risk-banner {
+            border-radius: 14px;
+            padding: 18px 24px;
+            text-align: center;
+            border: 2px solid;
+        }
+        .risk-banner .risk-label {
+            font-size: 0.85rem;
+            letter-spacing: 2px;
+            font-weight: 700;
+        }
+        .risk-banner .risk-level {
+            font-size: 3.2rem;
+            font-weight: 800;
+            line-height: 1.1;
+        }
+        .risk-banner .risk-score {
+            font-size: 1.6rem;
+            font-weight: 700;
+        }
+        .section-title {
+            font-size: 1.15rem;
+            font-weight: 700;
+            color: #1a237e;
+            margin-top: 0.4rem;
+        }
+        .status-box {
+            border-radius: 10px;
+            padding: 14px 18px;
+            border-left: 6px solid;
+            margin: 6px 0;
+        }
+    </style>
+    """,
+    unsafe_allow_html=True,
 )
 
-# Custom CSS for professional look
-st.markdown("""
-<style>
-    .main-header {
-        font-size: 2.5rem;
-        font-weight: 700;
-        color: #1a237e;
-        text-align: center;
-        padding: 1rem 0;
-    }
-    .risk-card {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        padding: 1.5rem;
-        border-radius: 12px;
-        color: white;
-        text-align: center;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-    }
-    .critical-alert {
-        background-color: #ffebee;
-        border-left: 5px solid #c62828;
-        padding: 1rem;
-        border-radius: 8px;
-        margin: 1rem 0;
-    }
-    .silent-intervention {
-        background-color: #e8f5e9;
-        border-left: 5px solid #2e7d32;
-        padding: 1rem;
-        border-radius: 8px;
-        margin: 1rem 0;
-    }
-</style>
-""", unsafe_allow_html=True)
 
-with st.sidebar:
-    st.title("💡 LUMINA")
-    st.caption("Illuminating the Digital Arrest Trap")
-    st.divider()
-    
-    page = st.radio(
-        "📋 Navigation",
-        ["📞 Call Detection", "📝 Text Signal Scanner (Beta)", "👴 Senior Safety Check", "🆘 NGO Emergency Dispatch", "📢 Community Threat Radar", "🔗 Government Tools"]
-    )
-    
-    st.divider()
-    st.caption("📞 Helpline: **1930**")
-    st.caption("🔒 Privacy: SHA-256 | 24h deletion")
+def _to_body(signals: dict) -> dict:
+    body = {key: signals.get(key, 0) for key in CALL_KEYS}
+    body["day_of_week"] = signals.get("day_of_week", 2)
+    body["extra_telemetry"] = {key: signals.get(key, 0) for key in TELEMETRY_KEYS}
+    return body
 
-# ============ CALL DETECTION ============
-if page == "📞 Call Detection":
-    st.header("📞 Call Detection")
-    st.caption("Analyze call patterns to detect digital arrest scams")
-    
-    col1, col2 = st.columns([1, 2])
-    
-    with col1:
-        st.subheader("Call Parameters")
-        duration = st.slider("Duration (minutes)", 1, 500, 15)
-        unknown = st.checkbox("Unknown Number")
-        video = st.checkbox("Video Call")
-        hour = st.slider("Hour of Day", 0, 23, 11)
-        history = st.number_input("Prior calls", 0, 50, 5)
-        activity = st.slider("Outgoing Activity", 0.0, 1.0, 0.6)
-        
-        if st.button("🔍 Analyze", use_container_width=True):
-            payload = {
-                "call_duration_min": duration,
-                "is_unknown_number": 1 if unknown else 0,
-                "is_video_call": 1 if video else 0,
-                "hour_of_day": hour,
-                "caller_call_history": history,
-                "outgoing_activity_ratio": activity,
-                "day_of_week": 2
+
+def score_snapshot(signals: dict) -> dict:
+    response = requests.post(f"{API_BASE}/api/score", json=_to_body(signals), timeout=30)
+    response.raise_for_status()
+    return response.json()
+
+
+def run_scenario(scenario, name: str) -> list:
+    timeline = []
+    progress = st.progress(0, text=f"Running {name}...")
+    for i, snap in enumerate(scenario):
+        progress.progress((i + 1) / len(scenario), text=f"Scoring: {snap['label']}")
+        result = score_snapshot(snap["signals"])
+        timeline.append(
+            {
+                "t": snap["t"],
+                "label": snap["label"],
+                "note": snap["note"],
+                "signals": snap["signals"],
+                "score": result["risk_score"],
+                "level": result["risk_level"],
+                "factors": result.get("top_factors", []),
+                "alert_message": result.get("alert_message", ""),
+                "explanation": result.get("explanation", ""),
             }
-            st.session_state['current_payload'] = payload
-            
-            try:
-                r = requests.post("http://localhost:8000/api/score", json=payload, timeout=10)
-                if r.status_code == 200:
-                    result = r.json()
-                    st.session_state['result'] = result
-                else:
-                    st.error(f"Error: {r.status_code}")
-            except:
-                st.error("Backend not running. Run: python run.py")
-    
-    with col2:
-        st.subheader("Results")
-        if 'result' in st.session_state:
-            result = st.session_state['result']
-            
-            m1, m2, m3 = st.columns(3)
-            m1.metric("Risk Score", f"{result['risk_score']:.1f}/100")
-            m2.metric("Risk Level", result['risk_level'].upper())
-            m3.metric("Factors", len(result.get('top_factors', [])))
-            
-            if result.get('top_factors'):
-                for f in result['top_factors']:
-                    st.warning(f"⚠️ {f}")
-            
-            if result['risk_level'] in ['critical', 'high']:
-                st.error(result['alert_message'])
-                
-                # SILENT INTERVENTION DISPLAY
-                st.success("🔕 SILENT INTERVENTION ACTIVATED")
-                st.info("""
-                **The victim does not need to press anything.**
-                
-                LUMINA has silently alerted trusted contacts.
-                """)
-                
-                with st.expander("📱 View Alert Sent to Trusted Contact"):
-                    st.code(f"""
-🚨 LUMINA SAFETY ALERT
-
-A high-risk digital-arrest pattern has been detected.
-
-Risk: {result['risk_level'].upper()}
-Risk Score: {result['risk_score']}%
-
-Detected Signals:
-{chr(10).join([f'• {factor}' for factor in result['top_factors']])}
-
-Please verify their safety immediately.
-
-Actions:
-1. Call them on an ALTERNATIVE number
-2. If possible, VISIT their location
-3. If confirmed, dial 1930 (Cyber Helpline)
-""")
-                
-                # Trigger silent intervention button - FIXED
-                if st.button("🔕 Trigger Silent Intervention", use_container_width=True):
-                    try:
-                        # Use payload from session state
-                        current_payload = st.session_state.get('current_payload', {})
-                        if not current_payload:
-                            st.error("Please analyze a call first")
-                        else:
-                            intervention_response = requests.post(
-                                "http://localhost:8000/api/silent-intervention",
-                                json=current_payload,
-                                params={"victim_name": "Family Member"},
-                                timeout=10
-                            )
-                            if intervention_response.status_code == 200:
-                                intervention = intervention_response.json()
-                                st.success("✅ Silent intervention triggered successfully!")
-                                st.info("Trusted contacts have been alerted without victim action.")
-                                st.code(intervention.get("message", "Alert sent"))
-                            else:
-                                st.error(f"Error: {intervention_response.status_code}")
-                    except Exception as e:
-                        st.error(f"Error: {e}")
-            else:
-                st.success(result['alert_message'])
-        else:
-            st.info("Click 'Analyze' to see results")
-
-# ============ TEXT SIGNAL SCANNER ============
-elif page == "📝 Text Signal Scanner (Beta)":
-    st.header("📝 Text Signal Scanner (Beta)")
-    st.caption("Rule-based pattern matching engine — Full NLP transformer model planned for V2")
-    
-    st.info("""
-    **Note:** This is a rule-based heuristic engine (V1 prototype). 
-    It serves as a supplementary signal for suspicious text patterns. 
-    Full transformer-based NLP (BERT/RoBERTa) classification is planned for V2.
-    """)
-    
-    with st.expander("📝 Click to see example transcripts to test"):
-        st.markdown("**Copy and paste these into the box below:**")
-        st.code('"This is CBI calling. You are under investigation for money laundering."')
-        st.code('"Your Aadhaar has been blocked. Share OTP to reactivate immediately."')
-        st.code('"You have a warrant from the Supreme Court. Pay the fine now."')
-        st.code('"Hi mom, I\'m on my way home. Need anything from the store?"')
-    
-    transcript = st.text_area("Enter conversation transcript:", height=150)
-    
-    if st.button("🔍 Scan Text"):
-        if transcript:
-            try:
-                r = requests.post(
-                    "http://localhost:8000/api/detect/panic",
-                    json={"text": transcript, "language": "en"},
-                    timeout=10
-                )
-                if r.status_code == 200:
-                    result = r.json()
-                    if result.get("is_scam", False):
-                        st.warning("⚠️ Potential scam keywords detected")
-                        st.write("Detected phrases:", ", ".join(result.get("risk_factors", [])))
-                        st.caption(f"Confidence: {result.get('confidence', 0):.1f}%")
-                        st.caption(f"Method: {result.get('method', 'rule-based')}")
-                    else:
-                        st.success("✅ No suspicious patterns detected")
-                else:
-                    st.error(f"Error: {r.status_code}")
-            except Exception as e:
-                st.error(f"Error: {e}")
-        else:
-            st.warning("Please enter text to scan")
-
-# ============ SENIOR SAFETY CHECK ============
-elif page == "👴 Senior Safety Check":
-    st.header("👴 Senior Digital Safety Readiness Check")
-    st.caption("Complete this setup with your elderly family member to establish safety baselines.")
-    
-    st.markdown("### 📋 Family Safety Checklist")
-    
-    c1 = st.checkbox("✅ Registered 1930 Cyber Helpline as a speed-dial contact")
-    c2 = st.checkbox("✅ Saved trusted family contacts in LUMINA alert system")
-    c3 = st.checkbox("✅ Reviewed 'No Government Agency Calls via WhatsApp/Skype' rule")
-    c4 = st.checkbox("✅ Discussed what to do if someone says 'digital arrest' on call")
-    c5 = st.checkbox("✅ Set up a family password/code word for emergencies")
-    
-    readiness = sum([c1, c2, c3, c4, c5]) / 5 * 100
-    
-    col1, col2 = st.columns([2, 1])
-    with col1:
-        st.progress(readiness / 100)
-        st.caption(f"✅ {int(readiness)}% Complete")
-    
-    with col2:
-        if readiness == 100:
-            st.success("🟢 High Preparedness")
-        elif readiness >= 60:
-            st.warning("🟡 Medium Preparedness")
-        else:
-            st.error("🔴 Low Preparedness")
-    
-    st.divider()
-    st.markdown("### 🚨 1-Tap Family Protocol")
-    st.caption("Preview the alert message that will be sent to family members when LUMINA detects a threat.")
-    
-    sample_alert = """
-🚨 **LUMINA SILENT ALERT**
-
-**Family Member** has been on a suspicious call for 145 minutes.
-Risk Level: **CRITICAL**
-
-**What to do immediately:**
-1. ✅ Call them on an ALTERNATIVE number
-2. ✅ If possible, VISIT their location
-3. ✅ If confirmed, dial **1930** (Cyber Helpline)
-
-**Support available:**
-- HelpAge India: 1800-180-1253
-- Cyber Crime: cybercrime.gov.in
-- NALSA Legal Aid: 15100
-"""
-    
-    if st.button("📱 Preview Alert Message", use_container_width=True):
-        st.code(sample_alert)
-        st.success("✅ This message will be sent to registered family contacts")
-
-# ============ NGO EMERGENCY DISPATCH ============
-elif page == "🆘 NGO Emergency Dispatch":
-    st.header("🆘 NGO Emergency Dispatch & Counseling Support")
-    st.caption("Connect directly with verified NGO partners specializing in senior protection and cyber victim support.")
-
-    ngo_database = [
-        {
-            "name": "HelpAge India (Elder Helpline)",
-            "helpline": "1800-180-1253",
-            "regions": ["All India", "Bengaluru", "Delhi NCR", "Mumbai", "Odisha", "Chennai", "Hyderabad", "Kolkata"],
-            "services": ["Elderly Support", "Counseling", "Legal Aid", "Fraud Awareness"],
-            "website": "https://www.helpageindia.org/",
-            "desc": "24/7 National elder helpline providing immediate cyber crime counseling, family intervention, and legal assistance."
-        },
-        {
-            "name": "CyberPeace Foundation",
-            "helpline": "+91 9570000066",
-            "regions": ["All India", "Bengaluru", "Delhi NCR", "Mumbai", "Odisha", "Chennai", "Hyderabad", "Kolkata"],
-            "services": ["Fraud Awareness", "Counseling", "Legal Aid", "Incident Reporting"],
-            "website": "https://cyberpeace.org/",
-            "desc": "Technical guidance, cyber victim trauma counseling, and direct reporting aid for digital scams."
-        },
-        {
-            "name": "Silver Age Foundation",
-            "helpline": "+91 9090222666",
-            "regions": ["Odisha", "All India", "Kolkata"],
-            "services": ["Elderly Support", "Fraud Awareness", "Counseling"],
-            "website": "https://silveragefoundation.org/",
-            "desc": "Dedicated senior safety programs, digital literacy, and immediate scam victim support."
-        },
-        {
-            "name": "Dignity Foundation",
-            "helpline": "022-2352-8888",
-            "regions": ["Mumbai", "Maharashtra", "Delhi NCR", "Bengaluru", "Chennai", "All India"],
-            "services": ["Elderly Support", "Legal Aid", "Counseling"],
-            "website": "https://www.dignityfoundation.org/",
-            "desc": "Senior citizen protection, legal advice against financial fraud, and panic counseling."
-        },
-        {
-            "name": "CopConnect Cyber Support Network",
-            "helpline": "1930 / App Dispatch",
-            "regions": ["All India", "Bengaluru", "Delhi NCR", "Mumbai", "Hyderabad", "Chennai"],
-            "services": ["Legal Aid", "Counseling", "Incident Reporting"],
-            "website": "https://copconnect.in/",
-            "desc": "Specialized network connecting cybercrime victims with legal counselors and psychological support."
-        }
-    ]
-
-    col_f1, col_f2 = st.columns(2)
-    with col_f1:
-        selected_regions = st.multiselect(
-            "📍 Filter by Region", 
-            ["All India", "Bengaluru", "Delhi NCR", "Mumbai", "Odisha", "Chennai", "Hyderabad", "Kolkata"], 
-            default=["All India"]
         )
-    with col_f2:
-        selected_services = st.multiselect(
-            "🛠️ Filter by Service", 
-            ["Elderly Support", "Counseling", "Legal Aid", "Fraud Awareness", "Incident Reporting"], 
-            default=["Counseling", "Legal Aid"]
-        )
+    progress.empty()
+    return timeline
 
-    st.divider()
 
-    def is_match(ngo):
-        norm_regions = [r.lower().strip() for r in selected_regions] if selected_regions else []
-        norm_services = [s.lower().strip() for s in selected_services] if selected_services else []
-        
-        region_match = False
-        if not norm_regions or "all india" in norm_regions:
-            region_match = True
-        else:
-            for r in norm_regions:
-                if any(r in reg.lower() for reg in ngo["regions"]):
-                    region_match = True
-                    break
+def reset_state():
+    for key in ["timeline", "scenario_name", "report_bytes", "report_filename", "report_meta"]:
+        st.session_state.pop(key, None)
 
-        service_match = False
-        if not norm_services:
-            service_match = True
-        else:
-            for s in norm_services:
-                if any(s in svc.lower() for svc in ngo["services"]):
-                    service_match = True
-                    break
 
-        return region_match and service_match
+def risk_banner(level: str, score: float) -> str:
+    color = LEVEL_COLORS.get(level, "#64748b")
+    return f"""
+    <div class="risk-banner" style="background:{color}1a; border-color:{color};">
+        <div class="risk-label" style="color:{color};">CURRENT RISK LEVEL</div>
+        <div class="risk-level" style="color:{color};">{level.upper()}</div>
+        <div class="risk-score" style="color:{color};">{score:.0f} / 100</div>
+    </div>
+    """
 
-    filtered_ngos = [ngo for ngo in ngo_database if is_match(ngo)]
 
-    if filtered_ngos:
-        st.subheader(f"✅ Found {len(filtered_ngos)} Verified Support Partners")
-        for ngo in filtered_ngos:
-            with st.container():
-                st.markdown(f"""
-                <div style="background-color:#0F172A; border-left:4px solid #3B82F6; padding:16px; border-radius:8px; margin-bottom:12px; border: 1px solid #1E293B;">
-                    <h3 style="margin:0 0 4px 0; color:#F8FAFC;">{ngo['name']}</h3>
-                    <p style="margin:0; font-size:1.1em; color:#60A5FA;"><b>📞 Helpline:</b> <code style="font-size:1.1em; color:#93C5FD;">{ngo['helpline']}</code></p>
-                    <p style="margin:6px 0; color:#94A3B8; font-size:0.9em;">
-                        <b>📍 Coverage:</b> {', '.join([r for r in ngo['regions'] if r != 'All India'][:4])} | 
-                        <b>🛠️ Services:</b> {', '.join(ngo['services'])}
-                    </p>
-                    <p style="margin:0; font-size:0.9em; color:#CBD5E1;">{ngo['desc']}</p>
-                </div>
-                """, unsafe_allow_html=True)
-                
-                if st.button(f"📩 Send Pre-filled Incident to {ngo['name']}", key=ngo['name']):
-                    incident_report = f"""
-LUMINA Incident Report
+st.markdown('<div class="main-header">ðŸ’¡ LUMINA</div>', unsafe_allow_html=True)
+st.markdown(
+    '<div class="main-sub">Digital Arrest Protection â€” detecting when someone is trapped inside a scam call, before they ask for help.</div>',
+    unsafe_allow_html=True,
+)
 
-Date: {datetime.now().strftime('%Y-%m-%d %H:%M')}
-Call Duration: 145 minutes
-Risk Score: 100/100
-Risk Level: CRITICAL
-Caller Type: Unknown Number
-Video Call: Yes
-Isolation Signal: Low outgoing activity
+# ============ SCENARIO CONTROLS ============
+c1, c2, c3 = st.columns([1, 1, 1])
+with c1:
+    run_scam = st.button("ðŸš¨ RUN DIGITAL ARREST SCENARIO", type="primary", width='stretch')
+with c2:
+    run_normal = st.button("âœ… RUN NORMAL CALL SCENARIO", width='stretch')
+with c3:
+    if st.button("â†© Reset", width='stretch'):
+        reset_state()
+        st.rerun()
 
-Recommended Action: Immediate family intervention + 1930 reporting
-"""
-                    st.success("✅ Incident report drafted and ready to send!")
-                    st.code(incident_report)
-    else:
-        st.warning("Showing core nationwide emergency response helplines:")
-        for ngo in ngo_database[:2]:
-            st.markdown(f"• **{ngo['name']}**: `{ngo['helpline']}`")
-
-# ============ COMMUNITY THREAT RADAR ============
-elif page == "📢 Community Threat Radar":
-    st.header("📢 Community Threat Radar")
-    st.caption("Live pattern intelligence aggregated across isolated video call telemetry.")
-    
-    def generate_digital_arrest_feed():
-        now = datetime.now()
-        return [
-            {
-                "vector": "CBI / Supreme Court Digital Arrest Trap",
-                "location": "Bengaluru, KA",
-                "time": (now - timedelta(minutes=14)).strftime("%H:%M"),
-                "pattern": "+91 140-VOIP Range (Spoofed TRAI ID)",
-                "telemetry": "Active 165-min WhatsApp Video | Camera Forced ON",
-                "severity": "CRITICAL"
-            },
-            {
-                "vector": "Customs Illegal Narcotics Seizure Threat",
-                "location": "Delhi NCR",
-                "time": (now - timedelta(minutes=32)).strftime("%H:%M"),
-                "pattern": "+91 9810-XXXX-114",
-                "telemetry": "Active 210-min Skype Call | Family Isolation Flag",
-                "severity": "CRITICAL"
-            },
-            {
-                "vector": "ED Money Laundering Notice Scam",
-                "location": "Mumbai, MH",
-                "time": (now - timedelta(minutes=58)).strftime("%H:%M"),
-                "pattern": "+91 8010-XXXX-552",
-                "telemetry": "Active 90-min Video Hold | Payment Link Dispatched",
-                "severity": "HIGH"
-            }
-        ]
-    
-    col1, col2 = st.columns([1.3, 1])
-    
-    with col1:
-        st.subheader("🔴 Active Digital Arrest Threat Feed")
-        feed = generate_digital_arrest_feed()
-        
-        for item in feed:
-            st.markdown(f"""
-            <div style="background-color: #0F172A; border: 1px solid #334155; padding: 12px; border-radius: 8px; margin-bottom: 10px;">
-                <span style="background-color: {'#EF4444' if item['severity'] == 'CRITICAL' else '#F59E0B'}; color: white; padding: 2px 8px; border-radius: 4px; font-size: 0.8em; font-weight: bold;">{item['severity']}</span>
-                <span style="color: #94A3B8; font-size: 0.85em; margin-left: 10px;">🕒 {item['time']} | 📍 {item['location']}</span>
-                <h4 style="margin: 6px 0 2px 0; color: #F8FAFC;">{item['vector']}</h4>
-                <p style="margin:0; color: #CBD5E1; font-size: 0.9em;"><b>Caller ID Range:</b> {item['pattern']}</p>
-                <p style="margin:0; color: #F59E0B; font-size: 0.85em;">⚠️ <b>LUMINA Telemetry:</b> {item['telemetry']}</p>
-            </div>
-            """, unsafe_allow_html=True)
-    
-    with col2:
-        st.subheader("🔍 Check Number Against Threat Radar")
-        st.caption("Enter incoming caller ID to check against active threat patterns.")
-        
-        search_num = st.text_input("Enter phone number:", placeholder="+91 140XXXXXXX")
-        
-        if st.button("Check Radar Database", type="primary", use_container_width=True):
-            if search_num:
-                search_lower = search_num.lower().strip()
-                if "140" in search_lower or "9810" in search_lower or "8010" in search_lower:
-                    st.error("⚠️ **HIGH-RISK PATTERN DETECTED:** Number matches active VOIP spoofing ranges used in ongoing Digital Arrest campaigns.")
-                    st.info("💡 **Recommended Action:** Keep caller on speaker and alert family immediately.")
-                else:
-                    st.success("🟢 **NO ACTIVE RADAR MATCH:** Exercise caution. If caller demands money or personal information, hang up and dial 1930.")
-            else:
-                st.warning("Please enter a phone number to check")
-
-# ============ GOVERNMENT TOOLS ============
-else:
-    st.header("🔗 Government Tools")
-    st.caption("Government resources for cyber safety")
-    
+if run_scam:
     try:
-        r = requests.get("http://localhost:8000/api/government-tools", timeout=10)
-        if r.status_code == 200:
-            data = r.json()
-            for key, tool in data["tools"].items():
-                with st.expander(f"🔹 {tool['name']}"):
-                    st.write(tool['description'])
-                    if "features" in tool:
-                        for f in tool['features']:
-                            st.write(f"• {f}")
-                    if "stats" in tool:
-                        st.write("**Statistics:**")
-                        for stat, value in tool["stats"].items():
-                            st.write(f"• {stat}: {value}")
-            
-            st.divider()
-            st.subheader("Emergency Numbers")
-            for name, number in data["emergency_numbers"].items():
-                st.write(f"• **{name}:** {number}")
-    except:
-        st.warning("Backend not running")
+        st.session_state["timeline"] = run_scenario(DIGITAL_ARREST_SCENARIO, "Digital Arrest Scenario")
+        st.session_state["scenario_name"] = "ðŸš¨ Digital Arrest Scenario"
+    except Exception as exc:
+        st.error(f"Backend call failed: {exc}. Start it with `python run.py`.")
+
+if run_normal:
+    try:
+        st.session_state["timeline"] = run_scenario(NORMAL_CALL_SCENARIO, "Normal Call Scenario")
+        st.session_state["scenario_name"] = "âœ… Normal Call Scenario"
+    except Exception as exc:
+        st.error(f"Backend call failed: {exc}. Start it with `python run.py`.")
+
+timeline = st.session_state.get("timeline")
+
+# ============ TOP: CURRENT RISK ============
+if timeline:
+    last = timeline[-1]
+    level = last["level"]
+    score = last["score"]
+
+    st.markdown(risk_banner(level, score), unsafe_allow_html=True)
+    st.caption(f"Latest assessment at {last['t']} min â€” {st.session_state.get('scenario_name', '')}")
+
+    # ============ WHY WAS THIS DETECTED? ============
+    st.markdown('<div class="section-title">ðŸ§  WHY WAS THIS DETECTED?</div>', unsafe_allow_html=True)
+    if level == "low":
+        st.success("No significant risk indicators â€” this matches normal call behavior.")
+        st.caption("For this call, none of the digital-arrest signals (long duration, unknown caller, video intimidation, isolation) crossed the detection threshold.")
+    else:
+        for factor in last["factors"][:6]:
+            st.markdown(f"- âš ï¸ **{factor}**")
+        st.caption(f"{len(last['factors'])} risk signal(s) active at this moment.")
+
+    # ============ WHAT SHOULD HAPPEN? ============
+    st.markdown('<div class="section-title">ðŸ›Ÿ WHAT SHOULD HAPPEN?</div>', unsafe_allow_html=True)
+    rec = INTERVENTIONS[level]
+    st.markdown(f"**{rec['title']}**")
+    for step in rec["steps"]:
+        st.markdown(f"- âœ… {step}")
+
+    # ============ RISK EVOLUTION ============
+    st.markdown('<div class="section-title">ðŸ“ˆ Risk Evolution</div>', unsafe_allow_html=True)
+    evolution = pd.DataFrame(
+        [{"Time (min)": row["t"], "Risk Score": row["score"]} for row in timeline]
+    )
+    st.line_chart(evolution.set_index("Time (min)"), height=300)
+    c_low, c_high = st.columns(2)
+    c_low.metric("Start of call", f"{timeline[0]['score']:.0f} / 100")
+    c_high.metric("End of call", f"{timeline[-1]['score']:.0f} / 100")
+
+    # ============ BEHAVIOR TIMELINE ============
+    st.markdown('<div class="section-title">ðŸ• Behavior Timeline</div>', unsafe_allow_html=True)
+    rows = []
+    for row in timeline:
+        signals = row["signals"]
+        rows.append(
+            {
+                "Time (min)": row["t"],
+                "Event": row["label"],
+                "Duration (min)": signals.get("call_duration_min", 0),
+                "Unknown": "Yes" if signals.get("is_unknown_number") else "No",
+                "Video": "Yes" if signals.get("is_video_call") else "No",
+                "Outgoing Act.": round(signals.get("outgoing_activity_ratio", 0), 2),
+                "Screen %": signals.get("screen_time_on_call_percent", 0),
+                "App Switches": signals.get("num_app_switches", 0),
+                "SMS/Social": (
+                    "Yes" if signals.get("has_sms_activity") or signals.get("has_social_app_activity") else "No"
+                ),
+                "Risk": f"{row['score']:.0f}",
+                "Level": row["level"].upper(),
+            }
+        )
+    st.dataframe(pd.DataFrame(rows), width='stretch', hide_index=True)
+    for row in timeline:
+        st.caption(f"**t={row['t']} min â€” {row['label']}:** {row['note']}")
+
+    # ============ EXPLANATION ============
+    st.markdown('<div class="section-title">ðŸ”¬ Explanation</div>', unsafe_allow_html=True)
+    st.info(last["explanation"])
+    st.markdown(
+        f"Risk moved from **{timeline[0]['score']:.0f}/100** at t={timeline[0]['t']} min "
+        f"to **{timeline[-1]['score']:.0f}/100** at t={timeline[-1]['t']} min across "
+        f"{len(timeline)} scored snapshots."
+    )
+    st.write(last["alert_message"])
+
+    # ============ ALERT STATUS ============
+    st.markdown('<div class="section-title">ðŸ”” Alert Status</div>', unsafe_allow_html=True)
+    status_title, status_desc = ALERT_STATUS[level]
+    if level in ("critical", "high"):
+        st.error(f"{status_title} â€” {status_desc}")
+    elif level == "medium":
+        st.warning(f"{status_title} â€” {status_desc}")
+    else:
+        st.success(f"{status_title} â€” {status_desc}")
+
+    # ============ INCIDENT REPORT (PDF) ============
+    st.markdown('<div class="section-title">ðŸ“„ Incident Report</div>', unsafe_allow_html=True)
+    if st.button("ðŸ“„ Generate Incident Report (PDF)", width='stretch'):
+        try:
+            with st.spinner("Generating PDF report..."):
+                response = requests.post(
+                    f"{API_BASE}/api/generate-report",
+                    json=_to_body(last["signals"]),
+                    timeout=30,
+                )
+                response.raise_for_status()
+                meta = response.json()
+                filename = os.path.basename(meta["pdf_path"])
+                pdf_response = requests.get(f"{API_BASE}/api/download-report/{filename}", timeout=30)
+                pdf_response.raise_for_status()
+                st.session_state["report_bytes"] = pdf_response.content
+                st.session_state["report_filename"] = filename
+                st.session_state["report_meta"] = meta
+        except Exception as exc:
+            st.error(f"Report generation failed: {exc}")
+
+    if st.session_state.get("report_bytes"):
+        meta = st.session_state["report_meta"]
+        st.success(
+            f"Report generated â€” Risk {meta.get('risk_score')}/100 "
+            f"({meta.get('risk_level', '').upper()})"
+        )
+        st.download_button(
+            "â¬‡ï¸ Download Incident Report (PDF)",
+            data=st.session_state["report_bytes"],
+            file_name=st.session_state["report_filename"],
+            mime="application/pdf",
+            width='stretch',
+        )
+else:
+    st.info("ðŸ‘† Run a scenario to analyze an escalating digital-arrest call or a normal call.")
+    st.markdown(
+        """
+        **What the scenarios show:**
+        - **ðŸš¨ Digital Arrest Scenario** â€” signals accumulate over a ~2.5 hour call (unknown caller â†’ video intimidation â†’ authority claims â†’ isolation), and the risk score escalates as each signal stacks up.
+        - **âœ… Normal Call Scenario** â€” a short, known caller with normal device activity stays at low risk throughout.
+        """
+    )
 
 st.divider()
-st.caption("🔒 Privacy-First: SHA-256 | Data deleted after 24h | 📞 Helpline: 1930")
+
+# ============ HISTORICAL INCIDENTS ============
+st.markdown('<div class="section-title">ðŸ—‚ Historical Incidents</div>', unsafe_allow_html=True)
+st.caption("Recent risk assessments recorded in SQLite by the backend.")
+try:
+    incidents_response = requests.get(f"{API_BASE}/api/incidents?limit=50", timeout=10)
+    incidents_response.raise_for_status()
+    incidents = incidents_response.json().get("incidents", [])
+    if incidents:
+        incidents_df = pd.DataFrame(
+            [
+                {
+                    "Time": row.get("timestamp", "")[:19].replace("T", " "),
+                    "Risk Score": row.get("risk_score"),
+                    "Level": str(row.get("risk_level", "")).upper(),
+                    "Alert Status": row.get("alert_status", ""),
+                    "Explanation": row.get("explanation", ""),
+                }
+                for row in incidents
+            ]
+        )
+        st.dataframe(incidents_df, width='stretch', hide_index=True)
+    else:
+        st.info("No incidents recorded yet. Run a scenario to create one.")
+except Exception:
+    st.error("Could not reach the backend. Start it with `python run.py`.")
+
+st.divider()
+st.markdown(
+    "ðŸ“ž **Helpline: 1930** Â· Report at [cybercrime.gov.in](https://cybercrime.gov.in) Â· "
+    "LUMINA is a research prototype â€” demo-mode alerts are simulated, not real SMS."
+)

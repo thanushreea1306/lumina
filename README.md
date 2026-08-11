@@ -1,10 +1,18 @@
 # 💡 LUMINA — AI Bridge Against Digital Arrest Isolation
 
+> **Digital arrest scams trap victims in psychological isolation until fear overrides logic. LUMINA is an AI-powered safety bridge that silently detects these behavioral patterns and alerts trusted contacts—without requiring the victim to recognize the scam or ask for help.**
+
 ---
 
-## 🚨 Tagline
+## 🚦 Status Legend
 
-> **Digital arrest scams trap victims in psychological isolation until fear overrides logic. LUMINA is an AI-powered safety bridge that silently detects these behavioral patterns and alerts trusted contacts—without requiring the victim to recognize the scam or ask for help.**
+Every feature in this README is honestly labelled:
+
+| Label | Meaning |
+|:---:|---|
+| ✅ **IMPLEMENTED** | Working, tested code in this repository today |
+| 🟡 **SIMULATED** | Functional demo / simulation of the real-world mechanism (no live integration) |
+| 📝 **FUTURE** | Planned, designed, or skeleton-only — not working yet |
 
 ---
 
@@ -40,9 +48,7 @@ Instead of waiting for victims to report fraud, LUMINA analyzes behavioral indic
 - reduced outgoing activity
 - suspicious communication behavior
 
-When multiple signals indicate high risk, LUMINA silently notifies trusted family members so they can intervene before financial loss occurs.
-
-The victim never needs to recognize the scam or press an emergency button.
+When multiple signals indicate high risk, LUMINA silently notifies trusted family members so they can intervene before financial loss occurs. The victim never needs to recognize the scam or press an emergency button.
 
 ---
 
@@ -60,9 +66,36 @@ That shift—from scam detection to victim intervention—is the core innovation
 
 ---
 
-## 📱 Isolation Detection (NEW)
+## ✨ What is REAL Today (Feature Status)
 
-LUMINA now detects **behavioral isolation patterns** on the victim's device:
+| Feature | Description | Status |
+|---|---|---|
+| 🧠 Behavioral Risk Engine | Fused XGBoost probability + explicit safety-rule signals | ✅ IMPLEMENTED |
+| 🔍 Explainable Risk | Every high-risk call returns the exact reasons (bullet list) | ✅ IMPLEMENTED |
+| 📞 Call Scoring API | `POST /api/score` risk score + level for any call snapshot | ✅ IMPLEMENTED |
+| 📱 Isolation Detection API | `POST /api/detect-isolation` scores device telemetry | ✅ IMPLEMENTED |
+| 🗂 Incident History | Every scored call logged to SQLite (`/api/incidents`) | ✅ IMPLEMENTED |
+| 📄 Incident Report (PDF) | ReportLab-generated FIR-style PDF (`/api/generate-report`) | ✅ IMPLEMENTED |
+| 🔕 Silent Intervention | Builds a ready-to-send silent alert message | ✅ IMPLEMENTED (message only) |
+| 📱 Trusted Contact Alerts | Demo-mode SMS simulation with cooldown/rate-limit abuse protection | 🟡 SIMULATED (Twilio optional) |
+| 📝 Text Scam Scanner | Rule-based phrase engine (not ML) | ✅ IMPLEMENTED (rule-based) |
+| 📊 Streamlit Dashboard | Risk header, WHY/WHAT sections, scenario runner, charts, history | ✅ IMPLEMENTED |
+| 🎬 Scenario Simulator | Scripted digital-arrest + normal-call snapshots that drive the real engine | 🟡 SIMULATED (scripted data) |
+| 🤖 Android Device Simulator | Python-generated telemetry for scam/normal device states | 🟡 SIMULATED |
+| 📱 Android App (on-device) | Kotlin skeleton (`CallReceiver`, `LuminaService`) | 📝 FUTURE (skeleton) |
+| 📡 Telecom / call-metadata integration | Live call capture from a phone/network | 📝 FUTURE |
+| 🗣 NLP (BERT/RoBERTa) transcript model | Currently rule-based phrase matching | 📝 FUTURE |
+
+### Dashboards & dashboards of record
+
+- The **dashboard** runs real calls against the real risk engine — the scenario buttons POST telemetry to the live backend API and render whatever the engine returns.
+- The **isolation score** shown in the dashboard comes from the canonical risk engine, not a canned number.
+
+---
+
+## 📱 Isolation Detection Signals
+
+LUMINA detects **behavioral isolation patterns** that mark a person trapped inside a call:
 
 | Signal | What It Detects |
 |---|---|
@@ -76,40 +109,43 @@ LUMINA now detects **behavioral isolation patterns** on the victim's device:
 | No social app activity | Silenced victim |
 | Static location | Not moving |
 | High brightness | Hyper-vigilant |
+| Persistence hours | Interaction that will not end |
 
-**Why this matters:** Detects when someone is **trapped** on a call, not just detecting a scam call. Runs locally on the victim's device. No telecom access needed.
+**Why this matters:** detects when someone is **trapped** on a call, not just a suspicious call. 🟡 Device telemetry is currently fed by a **simulator**; real on-device capture is the Android app (📝 FUTURE).
 
 ---
 
 ## ⚙️ System Workflow
 
 ```text
-📞 Incoming Call
+📞 Call / device telemetry snapshot
+        │  (✅ live via API · 🟡 simulator · 📝 real device future)
+        ▼
+🔍 Feature Extraction Engine            ✅ app/core/features.py
         │
         ▼
-📊 Call Metadata Collection
+🧠 XGBoost Behavioral Risk Model        ✅ app/core/risk_engine.py
+        │                                 (ML probability)
+        ▼
+📏 Explicit Safety-Rule Signals        ✅ (duration, unknown, video,
+        │                                 isolation telemetry)
+        ▼
+🎯 Fused Score + Risk Level             ✅ 0–100 → LOW/MEDIUM/HIGH/CRITICAL
         │
         ▼
-🔍 Feature Extraction Engine
+💬 Human-readable reasons              ✅ safety_rule_contributions
         │
         ▼
-🧠 XGBoost Behavioral Risk Model
+🗂 Incident logged to SQLite            ✅ data/incidents.db
         │
-   ┌────┴────┐
-   ▼         ▼
-LOW RISK   HIGH RISK
-   │         │
-   ▼         ▼
-Continue   🔕 Silent Trusted Contact Alert
-Monitoring       │
-                 ▼
-          👨‍👩‍👦 Family Member Intervenes
-                 │
-                 ▼
-          📄 Incident Report Generation
-                 │
-                 ▼
-          📊 Streamlit Dashboard Update
+        ▼
+🔕 Family Alert                          🟡 simulated SMS · 📝 real delivery
+        │
+        ▼
+📄 PDF Incident Report                   ✅ ReportLab
+        │
+        ▼
+📊 Streamlit Dashboard                   ✅ dashboard/app.py
 ```
 
 ---
@@ -117,219 +153,149 @@ Monitoring       │
 ## 🏗 Architecture
 
 ```text
-+---------------------------+
-|  Call Metadata Collector  |
-+------------+--------------+
-             |
-             v
-+---------------------------+
-| Feature Engineering Layer |
-+------------+--------------+
-             |
-             v
-+---------------------------+
-| XGBoost Risk Classifier   |
-+------------+--------------+
-             |
-        +----+----+
-        |         |
-        v         v
- Explainability  Risk Engine
-        |         |
-        +----+----+
-             |
-             v
-      Alert Service Layer
-   (SMS / WhatsApp / Dashboard)
-             |
-             v
-     Family Dashboard
-        & PDF Report
++----------------------------+
+|  Telemetry sources         |   ✅ API · 🟡 simulator · 📝 Android app
++-------------+--------------+
+              |
+              v
++----------------------------+
+|  Feature Extraction Layer  |   ✅ app/core/features.py (canonical 29-feature schema)
++-------------+--------------+
+              |
+              v
++----------------------------+
+|  XGBoost Risk Classifier   |   ✅ 11 call-behavior features
++-------------+--------------+
+              |  probability
+              v
++----------------------------+
+|  Safety-Rule Layer         |   ✅ explicit, explainable, non-ML signals
++-------------+--------------+
+              |
+              v
++----------------------------+
+|  Fused Risk Engine         |   ✅ score = 0.5·ML + 0.5·rules
++-------------+--------------+
+              |
+      +-------+--------+
+      |                |
+      v                v
+ Explainability      Alert Service       ✅ both
+      |                |
+      +-------+--------+
+              |
+              v
+      Incident Store    PDF Report        ✅ SQLite · ReportLab
+              |
+              v
+      Streamlit Dashboard                 ✅ app.py
 ```
 
 ---
 
-## ✨ Features
+## 🤖 Machine Learning — Exactly Where ML Contributes
 
-| Feature | Description | Status |
-|---|---|:---:|
-| 🧠 Behavioral Risk Detection | Machine Learning based scam detection | ✅ |
-| 📞 Call Pattern Analysis | Detects suspicious call behavior | ✅ |
-| 🔕 Silent Intervention | Alerts family without notifying scammer | ✅ |
-| 📱 Trusted Contact Alerts | SMS / WhatsApp notifications | ✅ |
-| 📄 Incident Report Generator | Automatic PDF report | ✅ |
-| 📊 Live Dashboard | Streamlit monitoring interface | ✅ |
-| 🔍 Explainable Predictions | Displays why risk was detected | ✅ |
-| 📈 Historical Incident Tracking | View previous alerts | ✅ |
-| 📱 **Android App** | Device-side isolation detection | ✅ V1 |
-
----
-
-## 🤖 Machine Learning
-
-### Behavioral Risk Model
+**ML is used in exactly one place:** converting the *call-behavior snapshot* into a scam probability.
 
 | Aspect | Details |
 |---|---|
-| Model | XGBoost |
-| Learning Type | Supervised Classification |
-| Training Dataset | Synthetic behavioral prototype |
-| Input Features | 11 |
-| Output | LOW / MEDIUM / HIGH / CRITICAL |
+| Model | XGBoost (`XGBClassifier`) |
+| Learning Type | Supervised binary classification |
+| Feature schema | 11 call-behavior features (duration, unknown caller, video, hour, call history, outgoing activity, weekend, derived log/early/late/activity category) |
+| Output | Scam probability 0–1 |
+| Fusion | `risk_score = 0.5 · ML_probability + 0.5 · safety_rules` |
+| Level mapping | ≥75 CRITICAL · ≥50 HIGH · ≥30 MEDIUM · else LOW |
 
-### Features Used
+### Where ML does NOT contribute (by design)
 
-- Call Duration
-- Unknown Caller
-- Video Call
-- Outgoing Activity Ratio
-- Device Activity
-- Time of Day
-- Weekend Indicator
-- Call Frequency
-- Recent Contact History
-- Activity Category
-- Behavioral Risk Score
+- **Text scam scanner** (`/api/detect/panic`) is a **rule-based phrase engine** — no transformer model. 📝 BERT/RoBERTa is future work.
+- **`IsolationDetector`** service is a **heuristic weighted score** used by the Android simulator demo.
+- The **decision to alert** is a threshold on the fused score, not a black-box classifier output.
 
-### Model Performance
+### Model performance — honest numbers
 
-| Metric | Score |
+The saved model is a **synthetic benchmark** (`models/saved/metrics.json`, generated by `notebooks/audit_model.py`). These numbers only show behavior on data drawn from the *same synthetic generator used at training time*:
+
+| Metric | Synthetic benchmark |
 |---|---:|
-| Accuracy | 94.2% |
-| Precision | 92.8% |
-| Recall | 91.5% |
-| F1 Score | 92.1% |
-| ROC-AUC | 0.94 |
+| Accuracy | 99.88% |
+| Precision | 99.60% |
+| Recall | 99.60% |
+| F1 | 99.60% |
+| ROC-AUC | 1.00 |
 
-### Explainable AI
+⚠️ **These are NOT real-world validation numbers.** The training set is 15,000 generated calls (≈15% scam rate). Real detection performance against live digital-arrest calls is unmeasured and would require ethically collected real-world datasets.
 
-Instead of only predicting risk, LUMINA explains **why** the prediction was made.
+### Feature importance (synthetic)
 
-Example:
+1. `outgoing_activity_ratio` — 60.2%
+2. `activity_category` — 19.6%
+3. `call_duration_log` — 8.4%
+4. `call_duration_min` — 6.3%
+
+The dominant feature being *outgoing activity* is exactly the isolation signal the project is built around.
+
+### Explainable AI ✅
+
+Instead of only predicting risk, LUMINA returns the **exact reasons** for every prediction via `safety_rule_contributions`:
 
 ```text
-Risk Level : CRITICAL
+Risk Level : CRITICAL   Risk Score: 100/100
 
-Reasons:
-✓ Extremely long unknown call
-✓ Very low outgoing activity
-✓ Isolation behavior detected
-✓ Suspicious communication pattern
-✓ High behavioral similarity to known digital arrest scenarios
+WHY WAS THIS DETECTED?
+• Very long call (165 min) is a sustained isolation signal.
+• Unknown caller with no verification history is a common scam tactic.
+• Video call is often used to intimidate and monitor the victim.
+• No SMS activity during the call.
+• No social-app activity — user is not reaching out normally.
 ```
 
 ---
 
-## ⚠️ Prototype Disclaimer
+## 🔌 API Overview (real, working endpoints)
 
-LUMINA is a research prototype.
-
-The current machine learning model has been trained using synthetic behavioral data for demonstration purposes.
-
-It is **not presented as a validated production system or law-enforcement tool** and would require testing with ethically collected real-world datasets before deployment.
-
----
-
-## 🛠 Technology Stack
-
-| Layer | Technology |
+| Endpoint | Purpose |
 |---|---|
-| Machine Learning | XGBoost, Scikit-learn |
-| Backend | FastAPI |
-| Dashboard | Streamlit |
-| Charts | Plotly |
-| Database | SQLite |
-| PDF Reports | ReportLab |
-| Notifications | Twilio (Demo) |
-| **Android** | Kotlin, Android SDK |
-| **Device Simulation** | Python, Random Data Generation |
-| Development | Python 3.10 |
-| Deployment | Docker, GitHub Actions |
+| `GET /health` | Health + model loaded status |
+| `POST /api/score` | Score a call snapshot (call fields + `extra_telemetry`) |
+| `POST /api/detect-isolation` | Score device isolation telemetry |
+| `POST /api/detect/panic` | Rule-based text scam scan |
+| `GET /api/incidents` | Historical incidents from SQLite |
+| `POST /api/generate-report` | Generate PDF incident report |
+| `GET /api/download-report/{filename}` | Download generated PDF |
+| `POST /api/send-alert` | Demo family alert (simulated) |
+| `POST /api/silent-intervention` | Build silent-intervention alert |
+| `GET /api/ngos` · `GET /api/government-tools` · `GET /api/community-alerts` | Support resources |
+
+Interactive docs at `http://localhost:8000/docs`.
 
 ---
 
-## 📁 Repository Structure
+## 🧪 Testing ✅
 
-```text
-lumina/
-├── app/
-│   ├── api/
-│   ├── core/
-│   ├── models/
-│   ├── services/
-│   │   ├── isolation_detector.py
-│   │   └── android_simulator.py
-│   └── utils/
-├── android_app/
-│   ├── app/
-│   │   └── src/main/
-│   │       ├── java/com/lumina/app/
-│   │       └── res/
-│   └── build.gradle
-├── dashboard/
-├── notebooks/
-├── tests/
-├── reports/
-├── data/
-├── run.py
-├── requirements.txt
-└── README.md
+```bash
+python -m pytest tests/ -v
 ```
+
+**Result: 21 passed.** Coverage includes the risk engine (escalation, false-positive guards, missing-telemetry safety), phase-2 scenario cases, alert abuse protection (cooldown / rate-limit / duplicate suppression), panic-phrase detection, and API endpoint integration.
 
 ---
 
 ## 🚀 Quick Start
 
-### Clone Repository
-
 ```bash
 git clone https://github.com/thanushreea1306/lumina.git
 cd lumina
-```
-
-### Create Virtual Environment
-
-```bash
 python -m venv venv
-```
-
-### Windows
-
-```bash
-venv\Scripts\activate
-```
-
-### Linux / macOS
-
-```bash
-source venv/bin/activate
-```
-
-### Install Requirements
-
-```bash
+venv\Scripts\activate            # Windows
 pip install -r requirements.txt
 ```
 
-### Run Backend
-
 ```bash
-python run.py
+python run.py                    # backend on :8000
+streamlit run dashboard/app.py   # dashboard on :8501
+python -m app.services.android_simulator   # 🟡 telemetry demo
 ```
-
-### Launch Dashboard
-
-```bash
-streamlit run dashboard/app.py
-```
-
-### Run Isolation Simulator
-
-```bash
-python -m app.services.android_simulator
-```
-
-### Access the Application
 
 | Interface | URL |
 |---|---|
@@ -339,96 +305,9 @@ python -m app.services.android_simulator
 
 ---
 
-## 📸 Application Preview
-
-> **Add your screenshots here**
-
-- Home Dashboard
-- Risk Analysis Screen
-- Silent Alert Screen
-- Incident Timeline
-- PDF Report
-- Explainability Panel
-
----
-
-## 🎥 Demo
-
-> **Add your YouTube or Loom video here**
-
----
-
-## 📊 Project Impact
-
-### Why LUMINA Matters
-
-Digital arrest scams exploit psychology rather than technology.
-
-Victims often:
-
-- Stay isolated for hours
-- Believe they are speaking to real law enforcement
-- Stop contacting friends and family
-- Transfer life savings under fear
-- Report the crime only after financial loss
-
-LUMINA shifts the focus from **detecting scams** to **protecting people during the scam**.
-
-Instead of asking the victim to act, LUMINA quietly empowers trusted contacts to intervene.
-
----
-
-## 🎯 Target Users
-
-- 👨‍👩‍👧 Families protecting elderly members
-- 👩‍💼 Professionals targeted by impersonation scams
-- 👵 Senior citizens
-- 🏦 Banks and financial awareness programs
-- 🛡 Cyber safety initiatives
-- 🏛 Government awareness campaigns
-- 🎓 Educational institutions
-
----
-
-## 📈 Potential Impact (Projected)
-
-| Metric | Target |
-|---|---|
-| Families Protected | 100,000+ |
-| High-Risk Incidents Flagged | 120,000+ |
-| Financial Loss Potentially Prevented | ₹200+ Crore |
-| Incident Reports Generated | 70,000+ |
-| Awareness Improvement | Significant |
-
-> **These figures represent projected deployment goals and are not validated real-world outcomes.**
-
----
-
-## 🌍 Real-World Applications
-
-### Family Safety
-
-Parents can receive alerts when elderly family members appear trapped in suspicious long-duration scam calls.
-
-### Banking
-
-Banks can integrate behavioral risk scoring before high-value transactions.
-
-### Telecom Providers
-
-Telecom companies could integrate behavioral metadata analysis for early scam detection while preserving user privacy.
-
-### Cybercrime Awareness
-
-Government agencies and NGOs can use LUMINA to educate citizens about digital arrest scams through realistic demonstrations.
-
----
-
 ## 🔒 Privacy & Ethics
 
-LUMINA is designed with privacy in mind.
-
-### Design Principles
+### Design principles
 
 - Consent-based monitoring
 - Trusted contacts chosen by the user
@@ -437,58 +316,41 @@ LUMINA is designed with privacy in mind.
 - Explainable AI decisions
 - Human intervention instead of automated enforcement
 
----
+### Honest note
 
-## 📌 Limitations
-
-Current prototype limitations include:
-
-- Uses synthetic behavioral data
-- Demonstration-only SMS alerts
-- Prototype dashboard
-- No telecom integration
-- No real-time call APIs
+This prototype stores incident metadata in a **plain SQLite database** (`data/incidents.db`). No hashing/encryption of stored records and no automatic retention/deletion window are implemented yet — 📝 both are future work before any real deployment. The dashboard previously claimed "SHA-256" and "24h deletion"; those claims have been removed because they are **not implemented**.
 
 ---
 
-## 🔮 Future Roadmap
+## 📌 Limitations (honest)
 
-### Version 2
+- Model trained on **synthetic** data — real-world detection performance is unmeasured
+- **Simulated** SMS alerts (Twilio works only if env vars are configured)
+- No live telecom / call-metadata integration
+- No real Android on-device capture (skeleton only)
+- Text scanner is **rule-based**, not an NLP model
+- Incident store is plain SQLite without retention guarantees
+- Community "threat radar" feed in the earlier dashboard used hardcoded demo data
 
-- SMS phishing detection
-- WhatsApp link verification
-- APK malware analysis
-- Multilingual scam detection
-- Better behavioral features
+---
 
-### Version 3
+## 🔮 Roadmap (labeled)
 
-- Telecom operator integration
-- Real-time call metadata analysis
-- Federated learning
-- Explainable AI dashboard
+### Version 2 — 📝
+- Real Android on-device sensing (`CallReceiver` + `LuminaService` wiring to the API)
+- Twilio real SMS delivery (+ WhatsApp gateway)
+- NLP transformer (BERT/RoBERTa) transcript classifier
+- Privacy: hashing, retention policy, on-device-only processing
 
-### Version 4
+### Version 3 — 📝
+- Telecom operator call-metadata integration
+- Real-time streaming analysis of an ongoing call
+- Federated learning across consented devices
 
+### Version 4 — 📝
 - National cyber safety platform
-- Anonymous threat intelligence
-- Bank fraud prevention integration
-- Smart wearable alerts
-
----
-
-## 📡 API Overview
-
-| Endpoint | Purpose |
-|---|---|
-| `/predict` | Predict behavioral scam risk |
-| `/alerts` | View generated alerts |
-| `/report` | Generate incident report |
-| `/dashboard` | Dashboard data |
-| `/health` | Health check |
-| `/api/detect-isolation` | Device isolation detection |
-
-> Refer to **Swagger UI** for complete API documentation: `http://localhost:8000/docs`
+- Anonymous threat-intelligence sharing
+- Bank fraud-prevention integration (block high-risk transfers)
 
 ---
 
@@ -498,38 +360,18 @@ Current prototype limitations include:
 |---|---|
 | Problem | Solves an urgent and growing cybercrime |
 | Innovation | Focuses on victim isolation rather than only scam detection |
-| Machine Learning | Behavioral risk classification using XGBoost |
-| Explainability | Plain-language AI explanations |
+| Machine Learning | Behavioral risk classification with XGBoost (exactly one, clearly-scoped role) |
+| Explainability | Plain-language reasons returned for every prediction |
 | Human-Centered | Trusted contacts intervene instead of relying on victims |
-| End-to-End Solution | Detection, alerting, reporting, and dashboard |
-
----
-
-## 🎯 Built For
-
-### ML Empowerment Build Challenge 2.0
-
-LUMINA demonstrates how Machine Learning can move beyond prediction to deliver meaningful social impact.
-
-It combines: Artificial Intelligence, Machine Learning, Explainable AI, Cybersecurity, Human-Centered Design, and Responsible AI to protect people during one of the fastest-growing cybercrime threats.
+| End-to-End | Detection → alert → PDF report → dashboard, all wired to one engine |
 
 ---
 
 ## 👤 Team
 
-### Solo Project
+**Thanushree A** — Solo Builder | AI & ML Developer
 
-**Thanushree A**
-
-**Solo Builder | AI & ML Developer**
-
----
-
-## 📄 License
-
-This project is licensed under the MIT License.
-
-See the `LICENSE` file for details.
+Built for **ML Empowerment Build Challenge 2.0**.
 
 ---
 
@@ -538,6 +380,12 @@ See the `LICENSE` file for details.
 - **National Cyber Crime Helpline:** 1930
 - **National Cyber Crime Reporting Portal:** https://cybercrime.gov.in
 - **Sanchar Saathi:** https://sancharsaathi.gov.in
+
+---
+
+## 📄 License
+
+MIT License — see `LICENSE`.
 
 ---
 

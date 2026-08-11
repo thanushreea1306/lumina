@@ -2,11 +2,10 @@
 import re
 from typing import List, Dict, Optional
 from datetime import datetime
-import requests
 import json
 
 class PanicTrigger:
-    """Detects scams using ML model with proper fallback"""
+    """Detects scams using a pure rule-based phrase engine"""
     
     def __init__(self):
         # Emergency contacts
@@ -25,20 +24,61 @@ class PanicTrigger:
             {"name": "CopConnect", "service": "Free counseling & legal help"}
         ]
         
-        # STRICT scam phrases (only exact matches)
+        # Scam phrase categories with severity weights (rule-based engine)
+        self.risk_indicator_phrases = {
+            "authority impersonation": {
+                "weight": 2,
+                "phrases": [
+                    "cbi", "police", "enforcement directorate", "income tax department",
+                    "supreme court", "high court", "customs", "cyber cell",
+                    "investigating officer", "judge",
+                ],
+            },
+            "arrest threats": {
+                "weight": 3,
+                "phrases": [
+                    "digital arrest", "you are under arrest", "you will be arrested",
+                    "arrest warrant", "court summons", "you have a warrant",
+                    "taken into custody", "money laundering case", "drug trafficking case",
+                ],
+            },
+            "urgency": {
+                "weight": 1,
+                "phrases": [
+                    "immediate action required", "act now or else", "within 24 hours",
+                    "pay within 24 hours", "urgent", "hurry", "immediately",
+                    "will be disconnected tonight", "deadline", "right now",
+                ],
+            },
+            "financial demand": {
+                "weight": 3,
+                "phrases": [
+                    "share the otp", "send me the otp", "share your pin",
+                    "your bank account is frozen", "your account will be frozen",
+                    "your upi is blocked", "kyc update immediately",
+                    "verify your identity now", "your aadhaar has been blocked",
+                    "your pan card has been blocked", "your kisan card is blocked",
+                    "send money urgently", "transfer the money", "pay a fine",
+                    "customs fee required", "claim your prize money", "you won a lottery",
+                    "pay processing fee", "lucky winner",
+                ],
+            },
+            "secrecy": {
+                "weight": 2,
+                "phrases": [
+                    "don't tell anyone", "keep this confidential",
+                    "don't inform your family", "don't share this with anyone",
+                    "stay on the line", "don't disconnect", "keep it a secret",
+                    "don't tell your bank",
+                ],
+            },
+        }
+
+        # All scam phrases (union of categories) kept for compatibility
         self.scam_phrases = [
-            "digital arrest", "you are under arrest", "police investigation",
-            "cbi calling", "enforcement directorate", "income tax department",
-            "money laundering case", "drug trafficking case", "supreme court warrant",
-            "high court summons", "you will be arrested", "share the otp",
-            "send me the otp", "your bank account is frozen", "your account will be frozen",
-            "kyc update immediately", "verify your identity now", "your upi is blocked",
-            "share your pin", "you won a lottery", "you have won", "claim your prize money",
-            "pay processing fee", "lucky winner", "immediate action required",
-            "act now or else", "pay within 24 hours", "send money urgently",
-            "don't tell anyone", "your aadhaar has been blocked", "your pan card has been blocked",
-            "your kisan card is blocked", "your electricity will be disconnected tonight",
-            "your parcel is stuck", "customs fee required", "you have a warrant"
+            phrase
+            for cfg in self.risk_indicator_phrases.values()
+            for phrase in cfg["phrases"]
         ]
         
         # BENIGN phrases (messages containing these are NOT scams)
@@ -52,105 +92,84 @@ class PanicTrigger:
         ]
     
     def detect_panic(self, transcript: str) -> Dict:
-        """Detect scam using ML model first, fallback to strict rules"""
+        """Detect scam using a pure rule-based phrase analysis (NOT ML)."""
+        now = datetime.now().isoformat()
+
         if not transcript:
-            return {"panic_detected": False, "reason": "No transcript provided", "confidence": 0}
-        
-        transcript_lower = transcript.lower()
-        
-        # FIRST: Check if it's a benign message (NOT a scam)
-        for phrase in self.benign_phrases:
-            if phrase in transcript_lower:
-                return {
-                    "panic_detected": False,
-                    "risk_score": 0,
-                    "confidence": 0,
-                    "detected_phrases": [],
-                    "severity": "low",
-                    "timestamp": datetime.now().isoformat(),
-                    "method": "benign"
-                }
-        
-        # SECOND: Try ML model
-        try:
-            response = requests.post(
-                "http://localhost:8000/api/score",
-                json={
-                    "call_duration_min": 30,
-                    "is_unknown_number": 1,
-                    "is_video_call": 0,
-                    "hour_of_day": 10,
-                    "caller_call_history": 0,
-                    "outgoing_activity_ratio": 0.5,
-                    "day_of_week": 2
-                },
-                timeout=3
-            )
-            
-            if response.status_code == 200:
-                result = response.json()
-                risk_score = result.get("risk_score", 0)
-                top_factors = result.get("top_factors", [])
-                
-                if risk_score >= 70:
-                    severity = "critical"
-                elif risk_score >= 40:
-                    severity = "high"
-                elif risk_score >= 20:
-                    severity = "medium"
-                else:
-                    severity = "low"
-                
-                if risk_score > 50:
-                    return {
-                        "panic_detected": True,
-                        "risk_score": risk_score,
-                        "confidence": risk_score,
-                        "detected_phrases": top_factors[:5] if top_factors else [],
-                        "severity": severity,
-                        "timestamp": datetime.now().isoformat(),
-                        "method": "ML"
-                    }
-                else:
-                    return {
-                        "panic_detected": False,
-                        "risk_score": risk_score,
-                        "confidence": risk_score,
-                        "detected_phrases": [],
-                        "severity": "low",
-                        "timestamp": datetime.now().isoformat(),
-                        "method": "ML"
-                    }
-        except Exception as e:
-            print(f"ML detection failed: {e}")
-        
-        # THIRD: Strict fallback (only exact scam phrases)
-        detected = []
-        for phrase in self.scam_phrases:
-            if phrase in transcript_lower:
-                detected.append(phrase)
-        
-        if detected:
-            confidence = min(len(detected) * 20, 100)
             return {
-                "panic_detected": True,
-                "risk_score": confidence,
-                "confidence": confidence,
-                "detected_phrases": detected[:5],
-                "severity": "high" if len(detected) >= 2 else "medium",
-                "timestamp": datetime.now().isoformat(),
-                "method": "fallback"
+                "panic_detected": False,
+                "risk_score": 0,
+                "confidence": 0,
+                "risk_level": "low",
+                "severity": "low",
+                "matched_evidence": [],
+                "risk_indicators": [],
+                "detected_phrases": [],
+                "explanation": "No transcript provided.",
+                "method": "rule-based",
+                "reason": "No transcript provided",
+                "timestamp": now,
             }
-        
-        # FINAL: No scam detected
+
+        text = transcript.lower()
+
+        # Match phrases per risk-indicator category
+        matched_evidence = []
+        matched_indicators = []
+        total_weight = 0
+        for indicator, cfg in self.risk_indicator_phrases.items():
+            hits = [phrase for phrase in cfg["phrases"] if phrase in text]
+            if hits:
+                matched_indicators.append(indicator)
+                total_weight += cfg["weight"]
+                matched_evidence.extend(hits)
+
+        # Deterministic score from indicator weights + evidence count
+        risk_score = min(100, total_weight * 10 + len(matched_evidence) * 5)
+
+        if risk_score >= 70:
+            risk_level = "critical"
+        elif risk_score >= 45:
+            risk_level = "high"
+        elif risk_score >= 25:
+            risk_level = "medium"
+        else:
+            risk_level = "low"
+
+        panic_detected = risk_level in ("medium", "high", "critical")
+
+        # Build a human-readable explanation
+        benign_hits = [phrase for phrase in self.benign_phrases if phrase in text]
+        if matched_indicators:
+            explanation = (
+                f"Detected {len(matched_indicators)} risk indicator(s) "
+                f"({', '.join(matched_indicators)}) from {len(matched_evidence)} "
+                f"matched phrase(s). Risk level: {risk_level}."
+            )
+            if benign_hits:
+                explanation += (
+                    f" Note: benign phrases were also present "
+                    f"({', '.join(benign_hits[:3])})."
+                )
+        else:
+            explanation = (
+                "No scam indicators detected. "
+                "Matched benign phrase(s): "
+                f"{', '.join(benign_hits[:3]) if benign_hits else 'none'}."
+            )
+
         return {
-            "panic_detected": False,
-            "risk_score": 0,
-            "confidence": 0,
-            "detected_phrases": [],
-            "severity": "low",
-            "timestamp": datetime.now().isoformat(),
-            "method": "none"
+            "panic_detected": panic_detected,
+            "risk_score": risk_score,
+            "confidence": risk_score,
+            "risk_level": risk_level,
+            "severity": risk_level,
+            "matched_evidence": matched_evidence,
+            "risk_indicators": matched_indicators,
+            "detected_phrases": matched_evidence[:5],
+            "explanation": explanation,
+            "method": "rule-based",
+            "timestamp": now,
         }
     
     def trigger_silent_intervention(self, victim_name: str, risk_score: float, risk_factors: list) -> Dict:

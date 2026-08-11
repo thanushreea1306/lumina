@@ -19,6 +19,7 @@ from app.services.ngo_support import NGOSupport
 from app.services.community_alerts import CommunityAlerts
 from app.api import detect
 from app.core.risk_engine import RiskEngine
+from app.core.db import get_incidents
 
 app = FastAPI(
     title="LUMINA",
@@ -66,6 +67,7 @@ class CallFeatures(BaseModel):
     caller_call_history: int
     outgoing_activity_ratio: float
     day_of_week: int
+    extra_telemetry: Optional[dict] = None
 
 class RiskResponse(BaseModel):
     risk_score: float
@@ -74,6 +76,7 @@ class RiskResponse(BaseModel):
     features: dict
     alert_message: str
     model_used: str
+    explanation: str = ""
 
 # ============ INITIALIZE SERVICES ============
 ngo_support = NGOSupport()
@@ -84,7 +87,9 @@ risk_engine = RiskEngine()
 app.include_router(detect.router, prefix="/api/detect", tags=["Detection"])
 
 def _coerce_call_payload(features) -> dict:
-    payload = features.dict() if hasattr(features, "dict") else dict(features)
+    payload = features.model_dump() if hasattr(features, "dict") else dict(features)
+    extra = payload.pop("extra_telemetry", None) or {}
+    payload.update(extra)
     payload["call_duration_min"] = payload.get("call_duration_min", payload.get("call_duration_minutes", 0))
     payload["is_unknown_number"] = payload.get("is_unknown_number", 0)
     payload["is_video_call"] = payload.get("is_video_call", 0)
@@ -129,7 +134,13 @@ def _explainable_factors(risk_result: dict) -> list[str]:
         if item.get("active"):
             reasons.append(item.get("reason", "Safety signal"))
     if not reasons:
-        reasons.append(risk_result.get("explanation", {}).get("summary", "No major risk indicators"))
+        explanation = risk_result.get("explanation", "")
+        summary = (
+            explanation.get("summary")
+            if isinstance(explanation, dict)
+            else (explanation or "No major risk indicators")
+        )
+        reasons.append(summary)
     return reasons[:3]
 
 
@@ -191,11 +202,26 @@ Actions: Call them on another line. Visit if possible. Dial 1930 if confirmed.""
             top_factors=factors if factors else ["No significant risk"],
             features=payload,
             alert_message=alert,
-            model_used="XGBoost (Canonical Risk Engine)"
+            model_used="XGBoost (Canonical Risk Engine)",
+            explanation=risk_result.get("explanation", ""),
         )
     except Exception as e:
         print(f"Error in /api/score: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
+# ============ HISTORY / INCIDENTS ============
+@app.get("/api/incidents")
+async def incidents(limit: int = 50):
+    """Return recent incident history from SQLite."""
+    try:
+        records = get_incidents(limit)
+    except Exception as e:
+        print(f"Error in /api/incidents: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+    return {
+        "total": len(records),
+        "incidents": records
+    }
 
 # ============ OTHER ENDPOINTS ============
 @app.post("/api/generate-report")
@@ -232,7 +258,7 @@ async def send_alert(features: CallFeatures, elder_name: str = "Family Member"):
     risk_result = risk_engine.score(payload)
     risk_level = risk_result["risk_level"].lower()
 
-    alert_message = send_family_alert(
+    alert_result = send_family_alert(
         elder_name=elder_name,
         risk_level=risk_level,
         duration=payload.get("call_duration_min", 0),
@@ -241,10 +267,12 @@ async def send_alert(features: CallFeatures, elder_name: str = "Family Member"):
 
     return {
         "status": "success",
-        "alert_sent": True,
+        "alert_sent": alert_result.get("delivery_status") in {"SENT", "SIMULATED DELIVERY"},
+        "delivery_status": alert_result.get("delivery_status"),
         "risk_score": risk_result["risk_score"],
         "risk_level": risk_level,
-        "message": alert_message,
+        "message": alert_result.get("alert"),
+        "reason": alert_result.get("reason"),
         "timestamp": datetime.now().isoformat()
     }
 
@@ -381,7 +409,7 @@ async def detect_isolation(telemetry: dict):
             "risk_level": risk_level,
             "risk_factors": factors,
             "total_factors": len(factors),
-            "alert_triggered": risk_result["risk_level"] in {"HIGH", "CRITICAL"},
+            "alert_triggered": risk_result["risk_level"] in {"high", "critical"},
             "explanation": risk_result.get("explanation", {}),
             "model_status": risk_result.get("model_status", "unavailable"),
         }

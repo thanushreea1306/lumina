@@ -20,7 +20,7 @@ class DetectResponse(BaseModel):
 
 @router.post("/panic", response_model=DetectResponse)
 async def detect_panic(request: DetectRequest):
-    """Detect scam using ML model with fallback"""
+    """Detect scam using the rule-based phrase engine"""
     try:
         panic_trigger = PanicTrigger()
         result = panic_trigger.detect_panic(request.text)
