@@ -2,7 +2,7 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
-from pydantic import BaseModel
+from pydantic import AliasChoices, BaseModel, Field
 from typing import List, Optional
 import pandas as pd
 import numpy as np
@@ -59,6 +59,36 @@ class RiskResponse(BaseModel):
     model_status: str = "unavailable"
     error_detail: Optional[str] = None
     ml_probability: Optional[float] = None
+
+
+class IsolationTelemetryRequest(BaseModel):
+    """Validated body for POST /api/detect-isolation.
+
+    All fields are optional. An explicit null is treated as missing telemetry
+    by the engine (identical to an absent field); an explicit 0 / False stays
+    a real observation. Invalid types are rejected by Pydantic at the API
+    boundary with a normal 422 response.
+    """
+
+    call_duration_minutes: Optional[float] = Field(
+        default=None, alias=AliasChoices("call_duration_minutes", "call_duration_min")
+    )
+    is_unknown_number: Optional[bool] = None
+    is_video_call: Optional[bool] = None
+    hour_of_day: Optional[int] = None
+    caller_call_history: Optional[int] = None
+    outgoing_activity_ratio: Optional[float] = None
+    day_of_week: Optional[int] = None
+    is_weekend: Optional[bool] = None
+    screen_time_on_call_percent: Optional[float] = None
+    num_app_switches: Optional[int] = None
+    num_home_presses: Optional[int] = None
+    has_sms_activity: Optional[bool] = None
+    has_social_app_activity: Optional[bool] = None
+    location_change: Optional[float] = None
+    screen_brightness: Optional[float] = None
+    screen_on_continuous_hours: Optional[float] = None
+    persistence_hours: Optional[float] = None
 
 # ============ INITIALIZE SERVICES ============
 ngo_support = NGOSupport()
@@ -412,10 +442,16 @@ async def silent_intervention(features: CallFeatures, victim_name: str = "Family
 
 # ============ ISOLATION DETECTION ENDPOINT (NEW) ============
 @app.post("/api/detect-isolation")
-async def detect_isolation(telemetry: dict):
-    """Receive device telemetry and return isolation risk score"""
+async def detect_isolation(telemetry: IsolationTelemetryRequest):
+    """Receive device telemetry and return isolation risk score.
+
+    The request body is validated by IsolationTelemetryRequest: malformed
+    payloads and wrong types are rejected with 422 before reaching the
+    engine. Explicit null means missing telemetry; explicit 0 / False are
+    real observations.
+    """
     try:
-        payload = _coerce_isolation_payload(telemetry)
+        payload = _coerce_isolation_payload(telemetry.model_dump())
         risk_result = risk_engine.score(payload)
         risk_level = risk_result["risk_level"].upper()
         factors = [item.get("reason", "Signal") for item in risk_result.get("safety_rule_contributions", []) if item.get("active")][:5]
