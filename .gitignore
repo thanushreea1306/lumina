@@ -4,4 +4,5 @@ data/datasets/*.csv
 venv/ 
 __pycache__/ 
 *.pkl 
-reports/*.pdf 
+reports/*.pdf
+data/incidents.db 
