@@ -1,28 +1,22 @@
 # app/core/risk_engine.py
+import logging
 import os
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 import joblib
+import numpy as np
 
 from app.core.features import extract_features
 from app.core.db import log_incident
 
-CALL_MODEL_FEATURES = [
-    "call_duration_min",
-    "is_unknown_number",
-    "is_video_call",
-    "hour_of_day",
-    "caller_call_history",
-    "outgoing_activity_ratio",
-    "is_weekend",
-    "call_duration_log",
-    "is_early_morning",
-    "is_late_night",
-    "activity_category",
-]
+logger = logging.getLogger(__name__)
 
 
 class RiskEngine:
+    STATUS_AVAILABLE = "available"
+    STATUS_DEGRADED = "degraded"
+    STATUS_UNAVAILABLE = "unavailable"
+
     def __init__(self):
         self.model_path = "models/saved/risk_classifier.pkl"
         self.scaler_path = "models/saved/scaler.pkl"
@@ -30,33 +24,94 @@ class RiskEngine:
         self.model = None
         self.scaler = None
         self.model_features = None
-        self.model_loaded = False
+        self.model_status = self.STATUS_UNAVAILABLE
+        self.error_detail = None
+        self._load_attempted = False
+        self._last_runtime_error = None
 
-    def load(self):
-        if os.path.exists(self.model_path) and os.path.exists(self.scaler_path):
+    @property
+    def loaded(self) -> bool:
+        return self._load_attempted
+
+    def load(self) -> None:
+        """Load and validate all ML artifacts.
+
+        Sets model_status to one of:
+        - "available":   all artifacts loaded and schema validated
+        - "degraded":    artifacts present but corrupt/mismatched; ML is not served
+        - "unavailable": model/scaler artifacts missing; ML is not served
+        """
+        self._load_attempted = True
+        if not (os.path.exists(self.model_path) and os.path.exists(self.scaler_path)):
+            self._set_status(self.STATUS_UNAVAILABLE, "Model or scaler artifact missing.")
+            return
+        try:
             self.model = joblib.load(self.model_path)
             self.scaler = joblib.load(self.scaler_path)
-            try:
-                self.model_features = joblib.load(self.features_path)
-            except Exception:
-                self.model_features = list(CALL_MODEL_FEATURES)
-            if not self.model_features:
-                self.model_features = list(CALL_MODEL_FEATURES)
-            self.model_loaded = True
-
-    def _ml_probability(self, features: dict) -> float:
-        """XGBoost probability using the trained model's 11 feature schema."""
-        if not self.model_loaded:
-            return 0.5
+        except Exception as exc:
+            self._set_status(self.STATUS_UNAVAILABLE, f"Failed to load model/scaler artifacts: {exc}")
+            return
         try:
-            names = list(self.model_features or CALL_MODEL_FEATURES)
-            import numpy as np
+            self.model_features = joblib.load(self.features_path)
+        except Exception as exc:
+            self.model_features = None
+            self._set_status(self.STATUS_DEGRADED, f"features.pkl missing or corrupt: {exc}")
+            return
+        if not isinstance(self.model_features, (list, tuple)) or not self.model_features:
+            self.model_features = None
+            self._set_status(self.STATUS_DEGRADED, "features.pkl does not contain a feature-name list.")
+            return
+        self.model_features = list(self.model_features)
 
+        model_n = getattr(self.model, "n_features_in_", None)
+        scaler_n = getattr(self.scaler, "n_features_in_", None)
+        feature_n = len(self.model_features)
+        if not (model_n is not None and scaler_n is not None and model_n == scaler_n == feature_n):
+            self._set_status(
+                self.STATUS_DEGRADED,
+                f"Schema mismatch: model expects {model_n}, scaler expects {scaler_n}, "
+                f"features.pkl defines {feature_n}.",
+            )
+            return
+
+        scaler_names = getattr(self.scaler, "feature_names_in_", None)
+        if scaler_names is not None and list(scaler_names) != self.model_features:
+            self._set_status(
+                self.STATUS_DEGRADED,
+                "Feature ordering mismatch: features.pkl order differs from scaler training order.",
+            )
+            return
+
+        self._set_status(self.STATUS_AVAILABLE, None)
+
+    def _set_status(self, status: str, error_detail: Optional[str]) -> None:
+        self.model_status = status
+        self.error_detail = error_detail
+        if status == self.STATUS_UNAVAILABLE:
+            logger.warning("ML unavailable: %s", error_detail)
+        elif status == self.STATUS_DEGRADED:
+            logger.error("ML degraded: %s", error_detail)
+
+    def _ml_probability(self, features: dict) -> Optional[float]:
+        """ML risk probability using the exact feature order from features.pkl.
+
+        Returns None when ML is unavailable/degraded. Never fabricates 0.5.
+        """
+        if self.model_status != self.STATUS_AVAILABLE:
+            return None
+        try:
+            names = self.model_features
             row = np.array([[features.get(name, 0.0) for name in names]])
             probability = self.model.predict_proba(self.scaler.transform(row))[0][1]
+            self.error_detail = None
             return float(probability)
-        except Exception:
-            return 0.5
+        except Exception as exc:
+            message = f"ML prediction failed at runtime: {exc}"
+            self.error_detail = message
+            if message != self._last_runtime_error:
+                self._last_runtime_error = message
+                logger.error(message)
+            return None
 
     def _safety_rules(self, telemetry: dict, features: dict) -> tuple:
         """Evaluate explicit, non-ML safety signals into explainable contributions.
@@ -114,15 +169,28 @@ class RiskEngine:
         return contributions, total_weight
 
     def score(self, telemetry: dict, mode: str = "demo") -> Dict:
-        """Main scoring method: fuse ML probability with explicit safety rules."""
-        if not self.model_loaded:
+        """Main scoring method: fuse ML probability with explicit safety rules.
+
+        When ML is available the 50/50 fusion is used. Otherwise the rule score
+        is used alone and ml_probability is None (never a fabricated 0.5).
+        """
+        if not self._load_attempted:
             self.load()
 
         features = extract_features(telemetry)
         ml_score = self._ml_probability(features)
         contributions, rule_score = self._safety_rules(telemetry, features)
 
-        fused_score = (0.5 * ml_score + 0.5 * rule_score) * 100
+        model_status = self.model_status
+        error_detail = self.error_detail
+        if ml_score is None and self.model_status == self.STATUS_AVAILABLE:
+            model_status = self.STATUS_DEGRADED
+            error_detail = error_detail or "ML prediction failed at runtime."
+
+        if ml_score is None:
+            fused_score = rule_score * 100
+        else:
+            fused_score = (0.5 * ml_score + 0.5 * rule_score) * 100
         fused_score = min(max(fused_score, 0), 100)
 
         risk_level = self._get_risk_level(fused_score, telemetry)
@@ -134,19 +202,29 @@ class RiskEngine:
         else:
             alert_status = "none"
 
-        result = {
-            "risk_score": round(fused_score, 1),
-            "risk_level": risk_level,
-            "ml_probability": round(ml_score * 100, 1),
-            "rule_contribution": round(rule_score * 100, 1),
-            "features": features,
-            "safety_rule_contributions": contributions,
-            "model_status": "available" if self.model_loaded else "unavailable",
-            "explanation": (
+        if ml_score is None:
+            explanation = (
+                f"Risk level '{risk_level}' with score {round(fused_score, 1)}/100 "
+                f"(ML {model_status}: {error_detail or 'not in use'}. "
+                f"Rule contribution {round(rule_score * 100, 1)}%)."
+            )
+        else:
+            explanation = (
                 f"Risk level '{risk_level}' with score {round(fused_score, 1)}/100 "
                 f"(ML probability {round(ml_score * 100, 1)}%, "
                 f"rule contribution {round(rule_score * 100, 1)}%)."
-            ),
+            )
+
+        result = {
+            "risk_score": round(fused_score, 1),
+            "risk_level": risk_level,
+            "ml_probability": round(ml_score * 100, 1) if ml_score is not None else None,
+            "rule_contribution": round(rule_score * 100, 1),
+            "features": features,
+            "safety_rule_contributions": contributions,
+            "model_status": model_status,
+            "error_detail": error_detail,
+            "explanation": explanation,
         }
 
         log_incident(

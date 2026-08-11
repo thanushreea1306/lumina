@@ -36,28 +36,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ============ MODEL LOADING ============
-MODEL_PATH = "models/saved/risk_classifier.pkl"
-SCALER_PATH = "models/saved/scaler.pkl"
-model = None
-scaler = None
-FEATURES = None
-
-def load_models():
-    global model, scaler, FEATURES
-    if os.path.exists(MODEL_PATH) and os.path.exists(SCALER_PATH):
-        model = joblib.load(MODEL_PATH)
-        scaler = joblib.load(SCALER_PATH)
-        try:
-            FEATURES = joblib.load('models/saved/features.pkl')
-        except:
-            FEATURES = ['call_duration_min', 'is_unknown_number', 'is_video_call', 
-                       'hour_of_day', 'caller_call_history', 'outgoing_activity_ratio',
-                       'is_weekend', 'call_duration_log', 'is_early_morning', 
-                       'is_late_night', 'activity_category']
-        return True
-    return False
-
+# ML artifact loading and status are owned by RiskEngine; see current_model_status().
 # ============ PYDANTIC MODELS ============
 class CallFeatures(BaseModel):
     call_duration_min: float
@@ -77,11 +56,25 @@ class RiskResponse(BaseModel):
     alert_message: str
     model_used: str
     explanation: str = ""
+    model_status: str = "unavailable"
+    error_detail: Optional[str] = None
+    ml_probability: Optional[float] = None
 
 # ============ INITIALIZE SERVICES ============
 ngo_support = NGOSupport()
 community_alerts = CommunityAlerts()
 risk_engine = RiskEngine()
+
+
+def current_model_status() -> dict:
+    """Single authoritative ML status, delegated to the shared RiskEngine."""
+    if not risk_engine.loaded:
+        risk_engine.load()
+    return {
+        "model_status": risk_engine.model_status,
+        "error_detail": risk_engine.error_detail,
+        "features": risk_engine.model_features,
+    }
 
 # ============ ROUTERS ============
 app.include_router(detect.router, prefix="/api/detect", tags=["Detection"])
@@ -147,16 +140,19 @@ def _explainable_factors(risk_result: dict) -> list[str]:
 # ============ ROOT AND HEALTH ENDPOINTS ============
 @app.get("/")
 async def root():
+    status = current_model_status()
     return {
         "project": "LUMINA",
         "tagline": "Illuminating the Digital Arrest Trap",
         "version": "2.0.0",
         "status": "operational",
-        "model_loaded": load_models(),
+        "model_loaded": status["model_status"] == "available",
+        "model_status": status["model_status"],
+        "error_detail": status["error_detail"],
         "docs": "/docs",
         "model_info": {
             "type": "XGBoost Call Features Model",
-            "features": FEATURES
+            "features": status["features"]
         },
         "features": {
             "panic_detection": True,
@@ -169,7 +165,13 @@ async def root():
 
 @app.get("/health")
 async def health():
-    return {"status": "healthy", "model_loaded": load_models()}
+    status = current_model_status()
+    return {
+        "status": "healthy",
+        "model_loaded": status["model_status"] == "available",
+        "model_status": status["model_status"],
+        "error_detail": status["error_detail"],
+    }
 
 # ============ CORE SCORING ENDPOINT ============
 @app.post("/api/score", response_model=RiskResponse)
@@ -202,8 +204,11 @@ Actions: Call them on another line. Visit if possible. Dial 1930 if confirmed.""
             top_factors=factors if factors else ["No significant risk"],
             features=payload,
             alert_message=alert,
-            model_used="XGBoost (Canonical Risk Engine)",
+            model_used=risk_result.get("model_status", "unavailable"),
             explanation=risk_result.get("explanation", ""),
+            model_status=risk_result.get("model_status", "unavailable"),
+            error_detail=risk_result.get("error_detail"),
+            ml_probability=risk_result.get("ml_probability"),
         )
     except Exception as e:
         print(f"Error in /api/score: {str(e)}")
@@ -412,6 +417,7 @@ async def detect_isolation(telemetry: dict):
             "alert_triggered": risk_result["risk_level"] in {"high", "critical"},
             "explanation": risk_result.get("explanation", {}),
             "model_status": risk_result.get("model_status", "unavailable"),
+            "error_detail": risk_result.get("error_detail"),
         }
 
         if result["alert_triggered"]:
