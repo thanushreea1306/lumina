@@ -1,4 +1,5 @@
 # app/services/panic_trigger.py
+import os
 import re
 from typing import List, Dict, Optional
 from datetime import datetime
@@ -172,24 +173,60 @@ class PanicTrigger:
             "timestamp": now,
         }
     
-    def trigger_silent_intervention(self, victim_name: str, risk_score: float, risk_factors: list) -> Dict:
-        """Generate silent intervention alert without victim action"""
-        return {
-            "intervention_triggered": True,
+    def trigger_silent_intervention(
+        self,
+        victim_name: str,
+        risk_score: float,
+        risk_factors: list,
+        risk_level: str = "low",
+    ) -> Dict:
+        """Generate silent intervention alert without victim action.
+
+        Intervention is only triggered for HIGH or CRITICAL risk. When the alert
+        is built but no real delivery is configured, the result is explicitly
+        marked as simulated/not delivered so no fake recipient is presented as a
+        real trusted contact.
+        """
+        from app.services.alert import (
+            _send_via_twilio,
+            _trusted_contacts,
+            _twilio_configured,
+        )
+
+        risk_level = str(risk_level or "low").lower()
+        intervention_triggered = risk_level in ("high", "critical")
+
+        base = {
+            "intervention_triggered": intervention_triggered,
             "victim": victim_name,
             "risk_score": risk_score,
+            "risk_level": risk_level,
             "risk_factors": risk_factors,
-            "alert_sent_to": ["trusted_contact_1", "trusted_contact_2"],
-            "message": f"""
-🚨 LUMINA SAFETY ALERT
+        }
+
+        if not intervention_triggered:
+            return {
+                **base,
+                "alert_sent_to": [],
+                "delivered": False,
+                "delivery_status": "NOT_TRIGGERED",
+                "message": None,
+                "reason": (
+                    "Silent intervention only applies to HIGH or CRITICAL risk "
+                    f"(current risk level: {risk_level.upper()})."
+                ),
+            }
+
+        message = f"""
+LUMINA SAFETY ALERT
 
 A high-risk digital-arrest pattern has been detected involving {victim_name}.
 
-Risk: CRITICAL
+Risk: {risk_level.upper()}
 Risk Score: {risk_score}%
 
 Detected Signals:
-{chr(10).join([f'• {factor}' for factor in risk_factors])}
+{chr(10).join([f'- {factor}' for factor in risk_factors])}
 
 Please verify their safety immediately.
 
@@ -200,6 +237,59 @@ Actions:
 
 LUMINA - Breaking the isolation. Saving lives.
 """
+
+        contacts = _trusted_contacts()
+        mode = os.getenv("LUMINA_ALERT_MODE", "demo").lower()
+
+        if not contacts:
+            return {
+                **base,
+                "alert_sent_to": [],
+                "delivered": False,
+                "delivery_status": "SIMULATED",
+                "message": message,
+                "reason": (
+                    "No trusted contacts configured (LUMINA_TRUSTED_CONTACTS); "
+                    "alert built but not delivered."
+                ),
+            }
+
+        if mode == "real":
+            if not _twilio_configured():
+                return {
+                    **base,
+                    "alert_sent_to": contacts,
+                    "delivered": False,
+                    "delivery_status": "FAILED",
+                    "message": message,
+                    "reason": (
+                        "Real mode requires TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN "
+                        "and TWILIO_FROM_NUMBER env vars."
+                    ),
+                }
+            delivery_log = []
+            for recipient in contacts:
+                delivered, reason = _send_via_twilio(message, recipient)
+                delivery_log.append(
+                    {"recipient": recipient, "delivered": delivered, "reason": reason}
+                )
+            delivered = all(item["delivered"] for item in delivery_log)
+            return {
+                **base,
+                "alert_sent_to": contacts,
+                "delivered": delivered,
+                "delivery_status": "SENT" if delivered else "FAILED",
+                "delivery_log": delivery_log,
+                "message": message,
+            }
+
+        return {
+            **base,
+            "alert_sent_to": contacts,
+            "delivered": False,
+            "delivery_status": "SIMULATED",
+            "message": message,
+            "reason": "Demo mode - alert built but not delivered (simulated).",
         }
     
     def generate_silent_alert(self, victim_name: str, phone: str, trust_contacts: List[str]) -> Dict:

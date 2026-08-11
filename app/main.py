@@ -106,10 +106,10 @@ def _coerce_isolation_payload(telemetry: dict) -> dict:
         payload["num_app_switches"] = payload.get("num_app_switches", 0)
     if "num_home_presses" in payload:
         payload["num_home_presses"] = payload.get("num_home_presses", 0)
-    if "has_sms_activity" in payload:
-        payload["has_sms_activity"] = int(bool(payload.get("has_sms_activity", False)))
-    if "has_social_app_activity" in payload:
-        payload["has_social_app_activity"] = int(bool(payload.get("has_social_app_activity", False)))
+    if "has_sms_activity" in payload and payload["has_sms_activity"] is not None:
+        payload["has_sms_activity"] = int(bool(payload["has_sms_activity"]))
+    if "has_social_app_activity" in payload and payload["has_social_app_activity"] is not None:
+        payload["has_social_app_activity"] = int(bool(payload["has_social_app_activity"]))
     if "location_change" in payload:
         payload["location_change"] = payload.get("location_change", 0)
     if "screen_brightness" in payload:
@@ -276,10 +276,14 @@ async def send_alert(features: CallFeatures, elder_name: str = "Family Member"):
         features=payload
     )
 
+    delivery_status = alert_result.get("delivery_status")
+    delivered = delivery_status == "SENT"
+
     return {
         "status": "success",
-        "alert_sent": alert_result.get("delivery_status") in {"SENT", "SIMULATED DELIVERY"},
-        "delivery_status": alert_result.get("delivery_status"),
+        "alert_sent": delivered,
+        "delivered": delivered,
+        "delivery_status": delivery_status,
         "risk_score": risk_result["risk_score"],
         "risk_level": risk_level,
         "message": alert_result.get("alert"),
@@ -400,7 +404,8 @@ async def silent_intervention(features: CallFeatures, victim_name: str = "Family
     intervention = panic_trigger.trigger_silent_intervention(
         victim_name=victim_name,
         risk_score=score,
-        risk_factors=factors if factors else ["No significant risk"]
+        risk_factors=factors if factors else ["No significant risk"],
+        risk_level=risk_result["risk_level"],
     )
 
     return intervention

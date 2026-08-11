@@ -81,10 +81,21 @@ def _clamp(value: float, lower: float, upper: float) -> float:
     return max(lower, min(upper, value))
 
 
+def _is_present(payload: Mapping[str, Any], key: str) -> bool:
+    """A field is observed only when supplied with a real value.
+
+    An explicitly supplied null/None is treated exactly like an absent field:
+    it is never coerced into an observed False/0/0.0 behavioral signal.
+    """
+    return key in payload and payload.get(key) is not None
+
+
 def extract_features(signals: Mapping[str, Any] | None = None) -> Dict[str, Any]:
     """Create deterministic features for the current behavioral/isolation signals.
 
     Missing telemetry is handled by safe defaults and explicit missing-signal flags.
+    An explicitly supplied null/None value is treated exactly like an absent field
+    and is never coerced into an observed False/0/0.0 signal.
     The output ordering is stable and matches the canonical feature schema.
     """
     payload = dict(signals or {})
@@ -155,15 +166,15 @@ def extract_features(signals: Mapping[str, Any] | None = None) -> Dict[str, Any]
         "screen_brightness": round(screen_brightness, 3),
         "screen_on_continuous_hours": round(screen_on_continuous_hours, 3),
         "persistence_hours": round(persistence_hours, 3),
-        "is_missing_screen_time_on_call_percent": 1 if "screen_time_on_call_percent" not in payload else 0,
-        "is_missing_num_app_switches": 1 if "num_app_switches" not in payload else 0,
-        "is_missing_num_home_presses": 1 if "num_home_presses" not in payload else 0,
-        "is_missing_has_sms_activity": 1 if "has_sms_activity" not in payload else 0,
-        "is_missing_has_social_app_activity": 1 if "has_social_app_activity" not in payload else 0,
-        "is_missing_location_change": 1 if "location_change" not in payload else 0,
-        "is_missing_screen_brightness": 1 if "screen_brightness" not in payload else 0,
-        "is_missing_screen_on_continuous_hours": 1 if "screen_on_continuous_hours" not in payload else 0,
-        "is_missing_persistence_hours": 1 if "persistence_hours" not in payload else 0,
+        "is_missing_screen_time_on_call_percent": 0 if _is_present(payload, "screen_time_on_call_percent") else 1,
+        "is_missing_num_app_switches": 0 if _is_present(payload, "num_app_switches") else 1,
+        "is_missing_num_home_presses": 0 if _is_present(payload, "num_home_presses") else 1,
+        "is_missing_has_sms_activity": 0 if _is_present(payload, "has_sms_activity") else 1,
+        "is_missing_has_social_app_activity": 0 if _is_present(payload, "has_social_app_activity") else 1,
+        "is_missing_location_change": 0 if _is_present(payload, "location_change") else 1,
+        "is_missing_screen_brightness": 0 if _is_present(payload, "screen_brightness") else 1,
+        "is_missing_screen_on_continuous_hours": 0 if _is_present(payload, "screen_on_continuous_hours") else 1,
+        "is_missing_persistence_hours": 0 if _is_present(payload, "persistence_hours") else 1,
     }
 
 

@@ -48,7 +48,7 @@ Instead of waiting for victims to report fraud, LUMINA analyzes behavioral indic
 - reduced outgoing activity
 - suspicious communication behavior
 
-When multiple signals indicate high risk, LUMINA silently notifies trusted family members so they can intervene before financial loss occurs. The victim never needs to recognize the scam or press an emergency button.
+When multiple signals indicate high risk, LUMINA silently builds a trusted-contact alert so family can intervene before financial loss occurs. In demo mode the alert is **built but not delivered** — the API explicitly marks it `SIMULATED` / `delivered: false` unless a real delivery channel (Twilio + `LUMINA_TRUSTED_CONTACTS`) is configured. The victim never needs to recognize the scam or press an emergency button.
 
 ---
 
@@ -76,7 +76,7 @@ That shift—from scam detection to victim intervention—is the core innovation
 | 📱 Isolation Detection API | `POST /api/detect-isolation` scores device telemetry | ✅ IMPLEMENTED |
 | 🗂 Incident History | Every scored call logged to SQLite (`/api/incidents`) | ✅ IMPLEMENTED |
 | 📄 Incident Report (PDF) | ReportLab-generated FIR-style PDF (`/api/generate-report`) | ✅ IMPLEMENTED |
-| 🔕 Silent Intervention | Builds a ready-to-send silent alert message | ✅ IMPLEMENTED (message only) |
+| 🔕 Silent Intervention | Builds a ready-to-send silent alert for HIGH/CRITICAL risk only; demo mode never claims delivery | ✅ IMPLEMENTED (message only, simulated) |
 | 📱 Trusted Contact Alerts | Demo-mode SMS simulation with cooldown/rate-limit abuse protection | 🟡 SIMULATED (Twilio optional) |
 | 📝 Text Scam Scanner | Rule-based phrase engine (not ML) | ✅ IMPLEMENTED (rule-based) |
 | 📊 Streamlit Dashboard | Risk header, WHY/WHAT sections, scenario runner, charts, history | ✅ IMPLEMENTED |
@@ -174,7 +174,7 @@ LUMINA detects **behavioral isolation patterns** that mark a person trapped insi
               |
               v
 +----------------------------+
-|  Fused Risk Engine         |   ✅ score = 0.5·ML + 0.5·rules
+|  Fused Risk Engine         |   ✅ score = 0.5·ML + 0.5·rules, gated to the safety-rule evidence ceiling |
 +-------------+--------------+
               |
       +-------+--------+
@@ -203,7 +203,7 @@ LUMINA detects **behavioral isolation patterns** that mark a person trapped insi
 | Learning Type | Supervised binary classification |
 | Feature schema | 11 call-behavior features (duration, unknown caller, video, hour, call history, outgoing activity, weekend, derived log/early/late/activity category) |
 | Output | Scam probability 0–1 |
-| Fusion | `risk_score = 0.5 · ML_probability + 0.5 · safety_rules` |
+| Fusion | `risk_score = 0.5 · ML_probability + 0.5 · safety_rules`, gated so ML can only corroborate rule evidence — it cannot escalate the risk level beyond what the safety rules substantiate |
 | Level mapping | ≥75 CRITICAL · ≥50 HIGH · ≥30 MEDIUM · else LOW |
 
 ### Where ML does NOT contribute (by design)
@@ -240,6 +240,8 @@ The deployed classifier is an **XGBoost** model trained on **15,000 synthetic ca
 - A substitute for the safety-rule layer — the explicit, explainable safety rules are a **separate safety mechanism** that operates independently of the model.
 
 The deployed score currently fuses ML and rules at **50/50** (`risk_score = 0.5 · ML_probability + 0.5 · safety_rules`).
+
+That fusion is **gated by the safety-rule evidence**: if the rule contribution is below the HIGH threshold (50), the fused score is capped below HIGH (49.9); if the rule contribution is below the CRITICAL threshold (75), the fused score is capped below CRITICAL (74.9). ML is therefore **corroborative only** — a high ML probability alone can never manufacture HIGH or CRITICAL risk. A counter-evidence signal also discounts sustained calls from known callers with normal outgoing activity and observed social-app use. When ML is unavailable or degraded, scoring falls back to the safety rules alone.
 
 > Note: The datasets under `data/datasets/` (e.g. Hinglish scam texts, FraudZen CDRs) are **not** used by this model. They were explored only in archived experiments under `archive/ml_pipeline/`.
 
@@ -294,7 +296,7 @@ Interactive docs at `http://localhost:8000/docs`.
 python -m pytest tests/ -v
 ```
 
-**Result: 45 passed.** Coverage includes the risk engine (escalation, false-positive guards, missing-telemetry safety), model-artifact loading failure behavior (unavailable/degraded states), phase-2 scenario cases, alert abuse protection (cooldown / rate-limit / duplicate suppression), panic-phrase detection, and API endpoint integration.
+**Result: 68 passed.** Coverage includes the risk engine (escalation, false-positive guards, missing-telemetry safety including explicitly-null telemetry treated as missing), model-artifact loading failure behavior (unavailable/degraded states), phase-2 scenario cases, alert abuse protection (cooldown / rate-limit / duplicate suppression), silent-intervention gating (never triggered below HIGH risk, no fake delivery), panic-phrase detection, and API endpoint integration.
 
 ---
 

@@ -4,6 +4,34 @@ from reportlab.pdfgen import canvas
 from datetime import datetime
 import os
 
+RECOMMENDED_ACTIONS = {
+    "LOW": [
+        "No significant risk detected.",
+        "Continue normal precautions.",
+        "Do not share sensitive information with unknown callers.",
+    ],
+    "MEDIUM": [
+        "Independently verify the caller.",
+        "Do not share OTPs, passwords, banking information, or money.",
+        "Consider informing a trusted contact if suspicious behavior continues.",
+    ],
+    "HIGH": [
+        "Contact a trusted person and independently verify the situation.",
+        "Avoid sending money or sensitive information.",
+        "If the situation appears fraudulent, report it.",
+    ],
+    "CRITICAL": [
+        "Contact a trusted person immediately using another channel.",
+        "Do not send money or sensitive information.",
+        "If a digital-arrest scam is confirmed, report to 1930 and cybercrime.gov.in.",
+    ],
+}
+
+
+def recommended_actions(risk_level: str) -> list:
+    """Return the risk-appropriate recommended actions for a report."""
+    return RECOMMENDED_ACTIONS.get(str(risk_level).upper(), RECOMMENDED_ACTIONS["LOW"])
+
 def generate_fir_report(features: dict, risk_data: dict, output_path: str = None):
     """Generate a professional FIR PDF report"""
     
@@ -19,7 +47,7 @@ def generate_fir_report(features: dict, risk_data: dict, output_path: str = None
     # Header
     c.setFont("Helvetica-Bold", 24)
     c.setFillColorRGB(0.2, 0.3, 0.7)
-    c.drawString(50, y, "🚨 LUMINA")
+    c.drawString(50, y, "LUMINA")
     c.setFont("Helvetica", 12)
     c.setFillColorRGB(0.5, 0.5, 0.5)
     c.drawString(160, y, "Digital Arrest Scam Report")
@@ -39,7 +67,7 @@ def generate_fir_report(features: dict, risk_data: dict, output_path: str = None
     # Section 1: Call Details
     c.setFont("Helvetica-Bold", 14)
     c.setFillColorRGB(0.2, 0.3, 0.7)
-    c.drawString(50, y, "📞 Call Details")
+    c.drawString(50, y, "Call Details")
     y -= 25
     
     c.setFont("Helvetica", 11)
@@ -60,7 +88,7 @@ def generate_fir_report(features: dict, risk_data: dict, output_path: str = None
     # Section 2: Risk Assessment
     c.setFont("Helvetica-Bold", 14)
     c.setFillColorRGB(0.2, 0.3, 0.7)
-    c.drawString(50, y, "📊 Risk Assessment")
+    c.drawString(50, y, "Risk Assessment")
     y -= 25
     
     risk_level = risk_data.get('risk_level', 'low').upper()
@@ -81,27 +109,21 @@ def generate_fir_report(features: dict, risk_data: dict, output_path: str = None
     # Section 3: Recommended Actions
     c.setFont("Helvetica-Bold", 14)
     c.setFillColorRGB(0.2, 0.3, 0.7)
-    c.drawString(50, y, "⚡ Recommended Actions")
+    c.drawString(50, y, "Recommended Actions")
     y -= 25
     
     c.setFont("Helvetica", 11)
     c.setFillColorRGB(0, 0, 0)
-    actions = [
-        "1. Call the person on another line immediately",
-        "2. Visit their home if possible",
-        "3. If confirmed scam, dial 1930 (National Cyber Helpline)",
-        "4. Report at cybercrime.gov.in",
-        "5. Share this report with local police"
-    ]
-    for action in actions:
-        c.drawString(70, y, action)
+    actions = recommended_actions(risk_level)
+    for i, action in enumerate(actions, start=1):
+        c.drawString(70, y, f"{i}. {action}")
         y -= 18
     y -= 10
     
     # Section 4: Legal Notice
     c.setFillColorRGB(0.8, 0, 0)
     c.setFont("Helvetica-Bold", 10)
-    c.drawString(50, y, "⚠️ LEGAL NOTICE:")
+    c.drawString(50, y, "LEGAL NOTICE:")
     y -= 15
     c.setFillColorRGB(0, 0, 0)
     c.setFont("Helvetica", 9)

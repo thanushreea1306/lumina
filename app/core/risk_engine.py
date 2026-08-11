@@ -4,7 +4,7 @@ import os
 from typing import Dict, List, Optional
 
 import joblib
-import numpy as np
+import pandas as pd
 
 from app.core.features import extract_features
 from app.core.db import log_incident
@@ -101,7 +101,7 @@ class RiskEngine:
             return None
         try:
             names = self.model_features
-            row = np.array([[features.get(name, 0.0) for name in names]])
+            row = pd.DataFrame([[features.get(name, 0.0) for name in names]], columns=names)
             probability = self.model.predict_proba(self.scaler.transform(row))[0][1]
             self.error_detail = None
             return float(probability)
@@ -139,6 +139,7 @@ class RiskEngine:
         location_change = float(features.get("location_change", 0.0))
         screen_brightness = float(features.get("screen_brightness", 0.0))
         persistence_hours = float(features.get("persistence_hours", 0.0))
+        caller_history = int(features.get("caller_call_history", 0))
 
         missing_telemetry = {
             "screen_time_on_call_percent": bool(features.get("is_missing_screen_time_on_call_percent", 0)),
@@ -182,7 +183,17 @@ class RiskEngine:
         if not missing_telemetry["persistence_hours"] and persistence_hours >= 2.0:
             add(0.10, f"Interaction persisting over {persistence_hours:.0f} hours escalates the signal.")
 
+        if (
+            not is_unknown
+            and caller_history > 0
+            and outgoing_activity >= 0.5
+            and not missing_telemetry["has_social_app_activity"]
+            and has_social
+        ):
+            add(-0.15, "Counter-evidence: known caller with active outward communication and social activity.")
+
         total_weight = min(sum(c["weight"] for c in contributions), 1.0)
+        total_weight = max(total_weight, 0.0)
         return contributions, total_weight
 
     def score(self, telemetry: dict, mode: str = "demo") -> Dict:
@@ -210,10 +221,28 @@ class RiskEngine:
             model_status = self.STATUS_DEGRADED
             error_detail = error_detail or "ML prediction failed at runtime."
 
+        ml_cap_applied = None
         if ml_score is None:
             fused_score = rule_score * 100
         else:
             fused_score = (0.5 * ml_score + 0.5 * rule_score) * 100
+            rule_pct = rule_score * 100
+            if rule_pct < 50:
+                capped = min(fused_score, 49.9)
+                if capped < fused_score:
+                    fused_score = capped
+                    ml_cap_applied = (
+                        "ML escalation bounded by safety-rule evidence: rule contribution is below the HIGH "
+                        "threshold, so the fused score is capped below HIGH."
+                    )
+            elif rule_pct < 75:
+                capped = min(fused_score, 74.9)
+                if capped < fused_score:
+                    fused_score = capped
+                    ml_cap_applied = (
+                        "ML escalation bounded by safety-rule evidence: rule contribution is below the CRITICAL "
+                        "threshold, so the fused score is capped below CRITICAL."
+                    )
         fused_score = min(max(fused_score, 0), 100)
 
         risk_level = self._get_risk_level(fused_score, telemetry)
@@ -238,6 +267,9 @@ class RiskEngine:
                 f"rule contribution {round(rule_score * 100, 1)}%)."
             )
 
+        if ml_cap_applied:
+            explanation += f" {ml_cap_applied}"
+
         if missing_telemetry:
             explanation += (
                 f" Telemetry unavailable for: {', '.join(sorted(missing_telemetry))}. "
@@ -249,6 +281,7 @@ class RiskEngine:
             "risk_level": risk_level,
             "ml_probability": round(ml_score * 100, 1) if ml_score is not None else None,
             "rule_contribution": round(rule_score * 100, 1),
+            "ml_cap_applied": ml_cap_applied,
             "features": features,
             "safety_rule_contributions": contributions,
             "missing_telemetry": missing_telemetry,

@@ -269,3 +269,109 @@ def test_extract_features_marks_missing_telemetry():
     assert supplied["is_missing_has_sms_activity"] == 0
     assert supplied["num_app_switches"] == 0
     assert supplied["has_sms_activity"] == 0
+
+
+def test_extract_features_null_telemetry_is_missing_not_observed():
+    nulls = extract_features({
+        **_basic_call_payload(),
+        "has_sms_activity": None,
+        "num_app_switches": None,
+        "location_change": None,
+    })
+    assert nulls["is_missing_has_sms_activity"] == 1
+    assert nulls["is_missing_num_app_switches"] == 1
+    assert nulls["is_missing_location_change"] == 1
+
+    observed = extract_features({
+        **_basic_call_payload(),
+        "has_sms_activity": False,
+        "num_app_switches": 0,
+        "location_change": 0,
+    })
+    assert observed["is_missing_has_sms_activity"] == 0
+    assert observed["is_missing_num_app_switches"] == 0
+    assert observed["is_missing_location_change"] == 0
+    assert observed["has_sms_activity"] == 0
+    assert observed["num_app_switches"] == 0
+    assert observed["location_change"] == 0
+
+
+def test_null_bool_telemetry_cannot_activate_rules():
+    engine = RiskEngine()
+    result = engine.score({**_basic_call_payload(), "has_sms_activity": None})
+    reasons = [item["reason"] for item in result["safety_rule_contributions"] if item.get("active")]
+    assert not any("No SMS" in r for r in reasons)
+    assert "has_sms_activity" in result["missing_telemetry"]
+
+
+def test_explicit_false_bool_telemetry_is_observed():
+    engine = RiskEngine()
+    result = engine.score({**_basic_call_payload(), "has_sms_activity": False})
+    reasons = [item["reason"] for item in result["safety_rule_contributions"] if item.get("active")]
+    assert any("No SMS" in r for r in reasons)
+    assert "has_sms_activity" not in result["missing_telemetry"]
+
+
+def test_null_int_telemetry_cannot_activate_rules():
+    engine = RiskEngine()
+    result = engine.score({**_basic_call_payload(), "num_app_switches": None})
+    reasons = [item["reason"] for item in result["safety_rule_contributions"] if item.get("active")]
+    assert not any("app switching" in r for r in reasons)
+    assert "num_app_switches" in result["missing_telemetry"]
+
+
+def test_explicit_zero_int_telemetry_is_observed():
+    engine = RiskEngine()
+    result = engine.score({**_basic_call_payload(), "num_app_switches": 0})
+    reasons = [item["reason"] for item in result["safety_rule_contributions"] if item.get("active")]
+    assert any("app switching" in r for r in reasons)
+    assert "num_app_switches" not in result["missing_telemetry"]
+
+
+def test_null_numeric_telemetry_cannot_activate_rules():
+    engine = RiskEngine()
+    result = engine.score({**_basic_call_payload(), "location_change": None})
+    reasons = [item["reason"] for item in result["safety_rule_contributions"] if item.get("active")]
+    assert not any("physical movement" in r for r in reasons)
+    assert "location_change" in result["missing_telemetry"]
+
+
+def test_explicit_zero_numeric_telemetry_is_observed():
+    engine = RiskEngine()
+    result = engine.score({**_basic_call_payload(), "location_change": 0})
+    reasons = [item["reason"] for item in result["safety_rule_contributions"] if item.get("active")]
+    assert any("physical movement" in r for r in reasons)
+    assert "location_change" not in result["missing_telemetry"]
+
+
+def test_api_null_telemetry_cannot_fire_rules(client):
+    response = client.post("/api/detect-isolation", json={
+        "call_duration_minutes": 10,
+        "is_unknown_number": False,
+        "is_video_call": False,
+        "has_sms_activity": None,
+        "num_app_switches": None,
+        "location_change": None,
+    })
+    assert response.status_code == 200
+    body = response.json()
+    assert body["risk_level"] == "LOW"
+    assert not any("SMS" in f for f in body["risk_factors"])
+    assert not any("app switching" in f for f in body["risk_factors"])
+    assert "has_sms_activity" in body["explanation"]
+    assert "not treated as behavioral signals" in body["explanation"]
+
+
+def test_api_explicit_zero_telemetry_observed(client):
+    response = client.post("/api/detect-isolation", json={
+        "call_duration_minutes": 10,
+        "is_unknown_number": False,
+        "is_video_call": False,
+        "has_sms_activity": False,
+        "num_app_switches": 0,
+        "location_change": 0,
+    })
+    assert response.status_code == 200
+    body = response.json()
+    assert any("No SMS activity" in f for f in body["risk_factors"])
+    assert any("app switching" in f for f in body["risk_factors"])

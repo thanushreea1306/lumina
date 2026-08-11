@@ -35,7 +35,7 @@ LUMINA answers a completely different question:
 This shift — from *detecting the scam* to *detecting the victim's powerlessness* — is the innovation. Three design consequences follow from it:
 
 1. **Zero victim action.** No panic button, no "report this call" screen. The system works on telemetry the phone already has.
-2. **Silent intervention.** The alert goes to *trusted contacts* (family), not to the victim — the scammer is literally on the other end of the victim's phone and must never know an alarm has been raised.
+2. **Silent intervention.** The alert targets *trusted contacts* (family), not the victim — the scammer is literally on the other end of the victim's phone and must never know an alarm has been raised. In this demo the alert delivery is **simulated**: the endpoint only builds the alert for HIGH/CRITICAL risk and explicitly returns `delivered: false` with a `SIMULATED` status unless a real delivery channel (Twilio + `LUMINA_TRUSTED_CONTACTS`) is configured.
 3. **Explainable, human-centered escalation.** The family gets plain-language reasons ("she's stopped using her phone for 3 hours on an unknown video call"), not a black-box probability.
 
 ---
@@ -88,7 +88,7 @@ Feature Extraction ──────────────── 29-feature c
 | Component | Role |
 |---|---|
 | **XGBoost classifier** ✅ | Converts call behavior (duration, unknown caller, video, hour, call history, outgoing activity, weekend, derived features) into scam probability |
-| **Fusion** ✅ | `risk_score = 0.5·ML_probability + 0.5·safety_rules` — ML never decides alone; explicit rules form a hard floor/ceiling |
+| **Fusion** ✅ | `risk_score = 0.5·ML_probability + 0.5·safety_rules` — ML never decides alone; explicit rules form a **hard evidence ceiling**. The fused score is capped below HIGH when the rule score is below 50 and below CRITICAL when the rule score is below 75, so ML corroborates rule evidence but cannot independently manufacture HIGH/CRITICAL risk. |
 | **Explainability** ✅ | Every prediction returns `safety_rule_contributions` (reason + weight per active signal), so the "why" is never a black box |
 | **Text scam scanner** ⚠️ | **Rule-based** phrase engine (authority impersonation, arrest threats, urgency, financial demand, secrecy). Not ML. A transformer is future work. |
 | **IsolationDetector service** ⚠️ | Heuristic weighted score, used by the telemetry simulator demo |
@@ -103,11 +103,11 @@ The model was deliberately kept small and interpretable: **11 features, 15,000 s
 
 **It is not:** a validated real-world detector (the benchmark measures internal consistency with its synthetic generator); trained or validated on real-world call telemetry; a substitute for the explicit safety-rule layer, which is a **separate safety mechanism**.
 
-The deployed score currently fuses ML and rules at **50/50**.
+The deployed score currently fuses ML and rules at **50/50**, gated so ML can only corroborate the safety-rule evidence (see Fusion above) — a high ML probability alone can never push a case into HIGH or CRITICAL. The synthetic model remains synthetic-only and is not validated on real-world data.
 
 ### Verified behavior (tests + live runs)
 
-- **45/45 automated tests pass** (`pytest tests/ -v`): risk escalation, false-positive guards (unknown caller alone ≠ critical), missing-telemetry safety, model-artifact loading failure behavior (unavailable/degraded states), alert abuse protection (cooldown, rate limiting, duplicate suppression), phase-2 scenario cases, API integration.
+- **68/68 automated tests pass** (`pytest tests/ -v`): risk escalation, false-positive guards (unknown caller alone ≠ critical), missing-telemetry safety (including explicitly-null telemetry treated as missing), model-artifact loading failure behavior (unavailable/degraded states), alert abuse protection (cooldown, rate limiting, duplicate suppression), silent-intervention gating (never triggered below HIGH risk, no fake delivery), phase-2 scenario cases, API integration.
 - **Live scenario runs through the real API:**
   - Digital arrest: **6.4 → 16.1 → 78 → 100** as signals accumulate (unknown → video → authority claim → full isolation)
   - Normal call: **0 → 0 → 5 → 0 → 0** (stays low despite a brief video segment)
