@@ -86,7 +86,7 @@ That shift—from scam detection to victim intervention—is the core innovation
 | 📡 Telecom / call-metadata integration | Live call capture from a phone/network | 📝 FUTURE |
 | 🗣 NLP (BERT/RoBERTa) transcript model | Currently rule-based phrase matching | 📝 FUTURE |
 
-### Dashboards & dashboards of record
+### Dashboard & dashboard of record
 
 - The **dashboard** runs real calls against the real risk engine — the scenario buttons POST telemetry to the live backend API and render whatever the engine returns.
 - The **isolation score** shown in the dashboard comes from the canonical risk engine, not a canned number.
