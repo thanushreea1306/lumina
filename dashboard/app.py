@@ -1,11 +1,17 @@
 # dashboard/app.py
 import os
 import random
+import sys
 from dataclasses import asdict
 
 import pandas as pd
 import requests
 import streamlit as st
+
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _REPO_ROOT in sys.path:
+    sys.path.remove(_REPO_ROOT)
+sys.path.insert(0, _REPO_ROOT)
 
 API_BASE = os.getenv("LUMINA_API_BASE", "http://localhost:8000")
 
