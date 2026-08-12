@@ -577,6 +577,7 @@ telemetry_mode = st.radio(
     index=0,
     horizontal=True,
     label_visibility="visible",
+    key="telemetry_mode",
 )
 include_telemetry = telemetry_mode.startswith("Full")
 
