@@ -59,6 +59,10 @@ class RiskResponse(BaseModel):
     model_status: str = "unavailable"
     error_detail: Optional[str] = None
     ml_probability: Optional[float] = None
+    rule_contribution: Optional[float] = None
+    ml_cap_applied: Optional[str] = None
+    safety_rule_contributions: List[dict] = Field(default_factory=list)
+    missing_telemetry: List[str] = Field(default_factory=list)
 
 
 class IsolationTelemetryRequest(BaseModel):
@@ -239,6 +243,10 @@ Actions: Call them on another line. Visit if possible. Dial 1930 if confirmed.""
             model_status=risk_result.get("model_status", "unavailable"),
             error_detail=risk_result.get("error_detail"),
             ml_probability=risk_result.get("ml_probability"),
+            rule_contribution=risk_result.get("rule_contribution"),
+            ml_cap_applied=risk_result.get("ml_cap_applied"),
+            safety_rule_contributions=risk_result.get("safety_rule_contributions", []),
+            missing_telemetry=risk_result.get("missing_telemetry", []),
         )
     except Exception as e:
         print(f"Error in /api/score: {str(e)}")
