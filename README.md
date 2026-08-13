@@ -1,12 +1,6 @@
-# Lumina
+# LUMINA — AI Bridge Against Digital-Arrest Isolation
 
 A research prototype for behavioral-isolation detection and silent trusted-contact intervention against "digital-arrest" scams.
-
----
-
-## Prototype Scope & Transparency Disclosure
-
-Prototype scope: Lumina is currently evaluated on synthetic data and uses simulated alerts by default. The Android collector is a skeleton and no live telecom integration is included. All reported benchmark results are clearly identified as synthetic and are not claims of real-world detection performance.
 
 ---
 
@@ -192,6 +186,12 @@ When risk reaches HIGH or CRITICAL, the silent-intervention path constructs a tr
 - **Optional real delivery**: Twilio SMS can be enabled only through explicit configuration — `LUMINA_ALERT_MODE=real` plus valid `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM_NUMBER`, and `LUMINA_TRUSTED_CONTACTS`.
 - **Abuse protection** (`AlertGuard`): per-victim cooldown (default 60 s), rate limit (max 5 alerts / 60 s window), and duplicate-incident suppression. Recipients outside the trusted-contact allowlist are blocked.
 - There is **no automatic emergency escalation** to police, government, or NGOs. Support endpoints (`/api/ngos`, `/api/government-tools`, `/api/community-alerts`, etc.) return demo data only — static or in-memory — with no live external integration.
+
+---
+
+## Prototype Scope & Transparency Disclosure
+
+Prototype scope: Lumina is currently evaluated on synthetic data and uses simulated alerts by default. The Android collector is a skeleton and no live telecom integration is included. All reported benchmark results are clearly identified as synthetic and are not claims of real-world detection performance.
 
 ---
 
