@@ -1,11 +1,10 @@
-﻿# dashboard/app.py
+# dashboard/app.py
 import base64
 import math
 import os
 import random
 import re
 import sys
-import textwrap
 from dataclasses import asdict
 
 import pandas as pd
@@ -24,10 +23,8 @@ if _REPO_ROOT in sys.path:
     sys.path.remove(_REPO_ROOT)
 sys.path.insert(0, _REPO_ROOT)
 
-from app.core.features import CALL_BEHAVIOR_FIELDS, TELEMETRY_FIELDS
-
 API_BASE = os.getenv("LUMINA_API_BASE", "http://localhost:8000")
-_LOGO_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "lumina-logo-transparent-clean.png")
+_LOGO_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "lumina-logo.png")
 
 st.set_page_config(
     page_title="LUMINA - Digital Arrest Protection",
@@ -56,6 +53,27 @@ CHART_COLORS = {
     "rules": "#6F6F6F",
     "grid": "rgba(255,255,255,0.07)",
 }
+
+CALL_KEYS = [
+    "call_duration_min",
+    "is_unknown_number",
+    "is_video_call",
+    "hour_of_day",
+    "caller_call_history",
+    "outgoing_activity_ratio",
+]
+
+TELEMETRY_KEYS = [
+    "screen_time_on_call_percent",
+    "num_app_switches",
+    "num_home_presses",
+    "has_sms_activity",
+    "has_social_app_activity",
+    "location_change",
+    "screen_brightness",
+    "screen_on_continuous_hours",
+    "persistence_hours",
+]
 
 TELEMETRY_LABELS = {
     "screen_time_on_call_percent": "Screen time on call",
@@ -251,17 +269,29 @@ def _logo_b64() -> str:
         return base64.b64encode(fh.read()).decode("ascii")
 
 
+@st.cache_data(show_spinner=False)
+def _logo_watermark_b64() -> str:
+    """The official logo for subtle dark-background watermarks.
+
+    The source PNG is already transparent (RGBA), so the exact official bytes
+    are reused as-is - no runtime processing, the artwork file is never touched.
+    """
+    return _logo_b64()
+
+
 def _logo_data_uri() -> str:
     return f"data:image/png;base64,{_logo_b64()}"
 
 
-def _logo_img(width: int = 80, radius: int = 0) -> str:
+def _logo_watermark_uri() -> str:
+    return f"data:image/png;base64,{_logo_watermark_b64()}"
+
+
+def _logo_img(width: int = 80, radius: int = 10) -> str:
     uri = _logo_data_uri()
     return (
-        f'<img class="logo-img" src="{uri}" '
-        f'width="{width}" '
-        f'alt="LUMINA logo" '
-        f'style="border-radius:{radius}px;"/>'
+        f'<img class="logo-img" src="{uri}" width="{width}" height="{width}" '
+        f'alt="LUMINA logo" style="border-radius:{radius}px;"/>'
     )
 
 
@@ -367,7 +397,7 @@ html, body, [data-testid="stAppViewContainer"] {
 }
 [data-testid="stHeader"] { background: transparent; }
 #MainMenu, [data-testid="stToolbar"], [data-testid="stDecoration"] { display: none; }
-[data-testid="stMainBlockContainer"] { padding-top: .35rem; max-width: 1480px; }
+[data-testid="stMainBlockContainer"] { padding-top: 1.1rem; max-width: 1480px; }
 a { color: var(--lumina-red); }
 ::selection { background: rgba(224,28,43,.3); }
 [data-testid="stCaptionContainer"] { color: var(--lumina-muted); font-size: .76rem; line-height: 1.55; }
@@ -384,34 +414,11 @@ a { color: var(--lumina-red); }
 }
 
 /* ---------- logo ---------- */
-.logo-img {
-    display: block;
-    height: auto;
-    max-width: 100%;
-    object-fit: contain;
-    background: transparent !important;
-    border: none !important;
-    box-shadow: none !important;
-}
-
+.logo-img { display: block; object-fit: contain; background: #fff; }
 .logo-tile {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: transparent !important;
-    border: none !important;
-    border-radius: 0;
-    padding: 0;
-    margin: 0;
-    box-shadow: none !important;
-    line-height: 0;
-    flex: 0 0 auto;
-}
-
-.logo-tile img {
-    background: transparent !important;
-    border: none !important;
-    box-shadow: none !important;
+    background: #fff; border: 1px solid rgba(0,0,0,.9); border-radius: 12px; padding: 5px;
+    box-shadow: 0 12px 32px rgba(0,0,0,.6), inset 0 0 0 1px rgba(224,28,43,.16);
+    line-height: 0; flex: 0 0 auto;
 }
 
 /* ---------- hud corners ---------- */
@@ -431,9 +438,9 @@ a { color: var(--lumina-red); }
         linear-gradient(180deg, #181515, #0B0A0A);
     background-size: 36px 36px, 36px 36px, auto;
     border: 1px solid var(--lumina-border2); border-radius: 16px;
-    padding: .9rem 1.5rem;
+    padding: 2.1rem 2.4rem;
     display: flex; align-items: center; justify-content: space-between;
-    gap: 1.5rem; flex-wrap: wrap;
+    gap: 2rem; flex-wrap: wrap;
     box-shadow: 0 22px 48px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.04);
     animation: luminaFade .35s ease both;
 }
@@ -441,29 +448,36 @@ a { color: var(--lumina-red); }
     content: ""; position: absolute; inset: 0; pointer-events: none;
     background: radial-gradient(620px 300px at 5% -12%, rgba(224,28,43,.2), transparent 65%);
 }
-.lumina-brand { display: flex; align-items: center; gap: 1.5rem; position: relative; z-index: 1; }
-.hero-logo { filter: drop-shadow(0 6px 16px rgba(0,0,0,.45)); }
-.hero-logo img { width: 104px; height: auto; max-width: none; flex-shrink: 0; display: block; }
-.lumina-brand-text { border-left: 1px solid var(--lumina-border2); padding-left: 1.5rem; min-width: 0; }
-.tag-accent { color: var(--lumina-red); }
-.lumina-tag {
-    font-size: 1.42rem; font-weight: 900; letter-spacing: .1em; line-height: 1.22;
+.hero-watermark {
+    position: absolute; right: -70px; top: 50%; transform: translateY(-50%);
+    opacity: .06; pointer-events: none; z-index: 0;
+}
+.hero-watermark img { display: block; width: 480px; height: 480px; object-fit: contain; }
+.lumina-brand { display: flex; align-items: center; gap: 1.3rem; position: relative; z-index: 1; }
+.lumina-wordmark {
+    font-size: 1.55rem; font-weight: 900; letter-spacing: .2em; line-height: 1.05;
     color: var(--lumina-text); text-transform: uppercase;
-    text-shadow: 0 2px 10px rgba(0,0,0,.4);
+    display: flex; align-items: center; flex-wrap: wrap;
+}
+.lumina-wordmark .dot { color: var(--lumina-red); }
+.lumina-wordmark .word-sub {
+    font-size: .6rem; font-weight: 800; letter-spacing: .32em; color: var(--lumina-muted2);
+    border-left: 2px solid var(--lumina-red); padding-left: .7rem; margin-left: .7rem;
+    text-transform: uppercase;
 }
 .lumina-statement {
-    font-size: .88rem; color: var(--lumina-muted); margin-top: .4rem; letter-spacing: .02em;
+    font-size: .88rem; color: var(--lumina-muted); margin-top: .6rem; letter-spacing: .02em;
 }
 .hero-phrase {
     font-size: .64rem; font-weight: 800; letter-spacing: .28em; text-transform: uppercase;
-    color: var(--lumina-muted2); margin-top: .55rem; border-top: 1px solid var(--lumina-border);
-    padding-top: .45rem; display: inline-block;
+    color: var(--lumina-muted2); margin-top: .9rem; border-top: 1px solid var(--lumina-border);
+    padding-top: .72rem; display: inline-block;
 }
-.hero-side { display: flex; flex-direction: column; align-items: flex-end; gap: .5rem; position: relative; z-index: 1; }
+.hero-side { display: flex; flex-direction: column; align-items: flex-end; gap: .75rem; position: relative; z-index: 1; }
 .status-pill {
     display: inline-flex; align-items: center; gap: .55rem;
     border: 1px solid var(--lumina-border2); border-radius: 999px;
-    background: var(--lumina-card); padding: .4rem 1rem;
+    background: var(--lumina-card); padding: .44rem 1rem;
     font-size: .68rem; font-weight: 800; letter-spacing: .16em;
     text-transform: uppercase; color: var(--lumina-text); white-space: nowrap;
     box-shadow: 0 6px 18px rgba(0,0,0,.3);
@@ -471,7 +485,7 @@ a { color: var(--lumina-red); }
 .status-dot { width: 7px; height: 7px; border-radius: 50%; flex: 0 0 auto; }
 .status-dot.ok { background: var(--lumina-green); box-shadow: 0 0 0 3px rgba(111,168,119,.2); }
 .status-dot.red { background: var(--lumina-red); box-shadow: 0 0 0 3px rgba(224,28,43,.28); }
-.hero-badges { display: flex; flex-direction: column; align-items: flex-end; gap: .35rem; }
+.hero-badges { display: flex; gap: .45rem; flex-wrap: wrap; justify-content: flex-end; }
 
 /* ---------- pills ---------- */
 .pill {
@@ -485,8 +499,8 @@ a { color: var(--lumina-red); }
 
 /* ---------- section headings ---------- */
 .section-head {
-    display: flex; align-items: flex-start; gap: .9rem;
-    margin: .85rem 0 .55rem; padding-bottom: .45rem;
+    display: flex; align-items: flex-start; gap: .95rem;
+    margin: 2.5rem 0 .95rem; padding-bottom: .85rem;
     position: relative;
     animation: luminaFade .3s ease both;
 }
@@ -512,7 +526,7 @@ a { color: var(--lumina-red); }
     box-shadow: 0 10px 28px rgba(0,0,0,.28), inset 0 1px 0 rgba(255,255,255,.03);
 }
 .pipe {
-    flex: 1 1 132px; min-width: 132px; padding: .8rem .8rem .65rem;
+    flex: 1 1 132px; min-width: 132px; padding: 1.15rem .95rem .95rem;
     animation: luminaFade .35s ease both; position: relative;
 }
 .pipe + .pipe { border-left: 1px solid var(--lumina-border); }
@@ -540,34 +554,34 @@ a { color: var(--lumina-red); }
         linear-gradient(180deg, #191616, #0D0C0C);
     background-size: 40px 40px, 40px 40px, auto;
     border: 1px solid var(--lumina-border2); border-radius: 16px;
-    margin-bottom: .6rem;
+    margin-bottom: 1rem;
     box-shadow: 0 16px 40px rgba(0,0,0,.4), inset 0 1px 0 rgba(255,255,255,.04);
     animation: luminaFade .4s ease both;
 }
 .risk-hero .risk-glow { position: absolute; inset: 0; pointer-events: none; }
-.risk-main {
-    position: relative; z-index: 1; display: flex; align-items: center; gap: 1.4rem;
-    padding: .9rem 1.5rem; flex-wrap: wrap;
+.risk-hero .risk-watermark {
+    position: absolute; right: -60px; top: 50%; transform: translateY(-50%);
+    opacity: .06; pointer-events: none; z-index: 0;
 }
-.risk-left { flex: 1 1 250px; min-width: 235px; position: relative; }
+.risk-hero .risk-watermark img { width: 420px; height: 420px; object-fit: contain; }
+.risk-main {
+    position: relative; z-index: 1; display: flex; align-items: center; gap: 2rem;
+    padding: 1.7rem 2rem; flex-wrap: wrap;
+}
+.risk-left { flex: 1 1 280px; min-width: 280px; position: relative; }
 .risk-eyebrow { font-size: .7rem; font-weight: 800; letter-spacing: .3em; text-transform: uppercase; color: var(--lumina-muted); }
-.risk-level { font-size: 3.4rem; font-weight: 900; line-height: 1; letter-spacing: .04em; color: var(--lumina-text); margin-top: .3rem; }
+.risk-level { font-size: 3.9rem; font-weight: 900; line-height: 1; letter-spacing: .04em; color: var(--lumina-text); margin-top: .45rem; }
 .risk-level.critical { color: var(--lumina-red); text-shadow: 0 0 26px rgba(224,28,43,.45); }
 .risk-level.high { color: var(--lumina-amber); text-shadow: 0 0 24px rgba(217,164,65,.35); }
 .risk-level.medium { color: var(--lumina-amber); }
 .risk-level.low { color: var(--lumina-green); }
-.risk-score { font-family: "Cascadia Code", Consolas, monospace; font-size: 1.7rem; font-weight: 700; color: var(--lumina-text); margin-top: .35rem; }
-.risk-score small { font-size: 1.05rem; color: var(--lumina-muted2); font-weight: 600; }
-.risk-status { display: inline-block; margin-top: .5rem; font-size: .74rem; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; color: var(--lumina-text); border: 1px solid var(--lumina-border2); border-radius: 999px; padding: .3rem .85rem; background: var(--lumina-card); }
-.risk-action { margin-top: .45rem; font-size: .84rem; font-weight: 700; color: var(--lumina-muted); }
+.risk-score { font-family: "Cascadia Code", Consolas, monospace; font-size: 1.85rem; font-weight: 700; color: var(--lumina-text); margin-top: .55rem; }
+.risk-score small { font-size: 1.1rem; color: var(--lumina-muted2); font-weight: 600; }
+.risk-status { display: inline-block; margin-top: .7rem; font-size: .76rem; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; color: var(--lumina-text); border: 1px solid var(--lumina-border2); border-radius: 999px; padding: .32rem .85rem; background: var(--lumina-card); }
+.risk-action { margin-top: .62rem; font-size: .84rem; font-weight: 700; color: var(--lumina-muted); }
 .risk-action b { color: var(--lumina-red); }
-.risk-mid {
-    flex: 0 1 240px; min-width: 195px; position: relative;
-    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .35rem;
-    border-left: 1px solid var(--lumina-border); border-right: 1px solid var(--lumina-border);
-    padding: 0 1.2rem; align-self: stretch;
-}
-.risk-mid-title { font-size: .6rem; font-weight: 800; letter-spacing: .24em; text-transform: uppercase; color: var(--lumina-muted2); white-space: nowrap; }
+.risk-mid { flex: 1 1 340px; min-width: 300px; border-left: 1px solid var(--lumina-border); padding-left: 1.8rem; }
+.risk-mid-title { font-size: .62rem; font-weight: 800; letter-spacing: .24em; text-transform: uppercase; color: var(--lumina-muted2); margin-bottom: .75rem; }
 .risk-signal {
     display: flex; align-items: center; gap: .8rem; padding: .62rem .7rem; margin-bottom: .5rem;
     background: var(--lumina-card); border: 1px solid var(--lumina-border); border-radius: 10px;
@@ -579,21 +593,14 @@ a { color: var(--lumina-red); }
 }
 .risk-signal-text { font-size: .9rem; font-weight: 800; color: var(--lumina-text); line-height: 1.3; }
 .risk-signal-detail { font-size: .74rem; color: var(--lumina-muted2); font-weight: 600; }
-.risk-right { flex: 1 1 250px; min-width: 235px; position: relative; display: flex; flex-direction: column; gap: .55rem; }
-.risk-right-title { font-size: .6rem; font-weight: 800; letter-spacing: .24em; text-transform: uppercase; color: var(--lumina-muted2); }
+.risk-right { flex: 0 0 auto; position: relative; display: flex; flex-direction: column; align-items: center; gap: .4rem; }
 .risk-gauge-label { font-size: .6rem; font-weight: 800; letter-spacing: .24em; text-transform: uppercase; color: var(--lumina-muted2); }
-.gauge-wrap { position: relative; flex: 0 0 auto; }
-.risk-note {
-    font-size: .8rem; color: var(--lumina-muted); line-height: 1.5;
-    border-left: 2px solid var(--lumina-red); padding: .15rem 0 .15rem .7rem;
-}
-.risk-kpi { display: flex; align-items: flex-start; gap: .5rem; font-size: .76rem; font-weight: 700; color: var(--lumina-text); line-height: 1.4; }
-.kpi-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--lumina-red); flex: 0 0 auto; margin-top: .32rem; }
+.gauge-wrap { position: relative; }
 .risk-hero-footer {
     position: relative; z-index: 1; display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap;
-    padding: .6rem 1.6rem; border-top: 1px solid var(--lumina-border); background: rgba(0,0,0,.22);
+    padding: .8rem 2rem; border-top: 1px solid var(--lumina-border); background: rgba(0,0,0,.22);
 }
-.risk-interv { font-size: .74rem; font-weight: 800; letter-spacing: .16em; text-transform: uppercase; color: var(--lumina-muted2); display: flex; align-items: center; gap: .6rem; white-space: nowrap; }
+.risk-interv { font-size: .74rem; font-weight: 800; letter-spacing: .16em; text-transform: uppercase; color: var(--lumina-muted2); display: flex; align-items: center; gap: .6rem; }
 .risk-interv .status-dot { background: var(--lumina-muted2); }
 .risk-interv.on { color: var(--lumina-red); }
 .risk-meta { font-size: .7rem; font-weight: 700; letter-spacing: .08em; color: var(--lumina-muted); }
@@ -610,7 +617,7 @@ a { color: var(--lumina-red); }
 .factor-row {
     display: flex; align-items: center; gap: 1rem;
     background: var(--lumina-card); border: 1px solid var(--lumina-border); border-radius: 10px;
-    padding: .8rem 1rem; margin-bottom: .5rem;
+    padding: 1rem 1.2rem; margin-bottom: .6rem;
     animation: luminaFade .3s ease both;
     box-shadow: 0 6px 18px rgba(0,0,0,.18), inset 0 1px 0 rgba(255,255,255,.03);
 }
@@ -630,10 +637,10 @@ a { color: var(--lumina-red); }
     content: ""; position: absolute; inset: 0; pointer-events: none;
     background: radial-gradient(560px 260px at 0% 0%, rgba(224,28,43,.16), transparent 65%);
 }
-.intervention-head { padding: 1rem 1.2rem .5rem; position: relative; }
+.intervention-head { padding: 1.35rem 1.5rem .6rem; position: relative; }
 .intervention-eyebrow { font-size: .68rem; font-weight: 800; letter-spacing: .22em; text-transform: uppercase; color: var(--lumina-red); display: flex; align-items: center; gap: .5rem; }
 .intervention-title { font-size: 1.45rem; font-weight: 900; line-height: 1.18; letter-spacing: .02em; margin-top: .5rem; color: var(--lumina-text); }
-.intervention-steps { padding: .6rem 1.2rem 1.1rem; position: relative; }
+.intervention-steps { padding: .8rem 1.5rem 1.3rem; position: relative; }
 .intervention-steps .step { display: flex; gap: .8rem; align-items: flex-start; margin: .5rem 0; }
 .intervention-steps .step-num { font-family: "Cascadia Code", Consolas, monospace; font-weight: 800; font-size: .78rem; color: var(--lumina-red); flex: 0 0 auto; padding-top: .1rem; }
 .intervention-steps .step-text { font-size: .86rem; font-weight: 600; line-height: 1.5; color: var(--lumina-muted); }
@@ -642,7 +649,7 @@ a { color: var(--lumina-red); }
 .intervention-medium .intervention-steps, .intervention-low .intervention-steps { border-top: 1px solid var(--lumina-border); }
 
 /* ---------- delivery ---------- */
-.delivery-card { border: 1px solid var(--lumina-border2); border-radius: 12px; background: var(--lumina-card); padding: .9rem 1rem; height: 100%; box-shadow: 0 8px 22px rgba(0,0,0,.22), inset 0 1px 0 rgba(255,255,255,.03); }
+.delivery-card { border: 1px solid var(--lumina-border2); border-radius: 12px; background: var(--lumina-card); padding: 1.1rem 1.2rem; height: 100%; box-shadow: 0 8px 22px rgba(0,0,0,.22), inset 0 1px 0 rgba(255,255,255,.03); }
 .delivery-title { font-size: .66rem; font-weight: 800; letter-spacing: .18em; text-transform: uppercase; color: var(--lumina-muted); margin-bottom: .55rem; }
 .delivery-item { display: flex; justify-content: space-between; align-items: center; font-size: .82rem; padding: .5rem 0; border-bottom: 1px dashed var(--lumina-border); gap: .6rem; }
 .delivery-item:last-child { border-bottom: none; }
@@ -693,7 +700,7 @@ a { color: var(--lumina-red); }
         linear-gradient(180deg, #161313, #0B0A0A);
     background-size: 40px 40px, 40px 40px, auto;
     border: 1px solid var(--lumina-border2); border-radius: 16px;
-    padding: 1.7rem 1.8rem; text-align: center;
+    padding: 3.2rem 2.4rem; text-align: center;
     animation: luminaFade .4s ease both;
 }
 .empty-hero::before {
@@ -701,13 +708,18 @@ a { color: var(--lumina-red); }
     background: radial-gradient(620px 300px at 12% 0%, rgba(224,28,43,.18), transparent 65%);
 }
 .empty-seal { position: absolute; right: -40px; bottom: -40px; color: var(--lumina-red); opacity: .12; pointer-events: none; }
-.empty-brand { position: relative; z-index: 1; display: flex; flex-direction: column; align-items: center; gap: .75rem; }
+.empty-watermark-side {
+    position: absolute; right: -50px; top: 50%; transform: translateY(-50%);
+    opacity: .06; pointer-events: none; z-index: 0;
+}
+.empty-watermark-side img { width: 400px; height: 400px; object-fit: contain; }
+.empty-brand { position: relative; z-index: 1; display: flex; flex-direction: column; align-items: center; gap: .9rem; }
 .empty-kicker { font-size: .68rem; font-weight: 800; letter-spacing: .34em; text-transform: uppercase; color: var(--lumina-red); }
 .empty-title { font-size: 1.7rem; font-weight: 900; letter-spacing: .08em; color: var(--lumina-text); text-transform: uppercase; }
 .empty-sub { color: var(--lumina-muted); font-size: .9rem; margin-top: .15rem; max-width: 620px; margin-left: auto; margin-right: auto; line-height: 1.65; position: relative; }
 .mode-card {
     background: var(--lumina-card); border: 1px solid var(--lumina-border); border-radius: 12px;
-    padding: .95rem 1.2rem; height: 100%; position: relative;
+    padding: 1.15rem 1.3rem; height: 100%; position: relative;
     box-shadow: 0 8px 22px rgba(0,0,0,.22), inset 0 1px 0 rgba(255,255,255,.03);
     transition: border-color .18s ease, transform .18s ease;
 }
@@ -721,7 +733,7 @@ a { color: var(--lumina-red); }
     position: relative; overflow: hidden;
     background: linear-gradient(180deg, #161313, #0C0B0B);
     border: 1px solid var(--lumina-border2); border-radius: 14px;
-    padding: 1.2rem 1.6rem; margin-bottom: .9rem;
+    padding: 1.7rem 2rem; margin-bottom: .9rem;
     display: flex; align-items: center; gap: 1.4rem; flex-wrap: wrap;
     box-shadow: 0 12px 30px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.04);
 }
@@ -738,7 +750,7 @@ a { color: var(--lumina-red); }
 .footer {
     background: linear-gradient(180deg, #161313, #0C0B0B);
     border: 1px solid var(--lumina-border2); border-radius: 12px;
-    padding: .9rem 1.4rem; display: flex; justify-content: space-between;
+    padding: 1.2rem 1.6rem; display: flex; justify-content: space-between;
     align-items: center; gap: 1rem; flex-wrap: wrap;
     box-shadow: 0 10px 26px rgba(0,0,0,.3), inset 0 1px 0 rgba(255,255,255,.04);
 }
@@ -768,54 +780,18 @@ a { color: var(--lumina-red); }
 [data-testid="stBaseButton-tertiary"]:hover { color: var(--lumina-text); }
 
 [data-testid="stRadio"] > div { gap: 8px; }
-[data-testid="stRadio"] label[data-testid="stRadioOption"] {
-    display: inline-flex; align-items: center; gap: 8px;
+[data-testid="stRadio"] label {
+    display: flex; align-items: center; gap: 8px;
     border: 1px solid var(--lumina-border2); border-radius: 999px; padding: .42rem .95rem;
-    background: var(--lumina-card2); cursor: pointer; transition: all .15s ease; margin: 0;
+    background: var(--lumina-card2); font-size: .76rem; font-weight: 700; color: var(--lumina-text);
+    cursor: pointer; transition: all .15s ease; margin: 0;
 }
-[data-testid="stRadio"] label[data-testid="stRadioOption"]:hover { border-color: var(--lumina-muted); }
-[data-testid="stRadio"] label[data-testid="stRadioOption"] div,
-[data-testid="stRadio"] label[data-testid="stRadioOption"] div p {
-    color: var(--lumina-text) !important;
-    font-size: .76rem; font-weight: 700;
-}
-[data-testid="stRadio"] label[data-testid="stRadioOption"]:has(input:checked) {
-    border-color: var(--lumina-red); background: var(--lumina-red);
-}
-[data-testid="stRadio"] label[data-testid="stRadioOption"]:has(input:checked) div,
-[data-testid="stRadio"] label[data-testid="stRadioOption"]:has(input:checked) div p {
-    color: #ffffff !important;
+[data-testid="stRadio"] label:hover { border-color: var(--lumina-muted); }
+[data-testid="stRadio"] label:has(input:checked) {
+    border-color: var(--lumina-text); background: var(--lumina-text); color: var(--lumina-bg);
 }
 [data-testid="stRadio"] input { accent-color: var(--lumina-red); }
 
-/* ---------- tabs ---------- */
-[data-testid="stTabs"] { margin-top: .15rem; min-width: 0; max-width: 100%; }
-[data-testid="stTabs"] > div { min-width: 0; max-width: 100%; }
-[data-testid="stTabs"] [data-orientation="horizontal"] {
-    display: flex; flex-wrap: wrap; gap: .35rem;
-    border-bottom: 1px solid var(--lumina-border);
-    padding: 0 0 .5rem; margin: 0 0 .35rem;
-    min-width: 0; max-width: 100%; overflow-x: clip;
-}
-[data-testid="stTabs"] [data-testid="stTab"] {
-    border: 1px solid transparent; border-radius: 999px;
-    padding: .42rem .95rem; font-size: .74rem; font-weight: 800;
-    letter-spacing: .08em; text-transform: uppercase;
-    color: var(--lumina-muted2); background: transparent;
-    cursor: pointer; transition: color .15s ease, border-color .15s ease, background .15s ease;
-    white-space: nowrap;
-}
-[data-testid="stTabs"] [data-testid="stTab"]:hover {
-    color: var(--lumina-text); border-color: var(--lumina-border2);
-}
-[data-testid="stTabs"] [data-testid="stTab"][aria-selected="true"] {
-    color: #ffffff; background: var(--lumina-red); border-color: var(--lumina-red);
-}
-[data-testid="stTabPanel"] { padding-top: .3rem; min-width: 0; max-width: 100%; }
-[data-testid="stTabPanel"] > div { min-width: 0; max-width: 100%; }
-[data-testid="stVerticalBlock"], [data-testid="stElementContainer"],
-[data-testid="stHorizontalBlock"], [data-testid="stColumn"] { min-width: 0; max-width: 100%; }
-[data-testid="stDataFrame"], [data-testid="stPlotlyChart"], [data-testid="stMetric"] { min-width: 0; max-width: 100%; }
 [data-testid="stMetric"] { background: var(--lumina-card); border: 1px solid var(--lumina-border); border-radius: 10px; padding: .65rem .85rem; }
 [data-testid="stMetricLabel"] { color: var(--lumina-muted); font-size: .68rem; letter-spacing: .12em; text-transform: uppercase; font-weight: 800; }
 [data-testid="stMetricValue"] { color: var(--lumina-text); font-family: "Cascadia Code", Consolas, monospace; }
@@ -829,10 +805,8 @@ a { color: var(--lumina-red); }
 [data-testid="stWidgetLabel"] p { color: var(--lumina-muted); font-weight: 800; font-size: .8rem; letter-spacing: .4px; }
 
 @media (max-width: 900px) {
-    .lumina-tag { font-size: 1.18rem; }
-    .hero-logo img { width: 78px; }
+    .lumina-name { font-size: 1.9rem; }
     .risk-level { font-size: 2.4rem; }
-    .risk-mid { border-left: none; border-right: none; padding: .6rem 0; align-self: auto; }
     .hero-side { align-items: flex-start; }
     .pipe-value { font-size: .92rem; }
 }
@@ -843,10 +817,10 @@ st.markdown(f"<style>{_CSS}</style>", unsafe_allow_html=True)
 
 # ============================= HELPERS =============================
 def _to_body(signals: dict, include_telemetry: bool = True) -> dict:
-    body = {key: signals.get(key, 0) for key in CALL_BEHAVIOR_FIELDS}
+    body = {key: signals.get(key, 0) for key in CALL_KEYS}
     body["day_of_week"] = signals.get("day_of_week", 2)
     if include_telemetry:
-        body["extra_telemetry"] = {key: signals.get(key, 0) for key in TELEMETRY_FIELDS}
+        body["extra_telemetry"] = {key: signals.get(key, 0) for key in TELEMETRY_KEYS}
     return body
 
 
@@ -1009,10 +983,11 @@ def render_hero() -> None:
     st.markdown(
         f"""
         <div class="lumina-hero">
+            <div class="hero-watermark"><img src="{_logo_watermark_uri()}" alt=""/></div>
             <div class="lumina-brand">
-                <div class="logo-tile hero-logo">{_logo_img(104)}</div>
-                <div class="lumina-brand-text">
-                    <div class="lumina-tag"><span class="tag-accent">LUMINA</span><br/>AI Bridge · Against Digital Arrest Isolation</div>
+                <div class="logo-tile">{_logo_img(64)}</div>
+                <div>
+                    <div class="lumina-tag">AI Bridge Against<br/>Digital Arrest Isolation</div>
                     <div class="lumina-statement">Detect the pattern. Break the isolation. Bring help in.</div>
                     <div class="hero-phrase">Detect → Analyze → Alert → Protect → Connect</div>
                 </div>
@@ -1047,7 +1022,7 @@ def _gauge_svg(score: float, color: str) -> str:
     """
 
 
-def risk_hero(level: str, score: float, intervention: dict = None, last: dict = None) -> None:
+def risk_hero(level: str, score: float, intervention: dict = None) -> None:
     color = LEVEL_COLORS.get(level, "#6F6F6F")
     descriptor, action = LEVEL_SUMMARY.get(level, ("Risk assessed", "Review the pipeline below"))
     triggered = bool(intervention.get("intervention_triggered")) if intervention else False
@@ -1058,36 +1033,19 @@ def risk_hero(level: str, score: float, intervention: dict = None, last: dict = 
         if triggered
         else f'<div class="risk-interv"><span class="status-dot"></span> INTERVENTION MONITORING</div>'
     )
-    explanation = (last or {}).get("explanation", "")
-    exp_note = f'<div class="risk-note">{explanation}</div>' if explanation else ""
-    factors = (last or {}).get("factors") or []
-    kpi_rows = "".join(
-        f'<div class="risk-kpi"><span class="kpi-dot"></span>{item}</div>'
-        for item in factors[:3]
-    )
     st.markdown(
         f"""
         <div class="risk-hero {level}">
             <div class="risk-glow"></div>
-            <div class="risk-main">
-                <div class="risk-left">
-                    <div class="risk-eyebrow">Current Risk</div>
-                    <div class="risk-level {level}">{level.upper()}</div>
-                    <div class="risk-score">{score:.1f} <small>/ 100</small></div>
-                    <div class="risk-status">{descriptor}</div>
-                    <div class="risk-action"><b>●</b> {action}</div>
-                </div>
-                <div class="risk-mid">
-                    <div class="risk-mid-title">Fused Score Gauge</div>
-                    <div class="gauge-wrap">{_gauge_svg(score, color)}</div>
-                </div>
-                <div class="risk-right">
-                    {interv_line}
-                    {exp_note}
-                    <div class="risk-right-title">Key Indicators</div>
-                    {kpi_rows}
-                </div>
+            <div style="flex:1; min-width:260px; position:relative;">
+                <div class="risk-eyebrow">Current Risk</div>
+                <div class="risk-level {level}">{level.upper()}</div>
+                <div class="risk-score">{score:.1f} <small>/ 100</small></div>
+                <div class="risk-status">{descriptor}</div>
+                <div class="risk-action"><b>●</b> {action}</div>
+                {interv_line}
             </div>
+            <div class="gauge-wrap">{_gauge_svg(score, color)}</div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -1098,14 +1056,14 @@ def _pipe_stage(icon: str, kicker: str, value: str, sub: str, hot: bool = False,
                 color: str = None, delay: float = 0.0) -> str:
     cls = "pipe" + (" pipe-hot" if hot else "")
     value_style = f' style="color:{color};"' if color else ""
-    return textwrap.dedent(f"""
+    return f"""
     <div class="{cls}" style="animation-delay:{delay:.2f}s">
         <div class="pipe-icon">{_icon(icon)}</div>
         <div class="pipe-kicker">{kicker}</div>
         <div class="pipe-value"{value_style}>{value}</div>
         <div class="pipe-sub">{sub}</div>
     </div>
-    """).strip()
+    """
 
 
 def pipeline_strip(snap: dict, intervention: dict = None) -> None:
@@ -1184,13 +1142,13 @@ def render_detection_factors(factors: list) -> None:
     for i, factor in enumerate(factors[:3]):
         title, detail = _factor_parts(factor)
         rows.append(
-            textwrap.dedent(f"""
+            f"""
             <div class="factor-row" style="animation-delay:{0.08 * i:.2f}s">
                 <div class="factor-idx">{i + 1:02d}</div>
                 <div class="factor-icon">{_icon(motif_cycle[i % len(motif_cycle)])}</div>
                 <div class="factor-title">{title}{f'<span class="factor-detail">{detail}</span>' if detail else ''}</div>
             </div>
-            """).strip()
+            """
         )
     st.markdown(f'<div>{"".join(rows)}</div>', unsafe_allow_html=True)
     if len(factors) > 3:
@@ -1368,7 +1326,7 @@ def risk_evolution_chart(timeline: list) -> None:
         )
 
         fig.update_layout(
-            height=320,
+            height=360,
             margin=dict(l=8, r=8, t=10, b=8),
             paper_bgcolor="rgba(0,0,0,0)",
             plot_bgcolor="rgba(0,0,0,0)",
@@ -1400,7 +1358,7 @@ def risk_evolution_chart(timeline: list) -> None:
         fallback = frame[["Time (min)", "Risk Score"]].copy()
         fallback["HIGH ceiling (49.9)"] = 49.9
         fallback["CRITICAL ceiling (74.9)"] = 74.9
-        st.line_chart(fallback.set_index("Time (min)"), height=300)
+        st.line_chart(fallback.set_index("Time (min)"), height=340)
 
     st.caption(
         "The two dashed lines mark the gating ceilings. The fused score cannot rise above 49.9 while rule "
@@ -1505,23 +1463,23 @@ def behavior_timeline_story(timeline: list) -> None:
     for row in timeline:
         danger = " danger" if row["level"] in ("high", "critical") else ""
         nodes.append(
-            textwrap.dedent(f"""
+            f"""
             <div class="timeline-node{danger}">
                 <div class="timeline-time">{row['t']} MIN</div>
                 <div class="timeline-label">{row['label']}</div>
                 <div class="timeline-note">{row['note']}</div>
             </div>
-            """).strip()
+            """
         )
     final_level = timeline[-1]["level"]
     final_color = LEVEL_COLORS.get(final_level, "#6F6F6F")
     final_state = " danger" if final_level in ("high", "critical") else ""
     nodes.append(
-        textwrap.dedent(f"""
+        f"""
         <div class="timeline-node{final_state}">
             <div class="timeline-final" style="color:{final_color};">{final_level.upper()} RISK</div>
         </div>
-        """).strip()
+        """
     )
     st.markdown(f'<div class="timeline">{"".join(nodes)}</div>', unsafe_allow_html=True)
 
@@ -1584,316 +1542,275 @@ def incidents_table(incidents: list) -> None:
 # ============================= MAIN FLOW =============================
 render_hero()
 
-tab_overview, tab_pipeline, tab_evidence, tab_intervention, tab_report, tab_incidents = st.tabs(
-    [
-        "OVERVIEW",
-        "RISK PIPELINE",
-        "EVIDENCE & TIMELINE",
-        "INTERVENTION",
-        "INCIDENT REPORT",
-        "RECENT INCIDENTS",
-    ]
+# ---------- 01 · TELEMETRY SOURCE ----------
+_section(
+    "01",
+    "Telemetry Source",
+    "Simulated inputs only - scripted scenarios or random snapshots from the Python "
+    "AndroidDeviceSimulator. There is no real on-device capture yet.",
+)
+with st.container(border=True):
+    telemetry_mode = st.radio(
+        "Simulated telemetry mode",
+        [
+            "FULL TELEMETRY",
+            "SIMULATED GAPS",
+        ],
+        index=0,
+        horizontal=True,
+        label_visibility="visible",
+        key="telemetry_mode",
+    )
+    include_telemetry = telemetry_mode.startswith("FULL")
+
+    c1, c2, c3, c4 = st.columns(4)
+    with c1:
+        run_scam = st.button("RUN DIGITAL ARREST SIMULATION", type="primary", width="stretch", key="run_scam")
+    with c2:
+        run_normal = st.button("RUN NORMAL CALL", width="stretch", key="run_normal")
+    with c3:
+        run_sim = st.button("RUN RANDOM SIMULATOR", width="stretch", key="run_sim")
+    with c4:
+        st.button("RESET", type="tertiary", width="stretch", key="reset_state", on_click=reset_state)
+
+st.caption(
+    "SIMULATED GAPS sends the snapshot WITHOUT device telemetry. The engine reports those fields as "
+    "missing and never treats them as behavioral evidence - see the notice under the pipeline."
 )
 
-with tab_overview:
-    # ---------- 01 · TELEMETRY SOURCE ----------
-    _section(
-        "01",
-        "Telemetry Source",
-        "Simulated inputs only - scripted scenarios or random snapshots from the Python "
-        "AndroidDeviceSimulator. There is no real on-device capture yet.",
-    )
-    with st.container(border=True):
-        telemetry_mode = st.radio(
-            "Simulated telemetry mode",
-            [
-                "FULL TELEMETRY",
-                "SIMULATED GAPS",
-            ],
-            index=0,
-            horizontal=True,
-            label_visibility="visible",
-            key="telemetry_mode",
-        )
-        include_telemetry = telemetry_mode.startswith("FULL")
+if run_scam:
+    try:
+        st.session_state.pop("intervention", None)
+        st.session_state["timeline"] = run_scenario(DIGITAL_ARREST_SCENARIO, "Digital Arrest Scenario", include_telemetry)
+        st.session_state["scenario_name"] = "Digital Arrest Scenario"
+        st.session_state["include_telemetry"] = include_telemetry
+    except Exception as exc:
+        st.error(f"Backend call failed: {exc}. Start it with `python run.py`.")
 
-        c1, c2, c3, c4 = st.columns(4)
-        with c1:
-            run_scam = st.button("RUN DIGITAL ARREST SIMULATION", type="primary", width="stretch", key="run_scam")
-        with c2:
-            run_normal = st.button("RUN NORMAL CALL", width="stretch", key="run_normal")
-        with c3:
-            run_sim = st.button("RUN RANDOM SIMULATOR", width="stretch", key="run_sim")
-        with c4:
-            st.button("RESET", type="tertiary", width="stretch", key="reset_state", on_click=reset_state)
+if run_normal:
+    try:
+        st.session_state.pop("intervention", None)
+        st.session_state["timeline"] = run_scenario(NORMAL_CALL_SCENARIO, "Normal Call Scenario", include_telemetry)
+        st.session_state["scenario_name"] = "Normal Call Scenario"
+        st.session_state["include_telemetry"] = include_telemetry
+    except Exception as exc:
+        st.error(f"Backend call failed: {exc}. Start it with `python run.py`.")
 
-    st.caption(
-        "SIMULATED GAPS sends the snapshot WITHOUT device telemetry. The engine reports those fields as "
-        "missing and never treats them as behavioral evidence - see the notice under the pipeline."
-    )
+if run_sim:
+    try:
+        st.session_state.pop("intervention", None)
+        timeline, kind = run_simulator_snapshot(include_telemetry)
+        st.session_state["timeline"] = timeline
+        st.session_state["scenario_name"] = f"AndroidDeviceSimulator - {'scam' if kind == 'scam' else 'normal'} snapshot"
+        st.session_state["include_telemetry"] = include_telemetry
+    except Exception as exc:
+        st.error(f"Backend call failed: {exc}. Start it with `python run.py`.")
 
-    if run_scam:
-        try:
-            st.session_state.pop("intervention", None)
-            st.session_state["timeline"] = run_scenario(DIGITAL_ARREST_SCENARIO, "Digital Arrest Scenario", include_telemetry)
-            st.session_state["scenario_name"] = "Digital Arrest Scenario"
-            st.session_state["include_telemetry"] = include_telemetry
-        except Exception as exc:
-            st.error(f"Backend call failed: {exc}. Start it with `python run.py`.")
-
-    if run_normal:
-        try:
-            st.session_state.pop("intervention", None)
-            st.session_state["timeline"] = run_scenario(NORMAL_CALL_SCENARIO, "Normal Call Scenario", include_telemetry)
-            st.session_state["scenario_name"] = "Normal Call Scenario"
-            st.session_state["include_telemetry"] = include_telemetry
-        except Exception as exc:
-            st.error(f"Backend call failed: {exc}. Start it with `python run.py`.")
-
-    if run_sim:
-        try:
-            st.session_state.pop("intervention", None)
-            sim_timeline, kind = run_simulator_snapshot(include_telemetry)
-            st.session_state["timeline"] = sim_timeline
-            st.session_state["scenario_name"] = f"AndroidDeviceSimulator - {'scam' if kind == 'scam' else 'normal'} snapshot"
-            st.session_state["include_telemetry"] = include_telemetry
-        except Exception as exc:
-            st.error(f"Backend call failed: {exc}. Start it with `python run.py`.")
-
-    # ---------- 02 · CURRENT RISK / EMPTY STATE ----------
-    timeline = st.session_state.get("timeline")
-    if timeline:
-        last = timeline[-1]
-        if "intervention" not in st.session_state:
-            try:
-                st.session_state["intervention"] = trigger_intervention(last["signals"], include_telemetry)
-            except Exception as exc:
-                st.session_state["intervention"] = {"error": str(exc)}
-        intervention = st.session_state.get("intervention")
-        _section(
-            "02",
-            "Current Risk",
-            "Live gated assessment for the latest snapshot of this run.",
-        )
-        risk_hero(last["level"], last["score"], intervention, last)
-        st.caption(
-            f"Latest assessment at t={last['t']} min · {st.session_state.get('scenario_name', '')} · "
-            f"model status: {last['model_status']}"
-        )
-    else:
-        st.markdown(
-            '<div class="notice notice-muted"><b>LUMINA is standing by.</b> Run a simulation to analyze an '
-            "escalating digital-arrest call, a normal call, or a random snapshot. Every input is SIMULATED - "
-            "the engine and API responses are real.</div>",
-            unsafe_allow_html=True,
-        )
-        mode_c1, mode_c2, mode_c3 = st.columns(3)
-        with mode_c1:
-            st.markdown(
-                f"""
-                <div class="mode-card">
-                    <div class="mode-card-title">{_icon("handcuffs", 16)} Digital Arrest Scenario</div>
-                    <div class="mode-card-sub">Signals accumulate over a ~2.5 hour call: unknown caller, video
-                    intimidation, authority claims, then full isolation. Watch the gating ceiling hold the score
-                    at 74.9 until rule evidence crosses 75%.</div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-        with mode_c2:
-            st.markdown(
-                f"""
-                <div class="mode-card">
-                    <div class="mode-card-title">{_icon("phone", 16)} Normal Call Scenario</div>
-                    <div class="mode-card-sub">A short, known caller with normal device activity stays at low risk
-                    throughout - a controlled baseline for comparison.</div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-        with mode_c3:
-            st.markdown(
-                f"""
-                <div class="mode-card">
-                    <div class="mode-card-title">{_icon("magnifier", 16)} Random Simulator Snapshot</div>
-                    <div class="mode-card-sub">A single random snapshot from the Python AndroidDeviceSimulator
-                    (scam or normal profile). Toggle Simulated Gaps to see missing telemetry reported honestly.</div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-
-# ---------- SHARED SCENARIO STATE FOR DETAIL TABS ----------
 timeline = st.session_state.get("timeline")
+
 if timeline:
     last = timeline[-1]
     level = last["level"]
     score = last["score"]
     include_telemetry = st.session_state.get("include_telemetry", True)
     scenario_name = st.session_state.get("scenario_name", "")
+
+    if "intervention" not in st.session_state:
+        try:
+            st.session_state["intervention"] = trigger_intervention(last["signals"], include_telemetry)
+        except Exception as exc:
+            st.session_state["intervention"] = {"error": str(exc)}
     intervention = st.session_state.get("intervention")
 
-with tab_pipeline:
-    if timeline:
-        # ---------- 03 · LIVE RISK & DECISION PIPELINE ----------
-        _section(
-            "03",
-            "Live Risk & Decision Pipeline",
-            "The full pipeline for the latest snapshot - from telemetry to a gated, explainable risk level.",
-        )
-        pipeline_strip(last, intervention)
+    # ---------- 02 · LIVE RISK & DECISION PIPELINE ----------
+    _section(
+        "02",
+        "Live Risk & Decision Pipeline",
+        "The full pipeline for the latest snapshot - from telemetry to a gated, explainable risk level.",
+    )
+    risk_hero(level, score, intervention)
+    st.caption(
+        f"Latest assessment at t={last['t']} min · {scenario_name} · "
+        f"model status: {last['model_status']}"
+    )
+    pipeline_strip(last, intervention)
 
-        # ---------- 04 · RISK EVOLUTION ----------
-        _section(
-            "04",
-            "Risk Evolution",
-            "How the gated fused score develops across the scored snapshots of this run.",
+    # ---------- 03 · RISK EVOLUTION ----------
+    _section(
+        "03",
+        "Risk Evolution",
+        "How the gated fused score develops across the scored snapshots of this run.",
+    )
+    risk_evolution_chart(timeline)
+    c_low, c_high = st.columns(2)
+    c_low.metric("Start of call", f"{timeline[0]['score']:.0f} / 100")
+    c_high.metric("End of call", f"{timeline[-1]['score']:.0f} / 100")
+
+    # ---------- 04 · DETECTION REASONING ----------
+    _section(
+        "04",
+        "Why LUMINA Flagged This Call",
+        "The explicit signals behind the current risk level - understandable in seconds.",
+    )
+    if level == "low":
+        st.markdown(
+            '<div class="notice notice-green">No significant risk indicators - this matches normal call '
+            "behavior. None of the digital-arrest signals crossed the detection threshold.</div>",
+            unsafe_allow_html=True,
         )
-        risk_evolution_chart(timeline)
-        c_low, c_high = st.columns(2)
-        c_low.metric("Start of call", f"{timeline[0]['score']:.0f} / 100")
-        c_high.metric("End of call", f"{timeline[-1]['score']:.0f} / 100")
     else:
+        render_detection_factors(last["factors"])
+        st.caption(
+            f"{len(last['factors'])} headline risk signal(s) shown (capped at 3 by the API). "
+            "Full rule evidence below."
+        )
+    st.markdown("**Rule evidence (explicit safety signals)**")
+    rule_evidence_table(last)
+    st.markdown(
+        f'<div class="notice notice-muted">{last["explanation"]}</div>',
+        unsafe_allow_html=True,
+    )
+
+    # ---------- 05 · INTERVENTION & DELIVERY ----------
+    _section(
+        "05",
+        "Intervention & Alert Delivery",
+        "Recommended trusted-contact actions at this risk level, and the real delivery status from the backend.",
+    )
+    if intervention and "error" not in intervention:
+        render_intervention(intervention, level)
+    elif intervention:
+        st.error(f"Intervention check failed: {intervention['error']}")
+
+    # ---------- 06 · BEHAVIOR TIMELINE ----------
+    _section(
+        "06",
+        "Behavior Timeline",
+        "The story of the call as the risk escalated - snapshot by snapshot.",
+    )
+    behavior_timeline_story(timeline)
+
+    # ---------- 07 · INCIDENT REPORT ----------
+    _section(
+        "07",
+        "Incident Report",
+        "A ReportLab FIR-style PDF generated for the latest snapshot via the real backend endpoint.",
+    )
+    st.markdown(
+        f"""
+        <div class="report-panel">
+            <div>
+                <div class="report-eyebrow">Incident Report</div>
+                <div class="report-title">LUMINA Digital Arrest Scam Report</div>
+                <div class="report-sub">Official-style investigation artifact for the latest assessed snapshot.</div>
+            </div>
+            <div class="report-logo logo-tile">{_logo_img(56)}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    if st.button("Generate Incident Report (PDF)", width="stretch", key="gen_report"):
+        try:
+            with st.spinner("Generating PDF report..."):
+                response = requests.post(
+                    f"{API_BASE}/api/generate-report",
+                    json=_to_body(last["signals"], include_telemetry),
+                    timeout=30,
+                )
+                response.raise_for_status()
+                meta = response.json()
+                filename = os.path.basename(meta["pdf_path"])
+                pdf_response = requests.get(f"{API_BASE}/api/download-report/{filename}", timeout=30)
+                pdf_response.raise_for_status()
+                st.session_state["report_bytes"] = pdf_response.content
+                st.session_state["report_filename"] = filename
+                st.session_state["report_meta"] = meta
+        except Exception as exc:
+            st.error(f"Report generation failed: {exc}")
+
+    if st.session_state.get("report_bytes"):
+        meta = st.session_state["report_meta"]
         st.markdown(
-            '<div class="notice notice-muted">Run a simulation to populate the risk pipeline.</div>',
+            '<div class="notice notice-green">Report generated - '
+            f"Risk {meta.get('risk_score')}/100 ({str(meta.get('risk_level', '')).upper()})</div>",
             unsafe_allow_html=True,
         )
-
-with tab_evidence:
-    if timeline:
-        # ---------- 05 · DETECTION REASONING ----------
-        _section(
-            "05",
-            "Why LUMINA Flagged This Call",
-            "The explicit signals behind the current risk level - understandable in seconds.",
+        st.download_button(
+            "Download Incident Report (PDF)",
+            data=st.session_state["report_bytes"],
+            file_name=st.session_state["report_filename"],
+            mime="application/pdf",
+            width="stretch",
+            key="download_report",
         )
-        if level == "low":
-            st.markdown(
-                '<div class="notice notice-green">No significant risk indicators - this matches normal call '
-                "behavior. None of the digital-arrest signals crossed the detection threshold.</div>",
-                unsafe_allow_html=True,
-            )
-        else:
-            render_detection_factors(last["factors"])
-            st.caption(
-                f"{len(last['factors'])} headline risk signal(s) shown (capped at 3 by the API). "
-                "Full rule evidence below."
-            )
-        st.markdown("**Rule evidence (explicit safety signals)**")
-        rule_evidence_table(last)
-        st.markdown(
-            f'<div class="notice notice-muted">{last["explanation"]}</div>',
-            unsafe_allow_html=True,
-        )
-
-        # ---------- 07 · BEHAVIOR TIMELINE ----------
-        _section(
-            "07",
-            "Behavior Timeline",
-            "The story of the call as the risk escalated - snapshot by snapshot.",
-        )
-        behavior_timeline_story(timeline)
-    else:
-        st.markdown(
-            '<div class="notice notice-muted">Run a simulation to populate detection evidence and the '
-            "behavior timeline.</div>",
-            unsafe_allow_html=True,
-        )
-
-with tab_intervention:
-    if timeline:
-        # ---------- 06 · INTERVENTION & DELIVERY ----------
-        _section(
-            "06",
-            "Intervention & Alert Delivery",
-            "Recommended trusted-contact actions at this risk level, and the real delivery status from the backend.",
-        )
-        if intervention and "error" not in intervention:
-            render_intervention(intervention, level)
-        elif intervention:
-            st.error(f"Intervention check failed: {intervention['error']}")
-    else:
-        st.markdown(
-            '<div class="notice notice-muted">Run a simulation to evaluate the intervention recommendation.</div>',
-            unsafe_allow_html=True,
-        )
-
-with tab_report:
-    if timeline:
-        # ---------- 08 · INCIDENT REPORT ----------
-        _section(
-            "08",
-            "Incident Report",
-            "A ReportLab FIR-style PDF generated for the latest snapshot via the real backend endpoint.",
-        )
+else:
+    st.markdown(
+        f"""
+        <div class="empty-hero">
+            <div class="empty-seal">{_seal_svg(340)}</div>
+            <div class="empty-watermark"><img src="{_logo_watermark_uri()}" alt=""/></div>
+            <div class="empty-brand">
+                <div class="logo-tile">{_logo_img(84)}</div>
+                <div class="empty-title">LUMINA is standing by</div>
+                <div class="empty-sub">Run a simulation to analyze an escalating digital-arrest call, a normal
+                call, or a random snapshot. Every input is SIMULATED - the engine and API responses are real.</div>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    mode_c1, mode_c2, mode_c3 = st.columns(3)
+    with mode_c1:
         st.markdown(
             f"""
-            <div class="report-panel">
-                <div>
-                    <div class="report-eyebrow">Incident Report</div>
-                    <div class="report-title">LUMINA Digital Arrest Scam Report</div>
-                    <div class="report-sub">Official-style investigation artifact for the latest assessed snapshot.</div>
-                </div>
-                <div class="report-logo logo-tile">{_logo_img(56)}</div>
+            <div class="mode-card">
+                <div class="mode-card-title">{_icon("handcuffs", 16)} Digital Arrest Scenario</div>
+                <div class="mode-card-sub">Signals accumulate over a ~2.5 hour call: unknown caller, video
+                intimidation, authority claims, then full isolation. Watch the gating ceiling hold the score
+                at 74.9 until rule evidence crosses 75%.</div>
             </div>
             """,
             unsafe_allow_html=True,
         )
-        if st.button("Generate Incident Report (PDF)", width="stretch", key="gen_report"):
-            try:
-                with st.spinner("Generating PDF report..."):
-                    response = requests.post(
-                        f"{API_BASE}/api/generate-report",
-                        json=_to_body(last["signals"], include_telemetry),
-                        timeout=30,
-                    )
-                    response.raise_for_status()
-                    meta = response.json()
-                    filename = os.path.basename(meta["pdf_path"])
-                    pdf_response = requests.get(f"{API_BASE}/api/download-report/{filename}", timeout=30)
-                    pdf_response.raise_for_status()
-                    st.session_state["report_bytes"] = pdf_response.content
-                    st.session_state["report_filename"] = filename
-                    st.session_state["report_meta"] = meta
-            except Exception as exc:
-                st.error(f"Report generation failed: {exc}")
-
-        if st.session_state.get("report_bytes"):
-            meta = st.session_state["report_meta"]
-            st.markdown(
-                '<div class="notice notice-green">Report generated - '
-                f"Risk {meta.get('risk_score')}/100 ({str(meta.get('risk_level', '')).upper()})</div>",
-                unsafe_allow_html=True,
-            )
-            st.download_button(
-                "Download Incident Report (PDF)",
-                data=st.session_state["report_bytes"],
-                file_name=st.session_state["report_filename"],
-                mime="application/pdf",
-                width="stretch",
-                key="download_report",
-            )
-    else:
+    with mode_c2:
         st.markdown(
-            '<div class="notice notice-muted">Run a simulation to generate an incident report.</div>',
+            f"""
+            <div class="mode-card">
+                <div class="mode-card-title">{_icon("phone", 16)} Normal Call Scenario</div>
+                <div class="mode-card-sub">A short, known caller with normal device activity stays at low risk
+                throughout - a controlled baseline for comparison.</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    with mode_c3:
+        st.markdown(
+            f"""
+            <div class="mode-card">
+                <div class="mode-card-title">{_icon("magnifier", 16)} Random Simulator Snapshot</div>
+                <div class="mode-card-sub">A single random snapshot from the Python AndroidDeviceSimulator
+                (scam or normal profile). Toggle Simulated Gaps to see missing telemetry reported honestly.</div>
+            </div>
+            """,
             unsafe_allow_html=True,
         )
 
-with tab_incidents:
-    # ---------- 09 · RECENT INCIDENTS ----------
-    _section(
-        "09",
-        "Recent Incidents",
-        "Recent risk assessments recorded by the backend. Every /api/score call logs one entry.",
-    )
-    try:
-        incidents_response = requests.get(f"{API_BASE}/api/incidents?limit=50", timeout=10)
-        incidents_response.raise_for_status()
-        incidents = incidents_response.json().get("incidents", [])
-        st.caption(f"{len(incidents)} most recent assessment(s) logged by the backend.")
-        incidents_table(incidents)
-    except Exception:
-        st.error("Could not reach the backend. Start it with `python run.py`.")
+st.divider()
+
+# ---------- RECENT INCIDENTS ----------
+_section(
+    "08",
+    "Recent Incidents",
+    "Recent risk assessments recorded by the backend. Every /api/score call logs one entry.",
+)
+try:
+    incidents_response = requests.get(f"{API_BASE}/api/incidents?limit=50", timeout=10)
+    incidents_response.raise_for_status()
+    incidents = incidents_response.json().get("incidents", [])
+    st.caption(f"{len(incidents)} most recent assessment(s) logged by the backend.")
+    incidents_table(incidents)
+except Exception:
+    st.error("Could not reach the backend. Start it with `python run.py`.")
 
 st.divider()
 st.markdown(
@@ -1910,4 +1827,3 @@ st.caption(
     "AndroidDeviceSimulator); no real device data is captured. All alerts are evaluated and logged by the "
     "backend but NOT delivered in demo mode - no SMS is sent."
 )
-

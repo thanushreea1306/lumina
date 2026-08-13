@@ -2,9 +2,20 @@ from __future__ import annotations
 
 import math
 
-import numpy as np
 from typing import Any, Dict, Mapping
 
+
+# The six raw call-behavior fields accepted by the scoring API. These are a
+# subset of the 11-feature ML schema (the remaining 5 ML features are derived
+# inside extract_features()).
+CALL_BEHAVIOR_FIELDS = (
+    "call_duration_min",
+    "is_unknown_number",
+    "is_video_call",
+    "hour_of_day",
+    "caller_call_history",
+    "outgoing_activity_ratio",
+)
 
 # Telemetry-only fields captured by the device/Android layer. None of these
 # belong to the deployed 11-feature call-behavior model schema.
@@ -199,21 +210,3 @@ def extract_features(signals: Mapping[str, Any] | None = None) -> Dict[str, Any]
         "is_missing_persistence_hours": 0 if _is_present(payload, "persistence_hours") else 1,
     }
 
-
-def features_to_array(features: Dict) -> np.ndarray:
-    """Convert features dict to numpy array for model input"""
-    order = [
-        'call_duration_min', 'is_unknown_number', 'is_video_call',
-        'hour_of_day', 'caller_call_history', 'outgoing_activity_ratio',
-        'is_weekend', 'call_duration_log', 'is_early_morning',
-        'is_late_night', 'activity_category',
-        'screen_time_on_call_percent', 'num_app_switches', 'num_home_presses',
-        'has_sms_activity', 'has_social_app_activity', 'location_change',
-        'screen_brightness', 'screen_on_continuous_hours', 'persistence_hours',
-        'is_missing_screen_time_on_call_percent', 'is_missing_num_app_switches',
-        'is_missing_num_home_presses', 'is_missing_has_sms_activity',
-        'is_missing_has_social_app_activity', 'is_missing_location_change',
-        'is_missing_screen_brightness', 'is_missing_screen_on_continuous_hours',
-        'is_missing_persistence_hours'
-    ]
-    return np.array([features.get(f, 0.0) for f in order])

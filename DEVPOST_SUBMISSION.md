@@ -35,7 +35,7 @@ LUMINA answers a completely different question:
 This shift — from *detecting the scam* to *detecting the victim's powerlessness* — is the innovation. Three design consequences follow from it:
 
 1. **Zero victim action.** No panic button, no "report this call" screen. The system is designed to work on telemetry a phone already has — in this demo the telemetry comes from a Python simulator / API call snapshots, and real on-device capture is skeleton-only FUTURE work.
-2. **Silent intervention.** The alert targets *trusted contacts* (family), not the victim — the scammer is literally on the other end of the victim's phone and must never know an alarm has been raised. In this demo the alert delivery is **simulated**: the endpoint only builds the alert for HIGH/CRITICAL risk and explicitly returns `delivered: false` with a `SIMULATED` status unless a real delivery channel (Twilio + `LUMINA_TRUSTED_CONTACTS`) is configured.
+2. **Silent intervention.** The alert targets *trusted contacts* (family), not the victim — the scammer is literally on the other end of the victim's phone and must never know an alarm has been raised. In this demo the alert delivery is **simulated**: the endpoint only builds the alert for HIGH/CRITICAL risk and explicitly returns `delivered: false` with a `SIMULATED` status. Real delivery is **not active by default** — it requires the `twilio` Python dependency (included in `requirements.txt`), valid Twilio credentials, `LUMINA_ALERT_MODE=real`, and `LUMINA_TRUSTED_CONTACTS`.
 3. **Explainable, human-centered escalation.** The family gets plain-language reasons ("she's stopped using her phone for 3 hours on an unknown video call"), not a black-box probability.
 
 ---
@@ -107,7 +107,7 @@ The deployed score currently fuses ML and rules at **50/50**, gated so ML can on
 
 ### Verified behavior (tests + live runs)
 
-- **130/130 automated tests pass** (`pytest tests/ -v`): risk escalation, false-positive guards (unknown caller alone ≠ critical), missing-telemetry safety (including explicitly-null telemetry treated as missing), model-artifact loading failure behavior (unavailable/degraded states), alert abuse protection (cooldown, rate limiting, duplicate suppression), silent-intervention gating (never triggered below HIGH risk, no fake delivery), phase-2 scenario cases, API integration.
+- **140/140 automated tests pass** (`pytest tests/ -v`): risk escalation, false-positive guards (unknown caller alone ≠ critical), missing-telemetry safety (including explicitly-null telemetry treated as missing), model-artifact loading failure behavior (unavailable/degraded states), alert abuse protection (cooldown, rate limiting, duplicate suppression), silent-intervention gating (never triggered below HIGH risk, no fake delivery), phase-2 scenario cases, API integration.
 - **Live scenario runs through the real API:**
   - Digital arrest: **6.4 → 16.1 → 74.9 → 100 → 100** as signals accumulate (unknown → video → authority claim → full isolation)
   - Normal call: **0 → 0 → 0 → 0 → 0** (stays low despite a brief video segment)
@@ -126,7 +126,7 @@ The deployed score currently fuses ML and rules at **50/50**, gated so ML can on
 
 ### Alert service with abuse protection
 
-Demo mode returns `SIMULATED DELIVERY` (no message is actually sent). Real Twilio SMS activates only when env vars are set. `/api/send-alert` is protected by an `AlertGuard` that enforces cooldown, per-victim rate limits, and duplicate-incident suppression; `/api/silent-intervention` builds the alert without those guardrails.
+Demo mode returns `SIMULATED DELIVERY` (no message is actually sent). Real Twilio SMS is **not active by default**: it requires the `twilio` Python dependency (included in `requirements.txt`), valid Twilio credentials, `LUMINA_ALERT_MODE=real`, and `LUMINA_TRUSTED_CONTACTS`. `/api/send-alert` is protected by an `AlertGuard` that enforces cooldown, per-victim rate limits, and duplicate-incident suppression; `/api/silent-intervention` builds the alert without those guardrails.
 
 ---
 
@@ -149,7 +149,7 @@ The UX philosophy mirrors the safety philosophy: **the person in danger does not
 This is a research prototype, and we say so plainly:
 
 1. **Synthetic model.** Trained on 15,000 generated calls. Real-world detection performance is unmeasured and requires ethically collected datasets. The benchmark numbers are synthetic-only. The real datasets under `data/datasets/` (Hinglish scam texts, FraudZen CDRs) are **not** used by the deployed model — they were explored only in archived experiments.
-2. **Simulated alerts.** SMS is simulated by default; real delivery needs Twilio credentials.
+2. **Simulated alerts.** SMS is simulated by default; real delivery needs the `twilio` Python dependency plus valid Twilio credentials and environment configuration.
 3. **No live integration.** No telecom call-metadata API, no real Android on-device capture (the Kotlin app is a skeleton).
 4. **Rule-based text scanner.** No NLP model yet.
 5. **Plain SQLite storage.** Incident records aren't hashed and there's no retention window (privacy hardening is roadmap work). The repo's earlier "SHA-256 / 24h deletion" claims were removed because they're not implemented.

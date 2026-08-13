@@ -187,7 +187,8 @@ def test_api_score_exposes_model_status(client):
     assert response.status_code == 200
     body = response.json()
     assert body["model_status"] == "available"
-    assert body["model_used"] == body["model_status"]
+    assert body["model_used"] != body["model_status"]
+    assert body["model_used"] == "XGBClassifier (XGBoost, 11 call-behavior features)"
     assert "error_detail" in body
     assert body["ml_probability"] is not None
 

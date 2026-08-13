@@ -1,4 +1,5 @@
 # app/main.py
+import logging
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
@@ -18,6 +19,7 @@ from app.services.government_integration import GovernmentIntegration
 from app.services.ngo_support import NGOSupport
 from app.services.community_alerts import CommunityAlerts
 from app.api import detect
+from app.core.features import CALL_BEHAVIOR_FIELDS, TELEMETRY_FIELDS
 from app.core.risk_engine import RiskEngine
 from app.core.db import get_incidents
 
@@ -27,10 +29,12 @@ app = FastAPI(
     version="2.0.0"
 )
 
-# CORS - Allow frontend to access API
+logger = logging.getLogger(__name__)
+
+# CORS - Allow the local Streamlit frontend to access the API
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["http://localhost:8501", "http://127.0.0.1:8501"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -113,45 +117,49 @@ def current_model_status() -> dict:
 # ============ ROUTERS ============
 app.include_router(detect.router, prefix="/api/detect", tags=["Detection"])
 
+# Per-field coercion defaults, keyed by the canonical feature names defined
+# in app/core/features.py. The call duration field additionally accepts a
+# legacy "call_duration_minutes" alias.
+_CALL_FIELD_DEFAULTS = {
+    "call_duration_min": 0,
+    "is_unknown_number": 0,
+    "is_video_call": 0,
+    "hour_of_day": 12,
+    "caller_call_history": 0,
+    "outgoing_activity_ratio": 0.5,
+}
+
+
 def _coerce_call_payload(features) -> dict:
     payload = features.model_dump() if hasattr(features, "dict") else dict(features)
     extra = payload.pop("extra_telemetry", None) or {}
     payload.update(extra)
-    payload["call_duration_min"] = payload.get("call_duration_min", payload.get("call_duration_minutes", 0))
-    payload["is_unknown_number"] = payload.get("is_unknown_number", 0)
-    payload["is_video_call"] = payload.get("is_video_call", 0)
-    payload["hour_of_day"] = payload.get("hour_of_day", 12)
-    payload["caller_call_history"] = payload.get("caller_call_history", 0)
-    payload["outgoing_activity_ratio"] = payload.get("outgoing_activity_ratio", 0.5)
+    payload["call_duration_min"] = payload.get(
+        "call_duration_min",
+        payload.get("call_duration_minutes", _CALL_FIELD_DEFAULTS["call_duration_min"]),
+    )
+    for key in CALL_BEHAVIOR_FIELDS:
+        if key != "call_duration_min" and key not in payload:
+            payload[key] = _CALL_FIELD_DEFAULTS[key]
     return payload
 
 
 def _coerce_isolation_payload(telemetry: dict) -> dict:
     payload = dict(telemetry or {})
-    payload["call_duration_min"] = payload.get("call_duration_minutes", payload.get("call_duration_min", 0))
-    payload["is_unknown_number"] = int(bool(payload.get("is_unknown_number", False)))
-    payload["is_video_call"] = int(bool(payload.get("is_video_call", False)))
-    payload["hour_of_day"] = payload.get("hour_of_day", 12)
-    payload["caller_call_history"] = payload.get("caller_call_history", 0)
-    payload["outgoing_activity_ratio"] = payload.get("outgoing_activity_ratio", 0.5)
-    if "screen_time_on_call_percent" in payload:
-        payload["screen_time_on_call_percent"] = payload.get("screen_time_on_call_percent", 0)
-    if "num_app_switches" in payload:
-        payload["num_app_switches"] = payload.get("num_app_switches", 0)
-    if "num_home_presses" in payload:
-        payload["num_home_presses"] = payload.get("num_home_presses", 0)
-    if "has_sms_activity" in payload and payload["has_sms_activity"] is not None:
-        payload["has_sms_activity"] = int(bool(payload["has_sms_activity"]))
-    if "has_social_app_activity" in payload and payload["has_social_app_activity"] is not None:
-        payload["has_social_app_activity"] = int(bool(payload["has_social_app_activity"]))
-    if "location_change" in payload:
-        payload["location_change"] = payload.get("location_change", 0)
-    if "screen_brightness" in payload:
-        payload["screen_brightness"] = payload.get("screen_brightness", 0)
-    if "screen_on_continuous_hours" in payload:
-        payload["screen_on_continuous_hours"] = payload.get("screen_on_continuous_hours", 0)
-    if "persistence_hours" in payload:
-        payload["persistence_hours"] = payload.get("persistence_hours", 0)
+    payload["call_duration_min"] = payload.get(
+        "call_duration_minutes",
+        payload.get("call_duration_min", _CALL_FIELD_DEFAULTS["call_duration_min"]),
+    )
+    for key in CALL_BEHAVIOR_FIELDS:
+        if key == "call_duration_min":
+            continue
+        if key in ("is_unknown_number", "is_video_call"):
+            payload[key] = int(bool(payload.get(key, False)))
+        else:
+            payload[key] = payload.get(key, _CALL_FIELD_DEFAULTS[key])
+    for key in TELEMETRY_FIELDS:
+        if key in ("has_sms_activity", "has_social_app_activity") and payload.get(key) is not None:
+            payload[key] = int(bool(payload[key]))
     return payload
 
 
@@ -194,7 +202,15 @@ async def root():
             "government_integration": True,
             "ngo_support": True,
             "community_alerts": True
-        }
+        },
+        "feature_status": {
+            "panic_detection": "implemented (rule-based phrase engine)",
+            "senior_protection": "implemented (static demo data)",
+            "government_integration": "implemented (static demo data)",
+            "ngo_support": "implemented (static demo data)",
+            "community_alerts": "implemented (in-memory demo store)"
+        },
+        "integration_scope": "demo: implemented API capabilities backed by in-repo/static data; no live external integration yet"
     }
 
 @app.get("/health")
@@ -232,13 +248,19 @@ Actions: Call them on another line. Visit if possible. Dial 1930 if confirmed.""
         else:
             alert = "LUMINA: No significant risk detected."
 
+        model_used = (
+            "XGBClassifier (XGBoost, 11 call-behavior features)"
+            if risk_result.get("model_status") == "available"
+            else "rules-only (ML unavailable)"
+        )
+
         return RiskResponse(
             risk_score=risk_result["risk_score"],
             risk_level=risk_level,
             top_factors=factors if factors else ["No significant risk"],
             features=payload,
             alert_message=alert,
-            model_used=risk_result.get("model_status", "unavailable"),
+            model_used=model_used,
             explanation=risk_result.get("explanation", ""),
             model_status=risk_result.get("model_status", "unavailable"),
             error_detail=risk_result.get("error_detail"),
@@ -249,7 +271,7 @@ Actions: Call them on another line. Visit if possible. Dial 1930 if confirmed.""
             missing_telemetry=risk_result.get("missing_telemetry", []),
         )
     except Exception as e:
-        print(f"Error in /api/score: {str(e)}")
+        logger.exception("Error in /api/score: %s", e)
         raise HTTPException(status_code=500, detail=str(e))
 
 # ============ HISTORY / INCIDENTS ============
@@ -259,7 +281,7 @@ async def incidents(limit: int = 50):
     try:
         records = get_incidents(limit)
     except Exception as e:
-        print(f"Error in /api/incidents: {str(e)}")
+        logger.exception("Error in /api/incidents: %s", e)
         raise HTTPException(status_code=500, detail=str(e))
     return {
         "total": len(records),
@@ -483,5 +505,5 @@ async def detect_isolation(telemetry: IsolationTelemetryRequest):
 
         return result
     except Exception as e:
-        print(f"Error in /api/detect-isolation: {str(e)}")
+        logger.exception("Error in /api/detect-isolation: %s", e)
         raise HTTPException(status_code=500, detail=str(e))
