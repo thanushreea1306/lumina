@@ -1,21 +1,16 @@
 # Lumina
 
-Lumina is a hybrid AI risk engine that detects the **behavioral isolation pattern** associated with "digital-arrest" scams — hours-long calls from unknown callers, video intimidation, and the sudden silence of a phone that has stopped reaching out — and prepares a silent trusted-contact alert while the scam is still in progress.
-
-Prototype scope: Lumina is currently evaluated on synthetic data and uses simulated alerts by default. The Android collector is a skeleton and no live telecom integration is included. All reported benchmark results are clearly identified as synthetic and are not claims of real-world detection performance.
-
-It works by fusing two independent layers:
-
-1. an **XGBoost classifier** over 11 call-behavior features, and
-2. a **deterministic safety-rule layer** over call + telemetry context,
-
-then applying conservative **escalation gates** so the ML model can corroborate evidence but never manufacture a HIGH or CRITICAL risk on its own.
-
-Current scope: this is a research prototype. The model is trained on **synthetic** data, alerts are **simulated by default**, and no live telecom or on-device capture is integrated yet. The system is built to be evaluated honestly and reproduced end-to-end.
+A research prototype for behavioral-isolation detection and silent trusted-contact intervention against "digital-arrest" scams.
 
 ---
 
-## Background
+## Prototype Scope & Transparency Disclosure
+
+Prototype scope: Lumina is currently evaluated on synthetic data and uses simulated alerts by default. The Android collector is a skeleton and no live telecom integration is included. All reported benchmark results are clearly identified as synthetic and are not claims of real-world detection performance.
+
+---
+
+## Problem & Insight
 
 Digital-arrest scams impersonate police or government officials. The victim is kept on a long video call, threatened with arrest, and explicitly told not to contact anyone. The decisive feature of the attack is not the content of the deception — it is the **isolation** it imposes:
 
@@ -29,7 +24,51 @@ Traditional reporting tools act **after** the victim recognizes the fraud. A vic
 
 ---
 
+## System Architecture & Data Flow
+
+```text
+INCOMING EVENT (call + telemetry)
+                │
+                ▼
+   CANONICAL FEATURE SCHEMA (29 fields)
+                │
+     ┌──────────┴──────────┐
+     ▼                     ▼
+  ML LAYER            SAFETY-RULE LAYER
+  (11 call-           (call + telemetry
+  behavior            context, missingness
+  features)           indicators)
+     └──────────┬──────────┘
+                ▼
+          GATED FUSION
+                │
+                ▼
+     RISK SCORE + LEVEL
+                │
+                ▼
+    SILENT INTERVENTION
+```
+
+The central architectural boundary is explicit: **device telemetry never enters the ML model directly.** Telemetry fields are consumed only by the safety-rule layer, so missing telemetry can never be silently coerced into model input.
+
+Data flow:
+
+- A call + telemetry scenario enters the API.
+- Canonical features are generated and separated into ML features and telemetry/context.
+- XGBoost and the safety-rule layer evaluate the evidence independently.
+- Gated fusion produces the risk score, level, and explainable evidence.
+- HIGH/CRITICAL risk can trigger the trusted-contact intervention path; demo delivery is simulated by default.
+
+---
+
 ## How Lumina Works
+
+Lumina works by fusing two independent layers:
+
+1. an **XGBoost classifier** over 11 call-behavior features, and
+2. a **deterministic safety-rule layer** over call + telemetry context,
+
+then applying conservative **escalation gates** so the ML model can corroborate evidence but never manufacture a HIGH or CRITICAL risk on its own.
 
 ```mermaid
 flowchart LR
@@ -49,7 +88,43 @@ flowchart LR
     H --> M[PDF incident report]
 ```
 
-The key architectural decision is the strict **telemetry/ML separation**: telemetry fields never reach the model. They are consumed only by the explicit safety-rule layer, so missing telemetry can never be silently coerced into model input.
+### ML layer
+
+The deployed classifier is an **XGBoost** `XGBClassifier` (binary, `binary:logistic`) operating on the 11 call-behavior features. Training is fully scripted in `notebooks/train_simple_model.py`:
+
+- **Data**: 15,000 synthetic call snapshots (scam rate ~15%), generated from class-conditional distributions.
+- **Model**: `n_estimators=100`, `max_depth=4`, `learning_rate=0.1`, `subsample=0.8`, `colsample_bytree=0.8`, `random_state=42`.
+- **Preprocessing**: `StandardScaler` fitted on the training split.
+- **Split**: 80/20 stratified train/test with a fixed random seed (`random_state=42`).
+- **Artifacts**: tracked at `models/saved/risk_classifier.pkl`, `scaler.pkl`, `features.pkl`.
+
+Feature importance on the synthetic development data is dominated by `outgoing_activity_ratio` (~60%) and `activity_category` (~20%) — consistent with the isolation thesis: reduced outward communication is the strongest signal the model learns.
+
+- Raw `predict_proba` output is fused, not calibrated; probabilities should not be read as true frequencies.
+- Telemetry is excluded from the ML vector by construction (`MODEL_EXCLUDED_FEATURES` in `app/core/features.py`).
+- On load, `RiskEngine` validates that the model's `n_features_in_` equals the scaler's feature count and the `features.pkl` list, that the feature ordering matches the scaler's training order, and that no telemetry field appears in the model schema. Invalid states set `model_status` to `degraded` and ML is not served.
+- If the ML artifacts are unavailable or the prediction fails at runtime, scoring falls back to the rule score alone and `ml_probability` is returned as `null` — a fabricated probability (e.g. `0.5`) is never substituted.
+
+> Known small train/serve skew, documented for transparency: the training generator bins `activity_category` with `pd.cut(bins=3)` over the observed data range (`notebooks/train_simple_model.py`), while runtime uses fixed 0.33 / 0.66 thresholds (`app/core/features.py`). It is a minor, deterministic mismatch, not a semantic one.
+
+### Safety-rule layer
+
+`RiskEngine._safety_rules()` evaluates explicit, explainable signals with fixed weights, including:
+
+- very long calls (>= 60 min, >= 120 min)
+- unknown caller / video call
+- very low outgoing activity (< 0.2)
+- screen locked to the call, no app switching, no home presses
+- no SMS / social activity, no location change, high brightness, multi-hour persistence
+- a single counter-evidence signal (known caller with active outward communication) that **reduces** the score
+
+Each rule carries a human-readable reason and contributes to a rule score capped at `1.0`. This is the same evidence surfaced to the user as `top_factors` / `safety_rule_contributions`.
+
+### Dashboard
+
+The Streamlit dashboard (`dashboard/app.py`) calls the live API and renders whatever the engine returns — there is no separate hardcoded scoring path. It provides a current risk banner, explainable evidence, scripted **digital-arrest** and **normal-call** scenarios driven through the real engine, a behavior timeline and risk-evolution chart, intervention status (simulated delivery), incident history and PDF report generation/download, and a MODEL EVIDENCE panel with the synthetic benchmark summary and the generated charts (feature importance, confusion matrix, ROC).
+
+The scripted demo scenarios use fixed dashboard payloads; the Python device simulator (`python -m app.services.android_simulator`) powers the dashboard's random-snapshot mode. The simulator's `IsolationDetector` heuristic (its own thresholds) is demo-only and separate from the deployed engine — the dashboard score comes exclusively from `/api/score`.
 
 ---
 
@@ -83,51 +158,7 @@ The key architectural decision is the strict **telemetry/ML separation**: teleme
 
 ---
 
-## ML Layer
-
-The deployed classifier is an **XGBoost** `XGBClassifier` (binary, `binary:logistic`) operating on the 11 call-behavior features above. Training is fully scripted in `notebooks/train_simple_model.py`:
-
-- **Data**: 15,000 synthetic call snapshots (scam rate ~15%), generated from class-conditional distributions.
-- **Model**: `n_estimators=100`, `max_depth=4`, `learning_rate=0.1`, `subsample=0.8`, `colsample_bytree=0.8`, `random_state=42`.
-- **Preprocessing**: `StandardScaler` fitted on the training split.
-- **Split**: 80/20 stratified train/test (`random_state=42`).
-- **Artifacts**: `models/saved/risk_classifier.pkl`, `scaler.pkl`, `features.pkl`.
-
-Feature importance on the synthetic development data is dominated by `outgoing_activity_ratio` (~60%) and `activity_category` (~20%) — consistent with the isolation thesis: reduced outward communication is the strongest signal the model learns.
-
-> Known small train/serve skew, documented for transparency: the training generator bins `activity_category` with `pd.cut(bins=3)` over the observed data range (`notebooks/train_simple_model.py`), while runtime uses fixed 0.33 / 0.66 thresholds (`app/core/features.py`). It is a minor, deterministic mismatch, not a semantic one.
-
-> The model is deliberately limited to call-behavior evidence. Isolation/telemetry evidence is handled by the rule layer (below), not by ML.
-
----
-
-## Model Card (Summary)
-
-- **Intended use**: corroborating a behavioral-isolation risk assessment for digital-arrest-style scams during a call, in a research prototype.
-- **Out of scope**: general scam/fraud detection, short-call scams (measured recall ~0.5%), content/NLP understanding, autonomous emergency escalation.
-- **Data provenance**: 15,000 fully synthetic, class-conditional call snapshots. No real call data was used to train or evaluate the model.
-- **Calibration**: raw `predict_proba` output is fused, not calibrated; probabilities should not be read as true frequencies.
-- **Known behavior**: near-perfect on the training distribution, degraded under stress shift (AUC 0.824), weak on short calls.
-- **Operational guardrails**: telemetry is excluded from the model by construction; missing data never becomes model input; gates keep ML corroborative only.
-
----
-
-## Safety-Rule Layer
-
-`RiskEngine._safety_rules()` evaluates explicit, explainable signals with fixed weights, including:
-
-- very long calls (>= 60 min, >= 120 min)
-- unknown caller / video call
-- very low outgoing activity (< 0.2)
-- screen locked to the call, no app switching, no home presses
-- no SMS / social activity, no location change, high brightness, multi-hour persistence
-- a single counter-evidence signal (known caller with active outward communication) that **reduces** the score
-
-Each rule carries a human-readable reason and contributes to a rule score capped at `1.0`. This is the same evidence surfaced to the user as `top_factors` / `safety_rule_contributions`.
-
----
-
-## Fusion and Escalation Gates
+## Gated Fusion & Escalation
 
 The final score is a weighted blend of ML probability and rule score, expressed on a 0–100 scale:
 
@@ -153,25 +184,20 @@ ML contributes in both directions: it can raise or lower the fused score, while 
 
 **Fallback:** when the ML artifacts are unavailable or the prediction fails at runtime, scoring falls back to the rule score alone and `ml_probability` is returned as `null`. A fabricated probability (e.g. `0.5`) is never substituted.
 
-**Artifact validation:** on load, `RiskEngine` validates that the model's `n_features_in_` equals the scaler's feature count and the feature list in `features.pkl`, that the feature ordering matches the scaler's training order, and that no telemetry field appears in the model schema. Invalid states set `model_status` to `degraded` and ML is not served.
-
----
-
-## Intervention
+### Intervention
 
 When risk reaches HIGH or CRITICAL, the silent-intervention path constructs a trusted-contact alert (score alone only records `alert_status`).
 
 - **Default (demo) mode**: the alert is built and marked `SIMULATED` / `delivered: false`. No external message is sent.
 - **Optional real delivery**: Twilio SMS can be enabled only through explicit configuration — `LUMINA_ALERT_MODE=real` plus valid `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM_NUMBER`, and `LUMINA_TRUSTED_CONTACTS`.
 - **Abuse protection** (`AlertGuard`): per-victim cooldown (default 60 s), rate limit (max 5 alerts / 60 s window), and duplicate-incident suppression. Recipients outside the trusted-contact allowlist are blocked.
-
-There is **no automatic emergency escalation** to police, government, or NGOs. Support endpoints (`/api/ngos`, `/api/government-tools`, `/api/community-alerts`, etc.) return demo data only — static or in-memory — with no live external integration.
+- There is **no automatic emergency escalation** to police, government, or NGOs. Support endpoints (`/api/ngos`, `/api/government-tools`, `/api/community-alerts`, etc.) return demo data only — static or in-memory — with no live external integration.
 
 ---
 
-## Validation
+## Model Evaluation & Benchmarks
 
-Validation is separated into a controlled development benchmark and an independent stress benchmark. Both are synthetic. Neither is a claim about real-world detection performance.
+Validation is separated into a controlled development benchmark and an **independent stress evaluation**. Both are synthetic. Neither is a claim about real-world detection performance.
 
 ### Development benchmark
 
@@ -180,24 +206,18 @@ Validation is separated into a controlled development benchmark and an independe
 | Metric | Result |
 |--------|-------:|
 | Accuracy | 99.88% |
-| Precision (scam) | 99.6% |
-| Recall (scam) | 99.6% |
-| F1 (scam) | ~99.6% |
-| ROC-AUC | 1.00 |
+| Precision (scam) | 99.60% |
+| Recall (scam) | 99.60% |
+| F1 (scam) | ~99.60% |
+| ROC-AUC | 1.000 |
 
 Because the generator uses strongly class-conditional distributions, the classes are almost separable by construction. **These numbers measure internal consistency of the training/inference pipeline — they are not real-world detection accuracy.**
 
-### Independent stress benchmark
+### Independent Stress Evaluation
 
-`notebooks/stress_eval.py` freezes the **deployed artifacts** (model, scaler, features — tracked artifacts, schema-validated and unchanged; no retraining occurred) and evaluates them on a deliberately harder synthetic distribution of 8,000 samples with:
+*Synthetic distribution shift + edge/adversarial cases*
 
-- overlapping class distributions
-- contradictory evidence (scam signals combined with strong counter-evidence)
-- threshold-boundary cases
-- measurement noise
-- distribution shift and out-of-distribution regions
-
-Labels are assigned by an explicit scenario policy computed before any model call; the model was **not retrained** for this evaluation. Derived features are computed with the same runtime formulas used at inference. One caveat is stated plainly: the scenario policy operates on the **same feature space the model consumes** (duration, activity ratio, caller history, hour), so the stress labels are rule-derived from the model's own inputs — not independent ground truth. The benchmark measures how well the model approximates the scenario rule under noise and distribution shift; it is a harder consistency check, not real-world validation. Results are written to `models/saved/stress_metrics.json`:
+`notebooks/stress_eval.py` freezes the **deployed artifacts** (model, scaler, features — tracked artifacts, schema-validated and unchanged; no retraining occurred) and evaluates them on a deliberately harder synthetic distribution of 8,000 samples introducing overlapping class distributions, contradictory evidence, threshold-boundary cases, measurement noise, and distribution shift / out-of-distribution regions. Results are written to `models/saved/stress_metrics.json`:
 
 | Metric | Stress result |
 |--------|--------------:|
@@ -208,113 +228,83 @@ Labels are assigned by an explicit scenario policy computed before any model cal
 | ROC-AUC | 0.824 |
 | Brier score | 0.2232 |
 
+> **Important:** Stress-test labels are generated from a scenario policy operating on the same call-behavior feature space consumed by the model. They are not independent real-world ground truth. The benchmark therefore measures robustness/consistency under synthetic distribution shift, not real-world detection performance.
+
+---
+
+## Measured Failure Modes & Transparency
+
 Measured failure modes (from `stress_metrics.json`):
 
 | Slice | n | Metric | Value |
 |--------|----:|--------|------:|
 | Short calls (0–30 min) | 3,697 | scam recall | 0.53% |
+| 120–481 min calls | 2,318 | scam recall | 94.0% |
 | Threshold-boundary cases | 1,600 | accuracy | 64.6% |
 | Threshold-boundary cases | 1,600 | ROC-AUC | 0.705 |
 | General stress subset | 5,200 | ROC-AUC | 0.851 |
 
-This is **still synthetic evaluation and does not constitute real-world validation**. The stress test deliberately exposes failure modes — notably the 0.53% scam recall on short calls (the model largely misses brief scams) versus 94.0% recall on 120–481 min calls — and these are reported rather than hidden.
+**Short Calls (0–30 min): 0.53% scam recall.** The current ML model is not effective for short-duration scenarios, highlighting a major limitation and an area for future early-stage detection improvements.
+
+On long calls it is strong (120–481 min: 94.0% recall). Lumina is designed around the long, isolating digital-arrest call — it is not a general call-scam detector, and we do not present it as one.
+
+This is **still synthetic evaluation and does not constitute real-world validation**. These failure modes are reported rather than hidden.
 
 ---
 
-## Reproducibility
+## Technical Feasibility & Android Integration Roadmap
 
-All evaluation and artifact generation is scripted. Commands run from the repository root:
+The current `android_app/` implementation is a Kotlin skeleton, not a production telemetry collector. It does not provide live telemetry collection.
 
-| Task | Command | Output |
-|------|---------|--------|
-| Train model | `python notebooks/train_simple_model.py` | `models/saved/*.pkl`, `data/processed/feature_importance.png` |
-| Development benchmark | `python notebooks/audit_model.py` | `models/saved/metrics.json` |
-| Stress benchmark | `python notebooks/stress_eval.py` | `models/saved/stress_metrics.json` |
-| Evidence charts | `python notebooks/generate_ml_visuals.py` | `data/processed/*.png` |
-| Run test suite | `python -m pytest tests/ -v` | test report |
+The following are **potential integration targets / feasibility mapping** for a future consent-driven Android implementation:
 
-The benchmarks use fixed seeds, so the numbers in `metrics.json` and `stress_metrics.json` reproduce deterministically.
+- `TelecomManager` — call state and call-log context
+- `PhoneStateListener` — real-time call-state changes
+- `UsageStatsManager` — app-usage and screen-interaction context
+- `DisplayManager` — display/interaction state
+- `PowerManager` — screen-on and interaction persistence
+- `AccessibilityService` — only where appropriate and permitted, for user-visible interaction signals
 
----
-
-## Testing
-
-**140 tests pass** (`python -m pytest tests/ -v`). Coverage includes:
-
-- fused risk engine: escalation gating, false-positive guards, missing-telemetry safety
-- model-artifact loading and degradation behavior
-- API integration and risk-response field contracts
-- telemetry-to-ML boundary and isolation-detection payload validation
-- alert abuse protection (cooldown, rate limits, duplicate suppression)
-- silent-intervention gating
-- report generation and report-download path-traversal protection
-- dashboard rendering
+> **These are future integration targets, not currently implemented production capabilities.**
 
 ---
 
-## Dashboard
+## Project Structure
 
-The Streamlit dashboard (`dashboard/app.py`) calls the live API and renders whatever the engine returns — there is no separate hardcoded scoring path. It provides:
-
-- current risk banner (level + score)
-- explainable evidence (`top_factors`, rule contributions)
-- scenario runner: scripted **digital-arrest** and **normal-call** simulations driven through the real engine
-- behavior timeline and risk-evolution chart
-- intervention status (simulated delivery)
-- incident history and PDF report generation / download
-- a MODEL EVIDENCE panel with the synthetic benchmark summary and the generated charts (feature importance, confusion matrix, ROC)
-
-The scripted demo scenarios use fixed dashboard payloads; the Python device simulator (`python -m app.services.android_simulator`) powers the dashboard's random-snapshot mode. The simulator's `IsolationDetector` heuristic (its own thresholds) is demo-only and separate from the deployed engine — the dashboard score comes exclusively from `/api/score`.
-
----
-
-## Demo Flow
-
-- A call + telemetry scenario enters the API.
-- Canonical features are generated and separated into ML features and telemetry/context.
-- XGBoost and the safety-rule layer evaluate the evidence independently.
-- Gated fusion produces the risk score, level, and explainable evidence.
-- HIGH/CRITICAL risk can trigger the trusted-contact intervention path; demo delivery is simulated by default.
-
----
-
-## Privacy and Security
-
-**Implemented:**
-
-- telemetry/ML separation (telemetry is excluded from model input by construction)
-- report-download path-traversal protection (filename sanitization and path containment)
-- alert cooldown, rate limiting, and duplicate suppression
-- missing-data handling that never fabricates behavioral signals from absent telemetry
-- controlled intervention behavior (simulated by default, no automatic escalation)
-
-**Not implemented (explicit future work):**
-
-- production authentication and authorization
-- encrypted database storage (incident records are stored in plain SQLite at `data/incidents.db`)
-- automatic retention or deletion of stored records
-- live telecom integration
-- production on-device (Android) telemetry collection — the Kotlin app under `android_app/` is a skeleton
+```
+lumina/
+├── app/
+│   ├── api/                 # FastAPI route modules (detection/panic; scoring lives in main.py)
+│   ├── core/                # features.py, risk_engine.py, db.py
+│   └── services/            # alerts, reports, simulator, support integrations
+├── android_app/             # Kotlin skeleton (future on-device capture)
+├── dashboard/               # Streamlit app + assets
+├── config/                  # config package
+├── data/
+│   ├── processed/           # generated evidence charts
+│   └── incidents.db         # SQLite incident log
+├── reports/                 # generated PDF incident reports
+├── models/saved/            # model artifacts + benchmark results
+│   ├── risk_classifier.pkl
+│   ├── scaler.pkl
+│   ├── features.pkl
+│   ├── metrics.json         # development benchmark
+│   └── stress_metrics.json  # stress benchmark
+├── notebooks/
+│   ├── train_simple_model.py
+│   ├── audit_model.py
+│   ├── generate_ml_visuals.py
+│   └── stress_eval.py
+├── tests/                   # 140 tests
+├── archive/ml_pipeline/     # historical, non-active training experiments
+├── run.py                   # backend entrypoint
+├── requirements.txt
+└── LICENSE                  # MIT
+```
 
 ---
 
-## Limitations
-
-### Android Integration Path
-
-The current `android_app/` implementation is a Kotlin skeleton, not a production telemetry collector. A future consent-driven Android implementation would investigate platform APIs such as TelecomManager for call state, UsageStatsManager for app-usage context, and AccessibilityService only where appropriate and permitted for user-visible interaction signals. These are future integration targets, not capabilities currently claimed by Lumina.
-
-
-- The model is trained on **synthetic** data; real-world detection performance has **not** been measured.
-- SMS alerts are **simulated by default**; real delivery requires explicit configuration and credentials.
-- No live telecom / call-metadata integration; Android on-device capture is a skeleton.
-- The text-scam scanner (`/api/detect/panic`) is rule-based, not an ML/NLP model.
-- Incident storage is plain SQLite without encryption or retention guarantees.
-- There is no production authentication and no automated external escalation.
-
----
-
-## Installation and Usage
+## Quickstart & Reproducibility
 
 Requirements: Python 3.10+ (developed on 3.14). Dependencies are listed in `requirements.txt` (FastAPI, uvicorn, pydantic, scikit-learn, XGBoost, pandas, numpy, Streamlit, ReportLab, Twilio, etc.).
 
@@ -352,44 +342,65 @@ python -m app.services.android_simulator
 
 The dashboard and API are wired for local development (CORS allows the Streamlit origin). The API is also reachable directly via `curl` / the interactive docs.
 
----
+### Reproducibility
 
-## Repository Structure
+All evaluation and artifact generation is scripted. Commands run from the repository root:
 
-```
-lumina/
-├── app/
-│   ├── api/                 # FastAPI route modules (detection/panic; scoring lives in main.py)
-│   ├── core/                # features.py, risk_engine.py, db.py
-│   └── services/            # alerts, reports, simulator, support integrations
-├── android_app/             # Kotlin skeleton (future on-device capture)
-├── dashboard/               # Streamlit app + assets
-├── config/                  # config package
-├── data/
-│   ├── processed/           # generated evidence charts
-│   └── incidents.db         # SQLite incident log
-├── reports/                 # generated PDF incident reports
-├── models/saved/            # model artifacts + benchmark results
-│   ├── risk_classifier.pkl
-│   ├── scaler.pkl
-│   ├── features.pkl
-│   ├── metrics.json         # development benchmark
-│   └── stress_metrics.json  # stress benchmark
-├── notebooks/
-│   ├── train_simple_model.py
-│   ├── audit_model.py
-│   ├── generate_ml_visuals.py
-│   └── stress_eval.py
-├── tests/                   # 140 tests
-├── archive/ml_pipeline/     # historical, non-active training experiments
-├── run.py                   # backend entrypoint
-├── requirements.txt
-└── LICENSE                  # MIT
-```
+| Task | Command | Output |
+|------|---------|--------|
+| Train model | `python notebooks/train_simple_model.py` | `models/saved/*.pkl`, `data/processed/feature_importance.png` |
+| Development benchmark | `python notebooks/audit_model.py` | `models/saved/metrics.json` |
+| Stress benchmark | `python notebooks/stress_eval.py` | `models/saved/stress_metrics.json` |
+| Evidence charts | `python notebooks/generate_ml_visuals.py` | `data/processed/*.png` |
+| Run test suite | `python -m pytest tests/ -v` | test report |
+
+The benchmarks use fixed seeds, so the numbers in `metrics.json` and `stress_metrics.json` reproduce deterministically.
 
 ---
 
-## Design Principles
+## Testing
+
+**140 tests pass** (`python -m pytest tests/ -v`). Coverage includes:
+
+- risk-engine escalation gating and false-positive guards
+- model-artifact loading and degradation behavior
+- telemetry-to-ML boundary and missing-telemetry safety
+- API integration and risk-response field contracts
+- alert abuse protection (cooldown, rate limits, duplicate suppression)
+- silent-intervention gating
+- report generation and report-download path-traversal protection
+- dashboard rendering and API integration
+
+---
+
+## Privacy / Security / Limitations
+
+**Implemented:**
+
+- telemetry/ML separation (telemetry is excluded from model input by construction)
+- report-download path-traversal protection (filename sanitization and path containment)
+- alert cooldown, rate limiting, and duplicate suppression
+- missing-data handling that never fabricates behavioral signals from absent telemetry
+- controlled intervention behavior (simulated by default, no automatic escalation)
+
+**Not implemented (explicit future work):**
+
+- production authentication and authorization
+- encrypted database storage (incident records are stored in plain SQLite at `data/incidents.db`)
+- automatic retention or deletion of stored records
+- live telecom integration
+- production on-device (Android) telemetry collection — the Kotlin app under `android_app/` is a skeleton
+
+**Limitations:**
+
+- The model is trained on **synthetic** data; real-world detection performance has **not** been measured.
+- SMS alerts are **simulated by default**; real delivery requires explicit configuration and credentials.
+- No live telecom / call-metadata integration; Android on-device capture is a skeleton.
+- The text-scam scanner (`/api/detect/panic`) is rule-based, not an ML/NLP model.
+- Incident storage is plain SQLite without encryption or retention guarantees.
+- There is no production authentication and no automated external escalation.
+
+**Design principles:**
 
 1. **The model corroborates and can moderate rule evidence; escalation gates prevent ML from forcing HIGH/CRITICAL on its own.**
 2. **Missing data is missing.** Null telemetry is never coerced into a behavioral signal, and ML never sees telemetry at all.
@@ -410,6 +421,8 @@ lumina/
 ## Built By
 
 **Thanushree A**
+
+Solo project.
 
 ---
 
