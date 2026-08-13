@@ -29,35 +29,6 @@ Traditional reporting tools act **after** the victim recognizes the fraud. A vic
 
 ## How Lumina Works
 
-```
-Input (call / context telemetry)
-        |
-        v
-Canonical feature extraction (29-field schema)
-        |
-   +----+------------------------------+
-   |                                   |
-   v                                   v
-11 call-behavior features       Telemetry / context signals
-        |                                   |
-        v                                   v
-XGBoost probability               Deterministic safety rules
-        |                                   |
-        +----------------+------------------+
-                         v
-                 Gated 50/50 fusion
-                         |
-                         v
-             Risk level (LOW/MEDIUM/HIGH/CRITICAL)
-                         |
-                         v
-        Human-readable explanation + trusted-contact alert
-                         |
-              +----------+-----------+
-              v                      v
-        SQLite incident log      Streamlit dashboard / PDF report
-```
-
 ```mermaid
 flowchart LR
     A[Input telemetry] --> B[Canonical feature extraction]
