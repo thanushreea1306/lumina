@@ -1,194 +1,468 @@
-# 💡 LUMINA — The Quiet Alarm for India's Digital Arrest Victims
+# LUMINA
 
-> **Tagline:** Digital arrest scams don't defeat technology — they defeat people's ability to ask for help. LUMINA is the quiet alarm that goes off when someone is trapped inside a scam call, alerting the one person the scammer fears most: a trusted family member.
+## AI Bridge Against Digital Arrest Isolation
 
-**Target categories:** 🏆 Most Innovative · 🛡 Most Impactful
+> **Digital-arrest scams don't defeat technology. They defeat the victim's ability to ask for help. Lumina is the quiet safety bridge that recognizes when someone is becoming isolated and creates a path back to a trusted person.**
 
----
-
-## The Story That Starts Everything
-
-It's 10:00 AM. A retired teacher picks up a call from an unknown number. The caller says he's an officer from the CBI. Her Aadhaar has been used in a money-laundering case. There's a warrant. She must stay on the line — on a **video call** — while they "verify". She must not call anyone. She must not tell her family. She must keep the phone's screen on.
-
-For the next six hours she will sit, terrified, in a chair. She won't message anyone. She won't switch apps. She won't move. The screen will stay bright in front of her face.
-
-At 4:00 PM she transfers her life savings to "verify her account". It was never her account. It was never the CBI.
-
-**The cruelest part:** during those six hours, no machine in the world flags her. Not the bank. Not the telecom operator. Not the cybercrime helpline. Because she never asked for help — and by design, digital arrest scams make *asking for help impossible*. The victim is psychologically isolated until fear overrides logic.
-
-**LUMINA is built to catch her before the transfer.** Not by waiting for her to report a scam — but by reading the *behavioral fingerprint of being trapped*: the hours-long call, the unknown caller, the video intimidation, and the sudden silence of a phone that has stopped doing anything else.
+**Detect → Analyze → Alert → Protect → Connect**
 
 ---
 
-## The Core Insight (Creativity & Innovation)
+# 🚨 The Problem
 
-Every scam-detection system on the market answers one question:
+Imagine receiving a call from someone claiming to be a police officer.
 
-> **"Is this call / message / link suspicious?"**
+They tell you that your identity is connected to a serious crime.
 
-That question has a fatal blind spot: **it requires the victim to interact with the system.** A digital-arrest victim won't. They've been told not to, and they're too frightened to.
+You must stay on the call.
 
-LUMINA answers a completely different question:
+You must not contact your family.
 
-> **"Is this person currently trapped inside a scam call, and unable to ask for help?"**
+You must follow their instructions immediately.
 
-This shift — from *detecting the scam* to *detecting the victim's powerlessness* — is the innovation. Three design consequences follow from it:
+The call continues for hours.
 
-1. **Zero victim action.** No panic button, no "report this call" screen. The system is designed to work on telemetry a phone already has — in this demo the telemetry comes from a Python simulator / API call snapshots, and real on-device capture is skeleton-only FUTURE work.
-2. **Silent intervention.** The alert targets *trusted contacts* (family), not the victim — the scammer is literally on the other end of the victim's phone and must never know an alarm has been raised. In this demo the alert delivery is **simulated**: the endpoint only builds the alert for HIGH/CRITICAL risk and explicitly returns `delivered: false` with a `SIMULATED` status. Real delivery is **not active by default** — it requires the `twilio` Python dependency (included in `requirements.txt`), valid Twilio credentials, `LUMINA_ALERT_MODE=real`, and `LUMINA_TRUSTED_CONTACTS`.
-3. **Explainable, human-centered escalation.** The family gets plain-language reasons ("she's stopped using her phone for 3 hours on an unknown video call"), not a black-box probability.
+The victim isn't simply being deceived.
 
----
+**They are being isolated.**
 
-## Real-World Impact
+That isolation is one of the scammer's most powerful tools.
 
-- **₹3,000+ crore** reportedly lost to digital-arrest scams annually in India and **1.2+ lakh** cases reported (press-reported figures, not independently verified)
-- An estimated **95% of victims never report** — largely because they only realize the scam *after* the money is gone (public estimate, not independently verified)
-- Victims are commonly described as isolated **6–24 hours** — a wide window in which every other safety system is silent
-- Digital arrest has **no legal standing in India** — no agency arrests over video call or demands money by phone. This is a pure psychological attack, and psychological attacks need a behavioral (not forensic) defense.
+Traditional fraud reporting systems are usually useful **after** money has been transferred or the victim recognizes the fraud.
 
-**The impact thesis:** every hour of isolation is an hour the scammer uses to erode the victim's judgment. If LUMINA shortens that window from *hours* to *minutes* — by putting a family member on an alternative number before the transfer — it converts unreportable losses into preventable ones. One prevented transfer at ₹10–50 lakh pays for the entire system.
+But during a digital-arrest scam, the victim may be psychologically unable to ask anyone for help.
 
----
+### We asked:
 
-## Technical Implementation (30%)
+> **What if the phone could recognize the behavioral pattern of isolation before the victim recognizes the scam?**
 
-### Architecture
-
-```
-Telemetry snapshot (API / simulator)
-        │
-        ▼
-Feature Extraction ──────────────── 29-feature canonical schema, missing-data flags
-        │
-        ▼
-   ┌────┴────────────┐
-   │  XGBoost model   │  ← ML probability (11 call-behavior features, synthetic-demo)
-   │  (probability)   │
-   └────┬────────────┘
-        │  +  0.5
-   ┌────┴────────────┐
-   │  Safety rules    │  ← explicit, explainable isolation signals
-   └────┬────────────┘
-        │  +  0.5
-        ▼
-   Fused score 0–100  →  LOW / MEDIUM / HIGH / CRITICAL
-        │
-        ▼
-   top_factors (from safety_rule_contributions)  →  human-readable "WHY" reasons
-        │
-        ▼
-   SQLite incident log  →  PDF report  →  Streamlit dashboard
-```
-
-### Exactly where ML contributes (and where it doesn't)
-
-**ML does exactly one job:** it turns an 11-feature call-behavior snapshot into a scam probability using an `XGBClassifier`.
-
-| Component | Role |
-|---|---|
-| **XGBoost classifier** ✅ | Converts call behavior (duration, unknown caller, video, hour, call history, outgoing activity, weekend, derived features) into scam probability |
-| **Fusion** ✅ | `risk_score = 0.5·ML_probability + 0.5·safety_rules` — ML never decides alone; explicit rules form a **hard evidence ceiling**. The fused score is capped below HIGH when the rule score is below 50 and below CRITICAL when the rule score is below 75, so ML corroborates rule evidence but cannot independently manufacture HIGH/CRITICAL risk. |
-| **Explainability** ✅ | Every prediction returns `top_factors`, derived from the engine's `safety_rule_contributions` (reason + weight per active signal), so the "why" is never a black box |
-| **Text scam scanner** ⚠️ | **Rule-based** phrase engine (authority impersonation, arrest threats, urgency, financial demand, secrecy). Not ML. A transformer is future work. |
-| **IsolationDetector service** ⚠️ | Heuristic weighted score, used by the telemetry simulator demo |
-
-The model was deliberately kept small and interpretable: **11 features, 15,000 synthetic samples**. Feature importance on synthetic data shows the isolation thesis directly — `outgoing_activity_ratio` (60%) dominates, i.e., *a person who has stopped reaching out* is the single strongest signal.
-
-> **Synthetic benchmark (honest):** the deployed classifier is an **XGBoost** model trained on **15,000 synthetic call snapshots**; accuracy 99.88% / F1 99.60% / ROC-AUC 1.00 were measured on data from the *same synthetic generator used at training time*. This is **not** real-world validation — real-world detection performance has **not been measured**; see Limitations.
-
-### What this model is / is not
-
-**It is:** an XGBoost binary risk classifier; an 11-feature call-behavior schema; trained on synthetic call snapshots (15,000 generated calls); a prototype/demo component of the behavioral-isolation detection system — it corroborates call-behavior evidence only, while telemetry/isolation evidence comes from the rule layer.
-
-**It is not:** a validated real-world detector (the benchmark measures internal consistency with its synthetic generator); trained or validated on real-world call telemetry; a substitute for the explicit safety-rule layer, which is a **separate safety mechanism**.
-
-The deployed score currently fuses ML and rules at **50/50**, gated so ML can only corroborate the safety-rule evidence (see Fusion above) — a high ML probability alone can never push a case into HIGH or CRITICAL. The synthetic model remains synthetic-only and is not validated on real-world data.
-
-### Verified behavior (tests + live runs)
-
-- **140/140 automated tests pass** (`pytest tests/ -v`): risk escalation, false-positive guards (unknown caller alone ≠ critical), missing-telemetry safety (including explicitly-null telemetry treated as missing), model-artifact loading failure behavior (unavailable/degraded states), alert abuse protection (cooldown, rate limiting, duplicate suppression), silent-intervention gating (never triggered below HIGH risk, no fake delivery), phase-2 scenario cases, API integration.
-- **Live scenario runs through the real API:**
-  - Digital arrest: **6.4 → 16.1 → 74.9 → 100 → 100** as signals accumulate (unknown → video → authority claim → full isolation)
-  - Normal call: **0 → 0 → 0 → 0 → 0** (stays low despite a brief video segment)
-
-### Backend (FastAPI) — real, working endpoints
-
-| Endpoint | Function |
-|---|---|
-| `POST /api/score` | Score any call snapshot (call fields + `extra_telemetry`) |
-| `POST /api/detect-isolation` | Score device isolation telemetry |
-| `POST /api/detect/panic` | Rule-based text scan |
-| `GET /api/incidents` | SQLite-backed history |
-| `POST /api/generate-report` + `GET /api/download-report/{f}` | ReportLab PDF |
-| `POST /api/send-alert` / `silent-intervention` | Demo alerting |
-| `GET /api/ngos`, `/api/government-tools` | Support resources |
-
-### Alert service with abuse protection
-
-Demo mode returns `SIMULATED DELIVERY` (no message is actually sent). Real Twilio SMS is **not active by default**: it requires the `twilio` Python dependency (included in `requirements.txt`), valid Twilio credentials, `LUMINA_ALERT_MODE=real`, and `LUMINA_TRUSTED_CONTACTS`. `/api/send-alert` is protected by an `AlertGuard` that enforces cooldown, per-victim rate limits, and duplicate-incident suppression; `/api/silent-intervention` builds the alert without those guardrails.
+That question became **Lumina**.
 
 ---
 
-## Project Design & UX (15%)
+# 💡 Our Core Insight
 
-The dashboard is a single screen that a worried family member can read in 5 seconds:
+The scam isn't only visible in the scammer's words.
 
-- **Top:** a giant, color-coded **CURRENT RISK** banner (level + score).
-- **"WHY WAS THIS DETECTED?"** — plain-language bullets from the engine's contributions.
-- **"WHAT SHOULD HAPPEN?"** — concrete human actions (call an alternative number, visit, dial 1930), mapped to risk level.
-- **Two one-click scenario buttons** — `🚨 RUN DIGITAL ARREST SCENARIO` and `✅ RUN NORMAL CALL SCENARIO` — which drive the *real* engine through scripted telemetry snapshots, so a judge sees risk escalate (or stay low) in real time.
-- **Sections:** Behavior Timeline · Risk Evolution chart · Explanation · Alert Status · Incident Report (PDF download) · Historical Incidents (from SQLite).
+It can also appear in the victim's behavior.
 
-The UX philosophy mirrors the safety philosophy: **the person in danger does nothing, and the person who can help sees everything.**
+For example:
+
+* unusually prolonged calls
+* unknown callers
+* unexpected video calls
+* unusual calling hours
+* reduced normal communication activity
+* limited caller history
+* isolation-related telemetry
+
+Individually, these signals may mean nothing.
+
+Together, they can form a behavioral pattern.
+
+### Lumina turns that pattern into an early-warning signal.
+
+The victim doesn't need to:
+
+* identify the scam
+* press a panic button
+* admit they're being scammed
+* remember a reporting number
+
+**The system can recognize the pattern and prepare a bridge to someone outside the trap.**
 
 ---
 
-## Honest Limitations
+# 🛡️ What We Built
 
-This is a research prototype, and we say so plainly:
+Lumina is a hybrid AI safety system combining:
 
-1. **Synthetic model.** Trained on 15,000 generated calls. Real-world detection performance is unmeasured and requires ethically collected datasets. The benchmark numbers are synthetic-only. The real datasets under `data/datasets/` (Hinglish scam texts, FraudZen CDRs) are **not** used by the deployed model — they were explored only in archived experiments.
-2. **Simulated alerts.** SMS is simulated by default; real delivery needs the `twilio` Python dependency plus valid Twilio credentials and environment configuration.
-3. **No live integration.** No telecom call-metadata API, no real Android on-device capture (the Kotlin app is a skeleton).
-4. **Rule-based text scanner.** No NLP model yet.
-5. **Plain SQLite storage.** Incident records aren't hashed and there's no retention window (privacy hardening is roadmap work). The repo's earlier "SHA-256 / 24h deletion" claims were removed because they're not implemented.
+### 🤖 Machine Learning
+
+An XGBoost classifier analyzes 11 structured call-behavior features.
+
+### 🧠 Safety Rules
+
+Additional telemetry and isolation signals are evaluated through deterministic rules.
+
+### ⚖️ Conservative Fusion
+
+ML and rules contribute equally to the base risk score.
+
+### 🚦 Safety Gates
+
+ML cannot independently force HIGH or CRITICAL escalation without sufficient deterministic evidence.
+
+### 🔍 Explanation
+
+The system exposes contributing factors rather than returning an unexplained score.
+
+### 📲 Intervention
+
+A trusted-contact alert can be constructed when risk becomes sufficiently high.
+
+### 📋 Incident Evidence
+
+Assessments can be persisted and exported as incident reports.
 
 ---
 
-## Run It (judge-friendly, ~2 minutes)
+# 🧠 How It Works
 
-```bash
-python -m venv venv && venv\Scripts\activate
-pip install -r requirements.txt
-python run.py                       # terminal 1 — API on :8000
-streamlit run dashboard/app.py      # terminal 2 — dashboard on :8501
+```text
+                  CALL / CONTEXT DATA
+                          │
+                          ▼
+                 CANONICAL FEATURES
+                          │
+              ┌───────────┴───────────┐
+              │                       │
+              ▼                       ▼
+       11 ML FEATURES          TELEMETRY /
+              │                ISOLATION SIGNALS
+              ▼                       │
+           XGBoost                    ▼
+              │                 SAFETY RULES
+              │                       │
+              └───────────┬───────────┘
+                          ▼
+                     50/50 FUSION
+                          │
+                          ▼
+                    SAFETY GATES
+                          │
+                          ▼
+                RISK + EXPLANATION
+                          │
+                ┌─────────┴─────────┐
+                ▼                   ▼
+          INCIDENT LOG       TRUSTED CONTACT
+                                  ALERT
 ```
 
-Then click **🚨 RUN DIGITAL ARREST SCENARIO** and watch the risk banner climb to CRITICAL as each isolation signal stacks up — then **✅ RUN NORMAL CALL SCENARIO** and watch it stay at 0.
+---
+
+# 🔬 The ML Layer
+
+The deployed model is an XGBoost classifier operating on 11 behavioral features:
+
+* call duration
+* unknown caller
+* video call
+* hour of day
+* caller history
+* outgoing activity ratio
+* weekend
+* log call duration
+* early-morning indicator
+* late-night indicator
+* activity category
+
+Telemetry fields are deliberately excluded from the ML vector and remain available to the deterministic safety layer.
+
+This separation lets Lumina distinguish between:
+
+> **what the model learns**
+
+and
+
+> **what the safety system explicitly enforces.**
 
 ---
 
-## Roadmap
+# ⚖️ Why Hybrid ML + Rules?
 
-- **V2:** real Android sensing, real SMS/WhatsApp delivery, NLP transcript model, privacy hardening (hashing, retention policy, on-device processing)
-- **V3:** telecom call-metadata integration, real-time analysis of an ongoing call, federated learning
-- **V4:** national cyber-safety platform, anonymous threat-intelligence sharing, bank transfer-fraud blocking
+We deliberately did not make the ML model the sole decision-maker.
+
+A safety system has asymmetric consequences.
+
+A false negative can mean missing an ongoing scam.
+
+A false positive can unnecessarily alarm a family.
+
+Lumina therefore combines:
+
+```text
+50% ML probability
++
+50% deterministic safety evidence
+```
+
+and then applies conservative escalation gates.
+
+### Risk levels
+
+**CRITICAL:** ≥75
+**HIGH:** ≥50
+**MEDIUM:** ≥30
+**LOW:** <30
+
+The ML layer cannot independently manufacture a HIGH or CRITICAL state when the deterministic evidence does not meet the required threshold.
+
+If the ML artifact is unavailable, Lumina explicitly falls back to rules instead of fabricating a model probability.
 
 ---
 
-## Built For
+# 📊 What Did the Model Actually Achieve?
 
-**ML Empowerment Build Challenge 2.0** — a demonstration that machine learning can move beyond prediction into *human protection*, using Explainable AI and a human-in-the-loop intervention design.
+We intentionally separate **development validation** from **stress validation**.
+
+## Controlled synthetic benchmark
+
+On 15,000 controlled synthetic call snapshots:
+
+**99.88% accuracy**
+**1.00 ROC-AUC**
+
+However, the generator used strongly class-conditional distributions.
+
+Therefore:
+
+> **We do not claim these numbers represent real-world detection accuracy.**
+
+They validate that the training and inference pipeline learns the controlled development distribution.
 
 ---
 
-## Team
+# 🧪 We Then Tried to Break It
 
-**Thanushree A** — Solo Builder | AI & ML Developer
+Instead of stopping at the impressive benchmark, we froze the deployed model and created a harder synthetic stress evaluation.
+
+The stress distribution introduced:
+
+* overlapping behavioral distributions
+* contradictory evidence
+* threshold-boundary cases
+* measurement noise
+* distribution shift
+* out-of-distribution regions
+
+The model was not retrained for this test.
+
+### Stress results
+
+| Metric      |     Result |
+| ----------- | ---------: |
+| Accuracy    | **74.98%** |
+| Precision   | **76.88%** |
+| Recall      | **68.39%** |
+| F1          | **72.39%** |
+| ROC-AUC     |  **0.824** |
+| Brier score | **0.2232** |
+
+This is **still synthetic evaluation**, not real-world validation.
+
+And it exposed real weaknesses.
+
+The model performs particularly poorly on some short-call cases and becomes less reliable around ambiguous boundaries.
+
+### We chose to report that.
+
+Because a safety system shouldn't pretend to be perfect.
 
 ---
 
-### One line to remember
+# 🧪 Ground-Truth Stress Testing
 
-> **Digital arrest scams win by making the victim silent. LUMINA makes the silence the alarm.**
+For the stress evaluation, labels were generated through an explicit scenario-level policy rather than from model predictions.
+
+The policy uses behavioral indicators such as:
+
+* unknown caller
+* video call
+* prolonged duration
+* low outgoing activity
+* limited caller history
+* unusual calling hours
+
+Boundary cases were deliberately generated around the decision threshold, while contradictory cases combined scam-like signals with strong counter-evidence.
+
+The model was evaluated **after** the labels were established.
+
+This prevents the evaluation from simply measuring the model against its own predictions.
+
+It remains synthetic, but it provides a substantially harder test than the original development benchmark.
+
+---
+
+# 🚨 Intervention
+
+When risk reaches a sufficiently high level, Lumina can construct a trusted-contact alert.
+
+### Demo mode
+
+The default system:
+
+* builds the alert
+* marks it as simulated
+* does not send an external message
+
+### Optional delivery
+
+Twilio integration can be enabled separately.
+
+This gives us a safe demonstration environment while keeping the architecture ready for future real-world integration.
+
+### Design principle
+
+> **Detect quietly. Escalate carefully. Keep a human in the loop.**
+
+---
+
+# 🔍 Explainability
+
+Lumina doesn't stop at a number.
+
+The engine produces contributing factors that can be surfaced to the user/operator.
+
+For example, a high-risk assessment can be explained through behavioral evidence such as:
+
+> prolonged call + unknown caller + unusual timing + reduced normal activity
+
+This makes the system easier to inspect and reduces dependence on an unexplained black-box score.
+
+---
+
+# 🔐 Safety & Privacy
+
+Lumina was designed with a conservative intervention philosophy.
+
+Current implementation includes:
+
+* ML/telemetry separation
+* alert cooldown and rate limiting
+* duplicate suppression
+* download path-traversal protection
+* local incident logging
+* simulated intervention by default
+* no automatic escalation by default
+
+### What isn't implemented yet
+
+We explicitly do **not** claim:
+
+* production authentication
+* encrypted database storage
+* formal retention/deletion enforcement
+* live telecom integration
+* production Android telemetry collection
+
+These are future engineering requirements, not hidden functionality.
+
+---
+
+# 💻 Technology
+
+**Backend**
+
+* Python
+* FastAPI
+* Pydantic
+* SQLite
+
+**Machine Learning**
+
+* XGBoost
+* scikit-learn
+* NumPy
+* Pandas
+
+**Dashboard**
+
+* Streamlit
+
+**Reports**
+
+* ReportLab / PDF
+
+**Integration**
+
+* Twilio-ready alert layer
+
+**Mobile**
+
+* Kotlin Android skeleton for future telemetry integration
+
+---
+
+# 🧪 Engineering Validation
+
+The repository currently passes:
+
+> **140 / 140 automated tests**
+
+The deployed model artifacts were also verified to remain unchanged after the stress evaluation.
+
+This matters because the stress benchmark evaluates the **same frozen model used by the application**, rather than a newly retrained model.
+
+---
+
+# 🌍 Impact
+
+Lumina is designed around a simple intervention hypothesis:
+
+> **If a scammer's strongest weapon is isolation, then the strongest countermeasure may be restoring connection.**
+
+The system doesn't attempt to replace cybersecurity awareness.
+
+It adds another layer:
+
+### Before the victim recognizes the scam.
+
+### Before money is transferred.
+
+### Before isolation becomes irreversible.
+
+---
+
+# 🚀 Future Roadmap
+
+### V2 — Consent-driven Android sensing
+
+Move from simulated telemetry to privacy-preserving, on-device signals.
+
+### V3 — Stronger ML
+
+Build ethically sourced and consented datasets, improve calibration, evaluate subject/session-level generalization, and test robustness across demographic and behavioral variation.
+
+### V4 — Intervention network
+
+Explore trusted-contact workflows, telecom integrations and coordinated cybercrime-support pathways.
+
+---
+
+# 🏆 Why Lumina Is Different
+
+Most fraud systems ask:
+
+> **"Can we identify fraudulent content?"**
+
+Lumina asks:
+
+> **"Can we recognize when a person is becoming isolated while the scam is still happening?"**
+
+That changes the intervention point.
+
+The goal isn't simply to classify a call.
+
+It is to create a **safety bridge around a person who may no longer be able to ask for help themselves.**
+
+---
+
+# Built By
+
+**Thanushree A**
+
+Solo project.
+
+Built around the idea that technology should not only detect threats —
+
+**it should help people reconnect with the people who can protect them.**
+
+---
+
+# Final Message
+
+> **Digital-arrest scams win by making the victim silent.**
+>
+> **Lumina makes that silence the alarm.**

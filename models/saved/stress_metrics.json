@@ -1,0 +1,153 @@
+{
+  "disclaimer": "synthetic stress/holdout benchmark - NOT real-world validation",
+  "generated_at_script": "stress_eval.py",
+  "protocol": {
+    "version": "1.0",
+    "n_samples": 8000,
+    "seed": 1234,
+    "subsets": {
+      "general": 5200,
+      "boundary": 1600,
+      "contradictory": 1200
+    },
+    "label_rule": "SCAM if >=3 of 7 risk indicators: unknown_number, video_call, duration>=60, duration>=120, outgoing_activity_ratio<0.35, caller_call_history<=1, late_night(>=22 or <=4). Indicators counted on CLEAN attributes; features passed to the model are NOISY versions (measurement noise).",
+    "noise": {
+      "duration": "multiplicative lognormal(0, 0.15), clipped [0.5, 480]",
+      "outgoing_activity_ratio": "additive N(0, 0.06), clipped [0, 1]"
+    },
+    "derived_features": "runtime formulas from app/core/features.py (log1p, 0.33/0.66 activity_category bins, hour-based early/late flags)",
+    "scoring": "frozen saved scaler.transform (never refit) + predict/predict_proba"
+  },
+  "model": {
+    "type": "XGBClassifier",
+    "params": {
+      "objective": "binary:logistic",
+      "base_score": null,
+      "booster": null,
+      "callbacks": null,
+      "colsample_bylevel": null,
+      "colsample_bynode": null,
+      "colsample_bytree": 0.8,
+      "device": null,
+      "early_stopping_rounds": null,
+      "enable_categorical": true,
+      "eval_metric": null,
+      "feature_types": null,
+      "feature_weights": null,
+      "gamma": null,
+      "grow_policy": null,
+      "importance_type": null,
+      "interaction_constraints": null,
+      "learning_rate": 0.1,
+      "max_bin": null,
+      "max_cat_threshold": null,
+      "max_cat_to_onehot": null,
+      "max_delta_step": null,
+      "max_depth": 4,
+      "max_leaves": null,
+      "min_child_weight": null,
+      "missing": null,
+      "monotone_constraints": null,
+      "multi_strategy": null,
+      "n_estimators": 100,
+      "n_jobs": null,
+      "num_parallel_tree": null,
+      "random_state": 42,
+      "reg_alpha": null,
+      "reg_lambda": null,
+      "sampling_method": null,
+      "scale_pos_weight": null,
+      "subsample": 0.8,
+      "tree_method": null,
+      "validate_parameters": null,
+      "verbosity": null
+    },
+    "feature_list": [
+      "call_duration_min",
+      "is_unknown_number",
+      "is_video_call",
+      "hour_of_day",
+      "caller_call_history",
+      "outgoing_activity_ratio",
+      "is_weekend",
+      "call_duration_log",
+      "is_early_morning",
+      "is_late_night",
+      "activity_category"
+    ]
+  },
+  "overall_metrics": {
+    "accuracy": 0.7498,
+    "precision": 0.7688,
+    "recall": 0.6839,
+    "f1": 0.7239,
+    "roc_auc": 0.824,
+    "brier": 0.2232
+  },
+  "confusion_matrix": {
+    "tn": 3374,
+    "fp": 789,
+    "fn": 1213,
+    "tp": 2624
+  },
+  "per_slice": {
+    "subset::general": {
+      "n": 5200,
+      "accuracy": 0.7758,
+      "precision": 0.7127,
+      "recall": 0.6777,
+      "f1": 0.6948,
+      "roc_auc": 0.851,
+      "scam_rate": 0.3765
+    },
+    "subset::boundary": {
+      "n": 1600,
+      "accuracy": 0.6456,
+      "precision": 0.5903,
+      "recall": 0.539,
+      "f1": 0.5635,
+      "roc_auc": 0.7051,
+      "scam_rate": 0.4244
+    },
+    "subset::contradictory": {
+      "n": 1200,
+      "note": "single class in slice"
+    },
+    "duration::0-30": {
+      "n": 3697,
+      "accuracy": 0.7471,
+      "precision": 0.8333,
+      "recall": 0.0053,
+      "f1": 0.0106,
+      "roc_auc": 0.7618,
+      "scam_rate": 0.254
+    },
+    "duration::30-60": {
+      "n": 962,
+      "accuracy": 0.7017,
+      "precision": 0.4444,
+      "recall": 0.5375,
+      "f1": 0.4866,
+      "roc_auc": 0.7273,
+      "scam_rate": 0.263
+    },
+    "duration::60-120": {
+      "n": 1023,
+      "accuracy": 0.6129,
+      "precision": 0.6223,
+      "recall": 0.9345,
+      "f1": 0.7471,
+      "roc_auc": 0.6368,
+      "scam_rate": 0.6119
+    },
+    "duration::120-481": {
+      "n": 2318,
+      "accuracy": 0.8343,
+      "precision": 0.8783,
+      "recall": 0.9401,
+      "f1": 0.9081,
+      "roc_auc": 0.6031,
+      "scam_rate": 0.871
+    }
+  }
+}

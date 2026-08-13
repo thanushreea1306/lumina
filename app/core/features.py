@@ -151,7 +151,7 @@ def extract_features(signals: Mapping[str, Any] | None = None) -> Dict[str, Any]
     elif day_of_week is not None:
         weekend_value = int(day_of_week in {5, 6})
     else:
-        weekend_value = 1 if hour_value >= 22 or hour_value <= 4 else 0
+        weekend_value = 0  # unknown - never fabricate weekend from hour_of_day
 
     caller_call_history = _to_int(payload.get("caller_call_history"), default=0)
     outgoing_activity_ratio = _to_float(payload.get("outgoing_activity_ratio"), default=0.5)
