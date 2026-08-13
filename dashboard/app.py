@@ -1,4 +1,4 @@
-# dashboard/app.py
+﻿# dashboard/app.py
 import base64
 import math
 import os
@@ -24,7 +24,7 @@ if _REPO_ROOT in sys.path:
 sys.path.insert(0, _REPO_ROOT)
 
 API_BASE = os.getenv("LUMINA_API_BASE", "http://localhost:8000")
-_LOGO_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "lumina-logo.png")
+_LOGO_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "lumina-logo-transparent-clean.png")
 
 st.set_page_config(
     page_title="LUMINA - Digital Arrest Protection",
@@ -287,11 +287,13 @@ def _logo_watermark_uri() -> str:
     return f"data:image/png;base64,{_logo_watermark_b64()}"
 
 
-def _logo_img(width: int = 80, radius: int = 10) -> str:
+def _logo_img(width: int = 80, radius: int = 0) -> str:
     uri = _logo_data_uri()
     return (
-        f'<img class="logo-img" src="{uri}" width="{width}" height="{width}" '
-        f'alt="LUMINA logo" style="border-radius:{radius}px;"/>'
+        f'<img class="logo-img" src="{uri}" '
+        f'width="{width}" '
+        f'alt="LUMINA logo" '
+        f'style="border-radius:{radius}px;"/>'
     )
 
 
@@ -414,11 +416,34 @@ a { color: var(--lumina-red); }
 }
 
 /* ---------- logo ---------- */
-.logo-img { display: block; object-fit: contain; background: #fff; }
+.logo-img {
+    display: block;
+    width: 100%;
+    height: auto;
+    object-fit: contain;
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+}
+
 .logo-tile {
-    background: #fff; border: 1px solid rgba(0,0,0,.9); border-radius: 12px; padding: 5px;
-    box-shadow: 0 12px 32px rgba(0,0,0,.6), inset 0 0 0 1px rgba(224,28,43,.16);
-    line-height: 0; flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent !important;
+    border: none !important;
+    border-radius: 0;
+    padding: 0;
+    margin: 0;
+    box-shadow: none !important;
+    line-height: 0;
+    flex: 0 0 auto;
+}
+
+.logo-tile img {
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
 }
 
 /* ---------- hud corners ---------- */
@@ -965,9 +990,9 @@ def render_hero() -> None:
         status = f'<span class="status-dot ok"></span>SYSTEM ONLINE'
         model = hs.get("model_status", "unknown")
         if model == "available":
-            model_pill = _pill("MODEL · XGBOOST ONLINE", "green")
+            model_pill = _pill("MODEL Â· XGBOOST ONLINE", "green")
         elif model == "degraded":
-            model_pill = _pill("MODEL · RULES-ONLY", "amber")
+            model_pill = _pill("MODEL Â· RULES-ONLY", "amber")
         else:
             model_pill = _pill("MODEL UNAVAILABLE", "red")
     else:
@@ -977,7 +1002,7 @@ def render_hero() -> None:
     badges = (
         model_pill
         + _pill("SIMULATED TELEMETRY", "slate")
-        + _pill("DEMO · NOT DELIVERED", "red")
+        + _pill("DEMO Â· NOT DELIVERED", "red")
     )
 
     st.markdown(
@@ -989,7 +1014,7 @@ def render_hero() -> None:
                 <div>
                     <div class="lumina-tag">AI Bridge Against<br/>Digital Arrest Isolation</div>
                     <div class="lumina-statement">Detect the pattern. Break the isolation. Bring help in.</div>
-                    <div class="hero-phrase">Detect → Analyze → Alert → Protect → Connect</div>
+                    <div class="hero-phrase">Detect â†’ Analyze â†’ Alert â†’ Protect â†’ Connect</div>
                 </div>
             </div>
             <div class="hero-side">
@@ -1029,7 +1054,7 @@ def risk_hero(level: str, score: float, intervention: dict = None) -> None:
     delivery = str(intervention.get("delivery_status", "")) if intervention else ""
     interv_line = (
         f'<div class="risk-interv on"><span class="status-dot red"></span> '
-        f'INTERVENTION TRIGGERED · {delivery}</div>'
+        f'INTERVENTION TRIGGERED Â· {delivery}</div>'
         if triggered
         else f'<div class="risk-interv"><span class="status-dot"></span> INTERVENTION MONITORING</div>'
     )
@@ -1042,7 +1067,7 @@ def risk_hero(level: str, score: float, intervention: dict = None) -> None:
                 <div class="risk-level {level}">{level.upper()}</div>
                 <div class="risk-score">{score:.1f} <small>/ 100</small></div>
                 <div class="risk-status">{descriptor}</div>
-                <div class="risk-action"><b>●</b> {action}</div>
+                <div class="risk-action"><b>â—</b> {action}</div>
                 {interv_line}
             </div>
             <div class="gauge-wrap">{_gauge_svg(score, color)}</div>
@@ -1070,7 +1095,7 @@ def pipeline_strip(snap: dict, intervention: dict = None) -> None:
     missing = len(snap["missing_telemetry"])
     ml_value = f"{snap['ml_probability']:.1f}%" if snap.get("ml_probability") is not None else "rules-only"
     ml_sub = (
-        "XGBoost · 11 call-behavior features"
+        "XGBoost Â· 11 call-behavior features"
         if snap.get("ml_probability") is not None
         else f"not served ({snap['model_status']}) - rules only"
     )
@@ -1288,7 +1313,7 @@ def risk_evolution_chart(timeline: list) -> None:
                 line=dict(color=CHART_COLORS["fused"], width=3, shape="spline"),
                 marker=dict(size=11, color=colors, line=dict(color="#0E0D0D", width=2)),
                 text=[
-                    f"t={int(t)} min · {lv.upper()} · {s:.0f}/100"
+                    f"t={int(t)} min Â· {lv.upper()} Â· {s:.0f}/100"
                     for t, lv, s in zip(frame["Time (min)"], frame["level"], frame["Risk Score"])
                 ],
                 hovertemplate="%{text}<extra></extra>",
@@ -1316,12 +1341,12 @@ def risk_evolution_chart(timeline: list) -> None:
             )
         fig.add_hline(
             y=49.9, line_dash="dash", line_color="rgba(217,164,65,.5)", line_width=1,
-            annotation_text="HIGH ceiling · rule <50%", annotation_position="top left",
+            annotation_text="HIGH ceiling Â· rule <50%", annotation_position="top left",
             annotation_font=dict(size=10, color="#D9A441"),
         )
         fig.add_hline(
             y=74.9, line_dash="dash", line_color="rgba(224,28,43,.55)", line_width=1,
-            annotation_text="CRITICAL ceiling · rule <75%", annotation_position="top left",
+            annotation_text="CRITICAL ceiling Â· rule <75%", annotation_position="top left",
             annotation_font=dict(size=10, color="#E01C2B"),
         )
 
@@ -1542,7 +1567,7 @@ def incidents_table(incidents: list) -> None:
 # ============================= MAIN FLOW =============================
 render_hero()
 
-# ---------- 01 · TELEMETRY SOURCE ----------
+# ---------- 01 Â· TELEMETRY SOURCE ----------
 _section(
     "01",
     "Telemetry Source",
@@ -1622,7 +1647,7 @@ if timeline:
             st.session_state["intervention"] = {"error": str(exc)}
     intervention = st.session_state.get("intervention")
 
-    # ---------- 02 · LIVE RISK & DECISION PIPELINE ----------
+    # ---------- 02 Â· LIVE RISK & DECISION PIPELINE ----------
     _section(
         "02",
         "Live Risk & Decision Pipeline",
@@ -1630,12 +1655,12 @@ if timeline:
     )
     risk_hero(level, score, intervention)
     st.caption(
-        f"Latest assessment at t={last['t']} min · {scenario_name} · "
+        f"Latest assessment at t={last['t']} min Â· {scenario_name} Â· "
         f"model status: {last['model_status']}"
     )
     pipeline_strip(last, intervention)
 
-    # ---------- 03 · RISK EVOLUTION ----------
+    # ---------- 03 Â· RISK EVOLUTION ----------
     _section(
         "03",
         "Risk Evolution",
@@ -1646,7 +1671,7 @@ if timeline:
     c_low.metric("Start of call", f"{timeline[0]['score']:.0f} / 100")
     c_high.metric("End of call", f"{timeline[-1]['score']:.0f} / 100")
 
-    # ---------- 04 · DETECTION REASONING ----------
+    # ---------- 04 Â· DETECTION REASONING ----------
     _section(
         "04",
         "Why LUMINA Flagged This Call",
@@ -1671,7 +1696,7 @@ if timeline:
         unsafe_allow_html=True,
     )
 
-    # ---------- 05 · INTERVENTION & DELIVERY ----------
+    # ---------- 05 Â· INTERVENTION & DELIVERY ----------
     _section(
         "05",
         "Intervention & Alert Delivery",
@@ -1682,7 +1707,7 @@ if timeline:
     elif intervention:
         st.error(f"Intervention check failed: {intervention['error']}")
 
-    # ---------- 06 · BEHAVIOR TIMELINE ----------
+    # ---------- 06 Â· BEHAVIOR TIMELINE ----------
     _section(
         "06",
         "Behavior Timeline",
@@ -1690,7 +1715,7 @@ if timeline:
     )
     behavior_timeline_story(timeline)
 
-    # ---------- 07 · INCIDENT REPORT ----------
+    # ---------- 07 Â· INCIDENT REPORT ----------
     _section(
         "07",
         "Incident Report",
@@ -1750,7 +1775,7 @@ else:
             <div class="empty-seal">{_seal_svg(340)}</div>
             <div class="empty-watermark"><img src="{_logo_watermark_uri()}" alt=""/></div>
             <div class="empty-brand">
-                <div class="logo-tile">{_logo_img(84)}</div>
+                <div class="logo-tile">{_logo_img(64)}</div>
                 <div class="empty-title">LUMINA is standing by</div>
                 <div class="empty-sub">Run a simulation to analyze an escalating digital-arrest call, a normal
                 call, or a random snapshot. Every input is SIMULATED - the engine and API responses are real.</div>
@@ -1817,7 +1842,7 @@ st.markdown(
     f"""
     <div class="footer">
         <div class="footer-brand">LUMINA<span class="dot">.</span></div>
-        <div class="footer-line"><b>HELPLINE 1930</b> &nbsp;·&nbsp; REPORT AT CYBERCRIME.GOV.IN</div>
+        <div class="footer-line"><b>HELPLINE 1930</b> &nbsp;Â·&nbsp; REPORT AT CYBERCRIME.GOV.IN</div>
     </div>
     """,
     unsafe_allow_html=True,
@@ -1827,3 +1852,4 @@ st.caption(
     "AndroidDeviceSimulator); no real device data is captured. All alerts are evaluated and logged by the "
     "backend but NOT delivered in demo mode - no SMS is sent."
 )
+
