@@ -154,7 +154,7 @@ ML contributes in both directions: it can raise or lower the fused score, while 
 
 ## Intervention
 
-When risk reaches HIGH or CRITICAL, Lumina constructs a trusted-contact alert.
+When risk reaches HIGH or CRITICAL, the silent-intervention path constructs a trusted-contact alert (score alone only records `alert_status`).
 
 - **Default (demo) mode**: the alert is built and marked `SIMULATED` / `delivered: false`. No external message is sent.
 - **Optional real delivery**: Twilio SMS can be enabled only through explicit configuration — `LUMINA_ALERT_MODE=real` plus valid `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM_NUMBER`, and `LUMINA_TRUSTED_CONTACTS`.
@@ -184,7 +184,7 @@ Because the generator uses strongly class-conditional distributions, the classes
 
 ### Independent stress benchmark
 
-`notebooks/stress_eval.py` freezes the **deployed artifacts** (model, scaler, features — verified unchanged by hash) and evaluates them on a deliberately harder synthetic distribution of 8,000 samples with:
+`notebooks/stress_eval.py` freezes the **deployed artifacts** (model, scaler, features — tracked artifacts, schema-validated and unchanged; no retraining occurred) and evaluates them on a deliberately harder synthetic distribution of 8,000 samples with:
 
 - overlapping class distributions
 - contradictory evidence (scam signals combined with strong counter-evidence)
@@ -259,7 +259,7 @@ The Streamlit dashboard (`dashboard/app.py`) calls the live API and renders what
 - incident history and PDF report generation / download
 - a MODEL EVIDENCE panel with the synthetic benchmark summary and the generated charts (feature importance, confusion matrix, ROC)
 
-A Python device simulator (`python -m app.services.android_simulator`) produces the telemetry snapshots used by the demo. The simulator's `IsolationDetector` heuristic (its own thresholds) is demo-only and separate from the deployed engine — the dashboard score comes exclusively from `/api/score`.
+The scripted demo scenarios use fixed dashboard payloads; the Python device simulator (`python -m app.services.android_simulator`) powers the dashboard's random-snapshot mode. The simulator's `IsolationDetector` heuristic (its own thresholds) is demo-only and separate from the deployed engine — the dashboard score comes exclusively from `/api/score`.
 
 ---
 
@@ -339,14 +339,16 @@ The dashboard and API are wired for local development (CORS allows the Streamlit
 ```
 lumina/
 ├── app/
-│   ├── api/                 # FastAPI routes (scoring, detection, panic)
+│   ├── api/                 # FastAPI route modules (detection/panic; scoring lives in main.py)
 │   ├── core/                # features.py, risk_engine.py, db.py
 │   └── services/            # alerts, reports, simulator, support integrations
 ├── android_app/             # Kotlin skeleton (future on-device capture)
 ├── dashboard/               # Streamlit app + assets
+├── config/                  # config package
 ├── data/
 │   ├── processed/           # generated evidence charts
 │   └── incidents.db         # SQLite incident log
+├── reports/                 # generated PDF incident reports
 ├── models/saved/            # model artifacts + benchmark results
 │   ├── risk_classifier.pkl
 │   ├── scaler.pkl

@@ -469,7 +469,7 @@ The repository currently passes:
 
 > **140 / 140 automated tests**
 
-The deployed model artifacts were also verified to remain unchanged after the stress evaluation.
+The stress benchmark used the same frozen, schema-validated artifacts served by the app; no retraining occurred.
 
 This matters because the stress benchmark evaluates the **same frozen model used by the application**, rather than a newly retrained model.
 
