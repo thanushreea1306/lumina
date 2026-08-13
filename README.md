@@ -2,6 +2,8 @@
 
 Lumina is a hybrid AI risk engine that detects the **behavioral isolation pattern** associated with "digital-arrest" scams — hours-long calls from unknown callers, video intimidation, and the sudden silence of a phone that has stopped reaching out — and prepares a silent trusted-contact alert while the scam is still in progress.
 
+Prototype scope: Lumina is currently evaluated on synthetic data and uses simulated alerts by default. The Android collector is a skeleton and no live telecom integration is included. All reported benchmark results are clearly identified as synthetic and are not claims of real-world detection performance.
+
 It works by fusing two independent layers:
 
 1. an **XGBoost classifier** over 11 call-behavior features, and
@@ -31,17 +33,20 @@ Traditional reporting tools act **after** the victim recognizes the fraud. A vic
 
 ```mermaid
 flowchart LR
-    A[Input telemetry] --> B[Canonical feature extraction]
-    B --> C1[11 ML features]
+    A[Call + telemetry input] --> B[Canonical feature extraction]
+    B --> C1[11 call-behavior features]
     B --> C2[Telemetry / context]
-    C1 --> D[XGBoost classifier]
-    C2 --> E[Safety rules]
+    C1 --> D[XGBoost]
+    C2 --> E[Safety-rule layer]
     D --> F[Gated fusion]
     E --> F
-    F --> G[Risk level]
-    G --> H[Explanation]
-    H --> I[Trusted-contact alert]
-    H --> J[SQLite + PDF report]
+    F --> G[Risk score + level]
+    G --> H[Explainable evidence]
+    G --> I{HIGH / CRITICAL?}
+    I -->|Yes| J[Trusted-contact alert]
+    I -->|No| K[No alert]
+    H --> L[SQLite incident log]
+    H --> M[PDF incident report]
 ```
 
 The key architectural decision is the strict **telemetry/ML separation**: telemetry fields never reach the model. They are consumed only by the explicit safety-rule layer, so missing telemetry can never be silently coerced into model input.
@@ -260,6 +265,16 @@ The Streamlit dashboard (`dashboard/app.py`) calls the live API and renders what
 - a MODEL EVIDENCE panel with the synthetic benchmark summary and the generated charts (feature importance, confusion matrix, ROC)
 
 The scripted demo scenarios use fixed dashboard payloads; the Python device simulator (`python -m app.services.android_simulator`) powers the dashboard's random-snapshot mode. The simulator's `IsolationDetector` heuristic (its own thresholds) is demo-only and separate from the deployed engine — the dashboard score comes exclusively from `/api/score`.
+
+---
+
+## Demo Flow
+
+- A call + telemetry scenario enters the API.
+- Canonical features are generated and separated into ML features and telemetry/context.
+- XGBoost and the safety-rule layer evaluate the evidence independently.
+- Gated fusion produces the risk score, level, and explainable evidence.
+- HIGH/CRITICAL risk can trigger the trusted-contact intervention path; demo delivery is simulated by default.
 
 ---
 
