@@ -1823,6 +1823,38 @@ with tab_evidence:
         unsafe_allow_html=True,
     )
 
+    st.markdown(
+        f"""
+        <div class="pipe-row">
+            <div class="pipe">
+                <div class="pipe-icon">{_icon("shield", 16)}</div>
+                <div class="pipe-kicker">Development Benchmark</div>
+                <div class="pipe-value">99.88% acc · 1.00 AUC</div>
+                <div class="pipe-sub">Synthetic · internal consistency</div>
+            </div>
+            <div class="pipe">
+                <div class="pipe-icon">{_icon("siren", 16)}</div>
+                <div class="pipe-kicker">Stress Evaluation</div>
+                <div class="pipe-value">0.824 ROC-AUC</div>
+                <div class="pipe-sub">Harder synthetic evaluation</div>
+            </div>
+            <div class="pipe">
+                <div class="pipe-icon">{_icon("warning", 16)}</div>
+                <div class="pipe-kicker">Short-Call Recall</div>
+                <div class="pipe-value">0.53%</div>
+                <div class="pipe-sub">recall on 0-30 min calls</div>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    st.markdown(
+        '<div class="me-banner"><b>LIMITATION</b> · No real-world call dataset was used; these results do not '
+        "establish real-world scam-detection accuracy.</div>",
+        unsafe_allow_html=True,
+    )
+
     _evidence_dir = os.path.join(_REPO_ROOT, "data", "processed")
     img_c1, img_c2, img_c3 = st.columns(3)
     with img_c1:
@@ -1834,13 +1866,13 @@ with tab_evidence:
     with img_c2:
         st.image(
             os.path.join(_evidence_dir, "confusion_matrix.png"),
-            caption="Confusion Matrix",
+            caption="Confusion Matrix - development benchmark (synthetic)",
             use_container_width=True,
         )
     with img_c3:
         st.image(
             os.path.join(_evidence_dir, "roc_curve.png"),
-            caption="ROC Curve",
+            caption="ROC Curve - development benchmark (synthetic)",
             use_container_width=True,
         )
 

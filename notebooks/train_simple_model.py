@@ -9,14 +9,7 @@ import joblib
 import os
 import matplotlib.pyplot as plt
 
-print("="*60)
-print("🚀 LUMINA - Training Realistic Model")
-print("="*60)
 
-# Set random seed
-np.random.seed(42)
-
-# Generate realistic synthetic data
 def generate_realistic_calls(n_samples=15000):
     """Generate realistic call data"""
     data = []
@@ -55,119 +48,132 @@ def generate_realistic_calls(n_samples=15000):
     
     return pd.DataFrame(data)
 
-# Generate data
-print("\n📊 Generating realistic data...")
-df = generate_realistic_calls(15000)
-print(f"✅ Generated {len(df)} call records")
-print(f"   Scam calls: {df['is_scam'].sum()} ({df['is_scam'].mean()*100:.1f}%)")
 
-# Feature engineering
-print("\n🔧 Creating features...")
+def main():
+    print("="*60)
+    print("🚀 LUMINA - Training Realistic Model")
+    print("="*60)
 
-df['call_duration_log'] = np.log1p(df['call_duration_min'])
-df['is_early_morning'] = ((df['hour_of_day'] >= 5) & (df['hour_of_day'] <= 8)).astype(int)
-df['is_late_night'] = ((df['hour_of_day'] >= 22) | (df['hour_of_day'] <= 4)).astype(int)
-df['activity_category'] = pd.cut(df['outgoing_activity_ratio'], bins=3, labels=[0, 1, 2]).astype(int)
+    # Set random seed
+    np.random.seed(42)
 
-# Features
-features = [
-    'call_duration_min',
-    'is_unknown_number',
-    'is_video_call',
-    'hour_of_day',
-    'caller_call_history',
-    'outgoing_activity_ratio',
-    'is_weekend',
-    'call_duration_log',
-    'is_early_morning',
-    'is_late_night',
-    'activity_category'
-]
+    # Generate data
+    print("\n📊 Generating realistic data...")
+    df = generate_realistic_calls(15000)
+    print(f"✅ Generated {len(df)} call records")
+    print(f"   Scam calls: {df['is_scam'].sum()} ({df['is_scam'].mean()*100:.1f}%)")
 
-X = df[features]
-y = df['is_scam']
+    # Feature engineering
+    print("\n🔧 Creating features...")
 
-print(f"   Features: {len(features)}")
+    df['call_duration_log'] = np.log1p(df['call_duration_min'])
+    df['is_early_morning'] = ((df['hour_of_day'] >= 5) & (df['hour_of_day'] <= 8)).astype(int)
+    df['is_late_night'] = ((df['hour_of_day'] >= 22) | (df['hour_of_day'] <= 4)).astype(int)
+    df['activity_category'] = pd.cut(df['outgoing_activity_ratio'], bins=3, labels=[0, 1, 2]).astype(int)
 
-# Split data
-print("\n📊 Splitting data...")
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
+    # Features
+    features = [
+        'call_duration_min',
+        'is_unknown_number',
+        'is_video_call',
+        'hour_of_day',
+        'caller_call_history',
+        'outgoing_activity_ratio',
+        'is_weekend',
+        'call_duration_log',
+        'is_early_morning',
+        'is_late_night',
+        'activity_category'
+    ]
 
-print(f"   Training: {len(X_train)} samples")
-print(f"   Test: {len(X_test)} samples")
+    X = df[features]
+    y = df['is_scam']
 
-# Scale
-scaler = StandardScaler()
-X_train_scaled = scaler.fit_transform(X_train)
-X_test_scaled = scaler.transform(X_test)
+    print(f"   Features: {len(features)}")
 
-# Train XGBoost
-print("\n🚀 Training XGBoost model...")
+    # Split data
+    print("\n📊 Splitting data...")
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
 
-model = xgb.XGBClassifier(
-    n_estimators=100,
-    max_depth=4,
-    learning_rate=0.1,
-    subsample=0.8,
-    colsample_bytree=0.8,
-    random_state=42
-)
+    print(f"   Training: {len(X_train)} samples")
+    print(f"   Test: {len(X_test)} samples")
 
-model.fit(X_train_scaled, y_train)
+    # Scale
+    scaler = StandardScaler()
+    X_train_scaled = scaler.fit_transform(X_train)
+    X_test_scaled = scaler.transform(X_test)
 
-# Evaluate
-print("\n" + "="*60)
-print("📊 MODEL EVALUATION")
-print("="*60)
+    # Train XGBoost
+    print("\n🚀 Training XGBoost model...")
 
-y_pred = model.predict(X_test_scaled)
-y_proba = model.predict_proba(X_test_scaled)[:, 1]
+    model = xgb.XGBClassifier(
+        n_estimators=100,
+        max_depth=4,
+        learning_rate=0.1,
+        subsample=0.8,
+        colsample_bytree=0.8,
+        random_state=42
+    )
 
-print("\nConfusion Matrix:")
-print(confusion_matrix(y_test, y_pred))
+    model.fit(X_train_scaled, y_train)
 
-accuracy = model.score(X_test_scaled, y_test)
-auc_roc = roc_auc_score(y_test, y_proba)
-precision = precision_score(y_test, y_pred)
-recall = recall_score(y_test, y_pred)
-f1 = f1_score(y_test, y_pred)
+    # Evaluate
+    print("\n" + "="*60)
+    print("📊 MODEL EVALUATION")
+    print("="*60)
 
-print(f"\nAccuracy: {accuracy:.3f}")
-print(f"AUC-ROC: {auc_roc:.3f}")
-print(f"Precision (Scam Class): {precision:.3f}")
-print(f"Recall (Scam Class): {recall:.3f}")
-print(f"F1-Score (Scam Class): {f1:.3f}")
+    y_pred = model.predict(X_test_scaled)
+    y_proba = model.predict_proba(X_test_scaled)[:, 1]
 
-print("\nClassification Report:")
-print(classification_report(y_test, y_pred))
+    print("\nConfusion Matrix:")
+    print(confusion_matrix(y_test, y_pred))
 
-# Feature importance
-print("\n" + "="*60)
-print("📊 FEATURE IMPORTANCE")
-print("="*60)
-importances = model.feature_importances_
-feature_importance = pd.DataFrame({
-    'feature': features,
-    'importance': importances
-}).sort_values('importance', ascending=False)
+    accuracy = model.score(X_test_scaled, y_test)
+    auc_roc = roc_auc_score(y_test, y_proba)
+    precision = precision_score(y_test, y_pred)
+    recall = recall_score(y_test, y_pred)
+    f1 = f1_score(y_test, y_pred)
 
-print(feature_importance.to_string(index=False))
+    print(f"\nAccuracy: {accuracy:.3f}")
+    print(f"AUC-ROC: {auc_roc:.3f}")
+    print(f"Precision (Scam Class): {precision:.3f}")
+    print(f"Recall (Scam Class): {recall:.3f}")
+    print(f"F1-Score (Scam Class): {f1:.3f}")
 
-# Save model
-os.makedirs('models/saved', exist_ok=True)
-joblib.dump(model, 'models/saved/risk_classifier.pkl')
-joblib.dump(scaler, 'models/saved/scaler.pkl')
-joblib.dump(features, 'models/saved/features.pkl')
+    print("\nClassification Report:")
+    print(classification_report(y_test, y_pred))
 
-print("\n✅ Model saved to models/saved/risk_classifier.pkl")
-print("✅ Scaler saved to models/saved/scaler.pkl")
-print("✅ Features saved to models/saved/features.pkl")
+    # Feature importance
+    print("\n" + "="*60)
+    print("📊 FEATURE IMPORTANCE")
+    print("="*60)
+    importances = model.feature_importances_
+    feature_importance = pd.DataFrame({
+        'feature': features,
+        'importance': importances
+    }).sort_values('importance', ascending=False)
 
-# Save feature importance plot
-plt.figure(figsize=(10, 8))
-plt.barh(feature_importance['feature'], feature_importance['importance'])
-plt.xlabel('Feature Importance')
-plt.title('LUMINA - Feature Importance')
-plt.tight_layout()
-plt.savefig('data/processed/feature_importance.png')
-print("✅ Feature importance plot saved to data/processed/feature_importance.png")
+    print(feature_importance.to_string(index=False))
+
+    # Save model
+    os.makedirs('models/saved', exist_ok=True)
+    joblib.dump(model, 'models/saved/risk_classifier.pkl')
+    joblib.dump(scaler, 'models/saved/scaler.pkl')
+    joblib.dump(features, 'models/saved/features.pkl')
+
+    print("\n✅ Model saved to models/saved/risk_classifier.pkl")
+    print("✅ Scaler saved to models/saved/scaler.pkl")
+    print("✅ Features saved to models/saved/features.pkl")
+
+    # Save feature importance plot
+    plt.figure(figsize=(10, 8))
+    plt.barh(feature_importance['feature'], feature_importance['importance'])
+    plt.xlabel('Feature Importance')
+    plt.title('LUMINA - Feature Importance')
+    plt.tight_layout()
+    plt.savefig('data/processed/feature_importance.png')
+    print("✅ Feature importance plot saved to data/processed/feature_importance.png")
+
+
+if __name__ == "__main__":
+    main()
