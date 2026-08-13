@@ -9,3 +9,8 @@ __pycache__/
 !models/saved/features.pkl
 reports/*.pdf
 data/incidents.db 
+
+# Local environment and Python bytecode
+.env
+.env.*
+*.py[cod]
