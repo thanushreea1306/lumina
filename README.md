@@ -300,6 +300,11 @@ The scripted demo scenarios use fixed dashboard payloads; the Python device simu
 
 ## Limitations
 
+### Android Integration Path
+
+The current `android_app/` implementation is a Kotlin skeleton, not a production telemetry collector. A future consent-driven Android implementation would investigate platform APIs such as TelecomManager for call state, UsageStatsManager for app-usage context, and AccessibilityService only where appropriate and permitted for user-visible interaction signals. These are future integration targets, not capabilities currently claimed by Lumina.
+
+
 - The model is trained on **synthetic** data; real-world detection performance has **not** been measured.
 - SMS alerts are **simulated by default**; real delivery requires explicit configuration and credentials.
 - No live telecom / call-metadata integration; Android on-device capture is a skeleton.
