@@ -27,7 +27,7 @@ sys.path.insert(0, _REPO_ROOT)
 from app.core.features import CALL_BEHAVIOR_FIELDS, TELEMETRY_FIELDS
 
 API_BASE = os.getenv("LUMINA_API_BASE", "http://localhost:8000")
-_LOGO_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "lumina-logo-transparent-clean.png")
+_LOGO_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "lumina-logo-new.png")
 
 st.set_page_config(
     page_title="LUMINA - Digital Arrest Protection",
@@ -443,7 +443,7 @@ a { color: var(--lumina-red); }
 }
 .lumina-brand { display: flex; align-items: center; gap: 1.5rem; position: relative; z-index: 1; }
 .hero-logo { filter: drop-shadow(0 6px 16px rgba(0,0,0,.45)); }
-.hero-logo img { width: 104px; height: auto; max-width: none; flex-shrink: 0; display: block; }
+.hero-logo img { width: 150px; height: auto; max-width: none; flex-shrink: 0; display: block; }
 .lumina-brand-text { border-left: 1px solid var(--lumina-border2); padding-left: 1.5rem; min-width: 0; }
 .tag-accent { color: var(--lumina-red); }
 .lumina-tag {
@@ -486,7 +486,7 @@ a { color: var(--lumina-red); }
 /* ---------- section headings ---------- */
 .section-head {
     display: flex; align-items: flex-start; gap: .9rem;
-    margin: .85rem 0 .55rem; padding-bottom: .45rem;
+    margin: .7rem 0 .5rem; padding-bottom: .45rem;
     position: relative;
     animation: luminaFade .3s ease both;
 }
@@ -668,6 +668,25 @@ a { color: var(--lumina-red); }
 .notice-green { border-left-color: var(--lumina-green); }
 .notice-muted { color: var(--lumina-muted); }
 
+/* ---------- model evidence ---------- */
+.me-banner {
+    border: 1px solid var(--lumina-border); border-left: 4px solid var(--lumina-amber);
+    background: var(--lumina-card); border-radius: 10px;
+    padding: .8rem 1.05rem; font-size: .8rem; color: var(--lumina-text);
+    margin-top: .6rem; line-height: 1.6; box-shadow: 0 4px 14px rgba(0,0,0,.18);
+}
+.me-card {
+    border: 1px solid var(--lumina-border); border-radius: 12px; padding: .95rem 1.1rem;
+    height: 100%; background: var(--lumina-card);
+    box-shadow: 0 8px 22px rgba(0,0,0,.22), inset 0 1px 0 rgba(255,255,255,.03);
+}
+.me-card-title { font-weight: 900; font-size: .74rem; letter-spacing: .12em; text-transform: uppercase; display: flex; align-items: center; gap: .5rem; }
+.me-card-title svg { flex: 0 0 auto; }
+.me-card.prove .me-card-title { color: var(--lumina-green); }
+.me-card.notprove .me-card-title { color: var(--lumina-amber); }
+.me-card ul { margin: .5rem 0 0; padding-left: 1.15rem; }
+.me-card li { font-size: .77rem; color: var(--lumina-muted); line-height: 1.55; margin-top: .32rem; }
+
 /* ---------- timeline ---------- */
 .timeline { position: relative; padding-left: 1.7rem; }
 .timeline::before { content: ""; position: absolute; left: 7px; top: 12px; bottom: 12px; width: 2px; background: linear-gradient(180deg, var(--lumina-border2), rgba(224,28,43,.35), var(--lumina-border2)); }
@@ -830,7 +849,7 @@ a { color: var(--lumina-red); }
 
 @media (max-width: 900px) {
     .lumina-tag { font-size: 1.18rem; }
-    .hero-logo img { width: 78px; }
+    .hero-logo img { width: 100px; }
     .risk-level { font-size: 2.4rem; }
     .risk-mid { border-left: none; border-right: none; padding: .6rem 0; align-self: auto; }
     .hero-side { align-items: flex-start; }
@@ -1010,7 +1029,7 @@ def render_hero() -> None:
         f"""
         <div class="lumina-hero">
             <div class="lumina-brand">
-                <div class="logo-tile hero-logo">{_logo_img(104)}</div>
+                <div class="logo-tile hero-logo">{_logo_img(150)}</div>
                 <div class="lumina-brand-text">
                     <div class="lumina-tag"><span class="tag-accent">LUMINA</span><br/>AI Bridge · Against Digital Arrest Isolation</div>
                     <div class="lumina-statement">Detect the pattern. Break the isolation. Bring help in.</div>
@@ -1681,21 +1700,13 @@ with tab_overview:
             f"model status: {last['model_status']}"
         )
     else:
-        st.markdown(
-            '<div class="notice notice-muted"><b>LUMINA is standing by.</b> Run a simulation to analyze an '
-            "escalating digital-arrest call, a normal call, or a random snapshot. Every input is SIMULATED - "
-            "the engine and API responses are real.</div>",
-            unsafe_allow_html=True,
-        )
         mode_c1, mode_c2, mode_c3 = st.columns(3)
         with mode_c1:
             st.markdown(
                 f"""
                 <div class="mode-card">
                     <div class="mode-card-title">{_icon("handcuffs", 16)} Digital Arrest Scenario</div>
-                    <div class="mode-card-sub">Signals accumulate over a ~2.5 hour call: unknown caller, video
-                    intimidation, authority claims, then full isolation. Watch the gating ceiling hold the score
-                    at 74.9 until rule evidence crosses 75%.</div>
+                    <div class="mode-card-sub">Unknown caller → video call → authority pressure → isolation signals.</div>
                 </div>
                 """,
                 unsafe_allow_html=True,
@@ -1705,8 +1716,7 @@ with tab_overview:
                 f"""
                 <div class="mode-card">
                     <div class="mode-card-title">{_icon("phone", 16)} Normal Call Scenario</div>
-                    <div class="mode-card-sub">A short, known caller with normal device activity stays at low risk
-                    throughout - a controlled baseline for comparison.</div>
+                    <div class="mode-card-sub">Known caller + normal activity → remains LOW risk.</div>
                 </div>
                 """,
                 unsafe_allow_html=True,
@@ -1716,8 +1726,7 @@ with tab_overview:
                 f"""
                 <div class="mode-card">
                     <div class="mode-card-title">{_icon("magnifier", 16)} Random Simulator Snapshot</div>
-                    <div class="mode-card-sub">A single random snapshot from the Python AndroidDeviceSimulator
-                    (scam or normal profile). Toggle Simulated Gaps to see missing telemetry reported honestly.</div>
+                    <div class="mode-card-sub">Test a simulated device snapshot with configurable telemetry.</div>
                 </div>
                 """,
                 unsafe_allow_html=True,
@@ -1760,6 +1769,112 @@ with tab_pipeline:
         )
 
 with tab_evidence:
+    # ---------- MODEL EVIDENCE (static, always visible) ----------
+    st.markdown(
+        f"""
+        <div class="section-head">
+            <div class="section-num">ML</div>
+            <div>
+                <div class="section-title">Model Evidence</div>
+                <div class="section-sub">What the deployed model is, what it was trained on, and what its
+                synthetic benchmark does - and does not - prove.</div>
+            </div>
+            <div class="section-circuit">{_circuit_svg()}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    st.markdown(
+        f"""
+        <div class="pipe-row">
+            <div class="pipe">
+                <div class="pipe-icon">{_icon("shield", 16)}</div>
+                <div class="pipe-kicker">Model</div>
+                <div class="pipe-value">XGBoost</div>
+                <div class="pipe-sub">XGBClassifier</div>
+            </div>
+            <div class="pipe">
+                <div class="pipe-icon">{_icon("magnifier", 16)}</div>
+                <div class="pipe-kicker">Training Data</div>
+                <div class="pipe-value">15,000</div>
+                <div class="pipe-sub">synthetic call snapshots</div>
+            </div>
+            <div class="pipe">
+                <div class="pipe-icon">{_icon("siren", 16)}</div>
+                <div class="pipe-kicker">Features</div>
+                <div class="pipe-value">11</div>
+                <div class="pipe-sub">call-behavior features</div>
+            </div>
+            <div class="pipe">
+                <div class="pipe-icon">{_icon("warning", 16)}</div>
+                <div class="pipe-kicker">Dominant Feature</div>
+                <div class="pipe-value">~60%</div>
+                <div class="pipe-sub">outgoing_activity_ratio</div>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    st.markdown(
+        '<div class="me-banner"><b>IMPORTANT HONEST DISCLAIMER</b> · Synthetic benchmark only - real-world '
+        "detection performance has not been measured.</div>",
+        unsafe_allow_html=True,
+    )
+
+    _evidence_dir = os.path.join(_REPO_ROOT, "data", "processed")
+    img_c1, img_c2, img_c3 = st.columns(3)
+    with img_c1:
+        st.image(
+            os.path.join(_evidence_dir, "feature_importance.png"),
+            caption="Feature Importance - outgoing_activity_ratio is the dominant feature (~60% in the synthetic benchmark).",
+            use_container_width=True,
+        )
+    with img_c2:
+        st.image(
+            os.path.join(_evidence_dir, "confusion_matrix.png"),
+            caption="Confusion Matrix",
+            use_container_width=True,
+        )
+    with img_c3:
+        st.image(
+            os.path.join(_evidence_dir, "roc_curve.png"),
+            caption="ROC Curve",
+            use_container_width=True,
+        )
+
+    prove_c, notprove_c = st.columns(2)
+    with prove_c:
+        st.markdown(
+            f"""
+            <div class="me-card prove">
+                <div class="me-card-title">{_icon("shield", 14)} What It Proves</div>
+                <ul>
+                    <li>The deployed XGBoost artifact loads successfully.</li>
+                    <li>The model uses exactly 11 features.</li>
+                    <li>The synthetic benchmark is reproducible from the repository artifacts.</li>
+                    <li>The dashboard is using the real model/risk engine.</li>
+                </ul>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    with notprove_c:
+        st.markdown(
+            f"""
+            <div class="me-card notprove">
+                <div class="me-card-title">{_icon("warning", 14)} What It Does Not Prove</div>
+                <ul>
+                    <li>Real-world scam detection accuracy.</li>
+                    <li>Generalization to real victims.</li>
+                    <li>Production readiness.</li>
+                </ul>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
     if timeline:
         # ---------- 05 · DETECTION REASONING ----------
         _section(

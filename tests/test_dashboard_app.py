@@ -157,7 +157,7 @@ def test_empty_state_renders_hero_modes_and_logo(patched_api):
     assert "lumina-hero" in text
     assert "data:image/png;base64," in text
     assert "SYSTEM ONLINE" in text
-    assert "LUMINA is standing by" in text
+    assert "LUMINA is standing by" not in text
     assert "Digital Arrest Scenario" in text
     assert "Normal Call Scenario" in text
     assert "Random Simulator Snapshot" in text
