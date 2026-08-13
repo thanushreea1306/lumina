@@ -14,3 +14,4 @@ data/incidents.db
 .env
 .env.*
 *.py[cod]
+DEVPOST_SUBMISSION.md
