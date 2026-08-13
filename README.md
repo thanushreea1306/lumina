@@ -90,7 +90,20 @@ The deployed classifier is an **XGBoost** `XGBClassifier` (binary, `binary:logis
 
 Feature importance on the synthetic development data is dominated by `outgoing_activity_ratio` (~60%) and `activity_category` (~20%) — consistent with the isolation thesis: reduced outward communication is the strongest signal the model learns.
 
+> Known small train/serve skew, documented for transparency: the training generator bins `activity_category` with `pd.cut(bins=3)` over the observed data range (`notebooks/train_simple_model.py`), while runtime uses fixed 0.33 / 0.66 thresholds (`app/core/features.py`). It is a minor, deterministic mismatch, not a semantic one.
+
 > The model is deliberately limited to call-behavior evidence. Isolation/telemetry evidence is handled by the rule layer (below), not by ML.
+
+---
+
+## Model Card (Summary)
+
+- **Intended use**: corroborating a behavioral-isolation risk assessment for digital-arrest-style scams during a call, in a research prototype.
+- **Out of scope**: general scam/fraud detection, short-call scams (measured recall ~0.5%), content/NLP understanding, autonomous emergency escalation.
+- **Data provenance**: 15,000 fully synthetic, class-conditional call snapshots. No real call data was used to train or evaluate the model.
+- **Calibration**: raw `predict_proba` output is fused, not calibrated; probabilities should not be read as true frequencies.
+- **Known behavior**: near-perfect on the training distribution, degraded under stress shift (AUC 0.824), weak on short calls.
+- **Operational guardrails**: telemetry is excluded from the model by construction; missing data never becomes model input; gates keep ML corroborative only.
 
 ---
 
@@ -177,7 +190,7 @@ Because the generator uses strongly class-conditional distributions, the classes
 - measurement noise
 - distribution shift and out-of-distribution regions
 
-Labels are assigned by an explicit scenario policy computed before any model call; the model was **not retrained** for this evaluation. Derived features are computed with the same runtime formulas used at inference. Results are written to `models/saved/stress_metrics.json`:
+Labels are assigned by an explicit scenario policy computed before any model call; the model was **not retrained** for this evaluation. Derived features are computed with the same runtime formulas used at inference. One caveat is stated plainly: the scenario policy operates on the **same feature space the model consumes** (duration, activity ratio, caller history, hour), so the stress labels are rule-derived from the model's own inputs — not independent ground truth. The benchmark measures how well the model approximates the scenario rule under noise and distribution shift; it is a harder consistency check, not real-world validation. Results are written to `models/saved/stress_metrics.json`:
 
 | Metric | Stress result |
 |--------|--------------:|
@@ -188,7 +201,16 @@ Labels are assigned by an explicit scenario policy computed before any model cal
 | ROC-AUC | 0.824 |
 | Brier score | 0.2232 |
 
-This is **still synthetic evaluation and does not constitute real-world validation**. The stress test deliberately exposes failure modes — notably weak recall on short calls and lower reliability near ambiguous boundaries — and these are reported rather than hidden.
+Measured failure modes (from `stress_metrics.json`):
+
+| Slice | n | Metric | Value |
+|--------|----:|--------|------:|
+| Short calls (0–30 min) | 3,697 | scam recall | 0.53% |
+| Threshold-boundary cases | 1,600 | accuracy | 64.6% |
+| Threshold-boundary cases | 1,600 | ROC-AUC | 0.705 |
+| General stress subset | 5,200 | ROC-AUC | 0.851 |
+
+This is **still synthetic evaluation and does not constitute real-world validation**. The stress test deliberately exposes failure modes — notably the 0.53% scam recall on short calls (the model largely misses brief scams) versus 94.0% recall on 120–481 min calls — and these are reported rather than hidden.
 
 ---
 
@@ -235,7 +257,7 @@ The Streamlit dashboard (`dashboard/app.py`) calls the live API and renders what
 - incident history and PDF report generation / download
 - a MODEL EVIDENCE panel with the synthetic benchmark summary and the generated charts (feature importance, confusion matrix, ROC)
 
-A Python device simulator (`python -m app.services.android_simulator`) produces the telemetry snapshots used by the demo.
+A Python device simulator (`python -m app.services.android_simulator`) produces the telemetry snapshots used by the demo. The simulator's `IsolationDetector` heuristic (its own thresholds) is demo-only and separate from the deployed engine — the dashboard score comes exclusively from `/api/score`.
 
 ---
 

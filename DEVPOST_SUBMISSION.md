@@ -6,6 +6,16 @@
 
 **Detect → Analyze → Alert → Protect → Connect**
 
+**Built for the ML Empowerment Build Challenge 2.0**
+
+| Judging criterion | Where Lumina delivers it |
+| --- | --- |
+| Technical Implementation (30%) | Real FastAPI + XGBoost pipeline, gated hybrid fusion, 140/140 passing tests, frozen-artifact stress benchmark |
+| Creativity & Innovation (20%) | Behavioral-isolation detection with a silent trusted-contact bridge — not content-based scam filtering |
+| Real-World Impact (20%) | In-progress intervention for digital-arrest victims who can no longer ask for help |
+| Design & UX (15%) | Live dashboard driving the real engine, one-click scenarios, explainable evidence |
+| Presentation & Documentation (15%) | Honest benchmarks (including measured failure modes), end-to-end reproducibility, 2-minute demo |
+
 ---
 
 # 🚨 The Problem
@@ -250,6 +260,17 @@ The model was not retrained for this test.
 | ROC-AUC     |  **0.824** |
 | Brier score | **0.2232** |
 
+### Known failure modes (measured, not hidden)
+
+| Slice | n | Metric | Value |
+| --- | ---: | --- | ---: |
+| Short calls (0–30 min) | 3,697 | scam recall | **0.53%** |
+| Boundary cases (threshold-adjacent) | 1,600 | accuracy | 64.6% |
+| Boundary cases (threshold-adjacent) | 1,600 | ROC-AUC | 0.705 |
+| General stress subset | 5,200 | ROC-AUC | 0.851 |
+
+The honest headline: on short calls the model largely misses scams (0.53% recall), while on long calls it is strong (120–481 min: 94.0% recall). Lumina is designed around the long, isolating digital-arrest call — it is not a general call-scam detector, and we do not present it as one.
+
 This is **still synthetic evaluation**, not real-world validation.
 
 And it exposed real weaknesses.
@@ -262,7 +283,7 @@ Because a safety system shouldn't pretend to be perfect.
 
 ---
 
-# 🧪 Ground-Truth Stress Testing
+# 🧪 Scenario-Policy Stress Testing
 
 For the stress evaluation, labels were generated through an explicit scenario-level policy rather than from model predictions.
 
@@ -282,6 +303,30 @@ The model was evaluated **after** the labels were established.
 This prevents the evaluation from simply measuring the model against its own predictions.
 
 It remains synthetic, but it provides a substantially harder test than the original development benchmark.
+
+One caveat we deliberately state: the scenario policy operates on the **same feature space the model consumes** (duration, activity ratio, caller history, hour). The stress labels are therefore rule-derived from the model's own inputs — not independent real-world ground truth. The benchmark measures whether the model can approximate the scenario rule under noise, distribution shift, and contradictory evidence. It is a harder, honest consistency check, not a claim about real-world detection.
+
+---
+
+# ▶️ See It Run
+
+Every number below was produced by the **real engine through the real `/api/score` endpoint** using the dashboard's own scenario payloads — there is no mock scoring path.
+
+**Digital-arrest scenario** (unknown caller → video pressure → authority claim → isolation → maximum escalation):
+
+| t (min) | Risk score | Risk level |
+| ---: | ---: | --- |
+| 2 | 6.4 | LOW |
+| 20 | 16.1 | LOW |
+| 50 | **74.9** | HIGH |
+| 90 | 100.0 | CRITICAL |
+| 150 | 100.0 | CRITICAL |
+
+Stage 3 is the design's key moment: the ML alone reaches ~99.9% scam probability, but the escalation gate caps the fused score at **74.9 (HIGH)** until the deterministic safety rules independently clear 75.
+
+**Normal-call scenario** (known family number, normal app and message use): the score stays at **0.0** across all five snapshots — no alert.
+
+One click in the demo: in the dashboard, press **RUN DIGITAL ARREST SIMULATION** and watch the score climb 6.4 → 16.1 → 74.9 → 100 → 100, then **RUN NORMAL CALL** and watch it stay at 0.
 
 ---
 
@@ -306,6 +351,8 @@ This gives us a safe demonstration environment while keeping the architecture re
 ### Design principle
 
 > **Detect quietly. Escalate carefully. Keep a human in the loop.**
+
+> Demo note: the separate `IsolationDetector` heuristic inside the Python telemetry simulator uses its own thresholds and is demo-only. It is not the deployed engine — the dashboard score comes exclusively from `/api/score`.
 
 ---
 
@@ -382,6 +429,37 @@ These are future engineering requirements, not hidden functionality.
 **Mobile**
 
 * Kotlin Android skeleton for future telemetry integration
+
+---
+
+# 🛠️ Run It Yourself (~2 minutes)
+
+```bash
+pip install -r requirements.txt
+python run.py                    # FastAPI backend on :8000
+streamlit run dashboard/app.py   # dashboard on :8501
+```
+
+Score any call directly:
+
+```bash
+curl -s -X POST http://localhost:8000/api/score \
+  -H "Content-Type: application/json" \
+  -d '{"call_duration_min":165,"is_unknown_number":1,"is_video_call":1,"hour_of_day":10,"caller_call_history":0,"outgoing_activity_ratio":0.03,"day_of_week":2}'
+```
+
+That call returns a **HIGH (74.9) gated assessment** — the ML says ~100%, but the deterministic rule evidence alone stays below the CRITICAL gate.
+
+**Key endpoints**
+
+| Endpoint | Purpose |
+| --- | --- |
+| `POST /api/score` | Fusion risk score + explanation + factors |
+| `POST /api/silent-intervention` | Trusted-contact alert (simulated by default) |
+| `POST /api/detect/panic` | Rule-based text scanner (not ML) |
+| `GET /api/incidents` | Incident history |
+| `GET /health` | Model/artifact status |
+| `POST /api/generate-report` | PDF incident report |
 
 ---
 
