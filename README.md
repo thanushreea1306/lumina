@@ -144,6 +144,8 @@ final_score = (0.5 * ML_probability + 0.5 * rule_score) * 100
 - If the rule score < 50, the final score is capped at **49.9** — a high ML probability alone cannot reach HIGH.
 - If the rule score < 75, the final score is capped at **74.9** — a high ML probability alone cannot reach CRITICAL.
 
+ML contributes in both directions: it can raise or lower the fused score, while the escalation gates prevent ML from independently creating HIGH or CRITICAL risk.
+
 **Fallback:** when the ML artifacts are unavailable or the prediction fails at runtime, scoring falls back to the rule score alone and `ml_probability` is returned as `null`. A fabricated probability (e.g. `0.5`) is never substituted.
 
 **Artifact validation:** on load, `RiskEngine` validates that the model's `n_features_in_` equals the scaler's feature count and the feature list in `features.pkl`, that the feature ordering matches the scaler's training order, and that no telemetry field appears in the model schema. Invalid states set `model_status` to `degraded` and ML is not served.
@@ -367,7 +369,7 @@ lumina/
 
 ## Design Principles
 
-1. **The model corroborates; it does not decide.** Fusion weights and escalation gates keep ML from independently forcing HIGH/CRITICAL risk.
+1. **The model corroborates and can moderate rule evidence; escalation gates prevent ML from forcing HIGH/CRITICAL on its own.**
 2. **Missing data is missing.** Null telemetry is never coerced into a behavioral signal, and ML never sees telemetry at all.
 3. **Every decision is explainable.** Each risk assessment exposes the contributing signals and their reasons.
 4. **Intervention is conservative.** Alerts are simulated by default, abuse-guarded, and aimed at trusted contacts — never at automated escalation.
