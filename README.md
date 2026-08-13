@@ -387,6 +387,12 @@ lumina/
 
 ---
 
+## Built By
+
+**Thanushree A**
+
+---
+
 ## License
 
 MIT — see `LICENSE`.
