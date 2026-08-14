@@ -128,3 +128,34 @@ def test_critical_report_keeps_existing_emergency_stance_and_legal_notice(tmp_pa
     assert "dial 1930" in text or "1930" in text
     assert "cybercrime.gov.in" in text
     assert "No significant risk detected." not in text
+
+
+def test_top_factors_rendered_as_separate_bullets(tmp_path):
+    out = tmp_path / "top_factors_separate.pdf"
+    factors = [
+        "Very long call (165 min) is a sustained isolation signal.",
+        "Unknown caller with no verification history is a common scam tactic.",
+        "Video call is often used to intimidate and monitor the victim.",
+    ]
+    risk_data = {"risk_level": "CRITICAL", "risk_score": 100.0, "top_factors": factors}
+    path = generate_fir_report(_base_features(), risk_data, output_path=str(out))
+    text = _pdf_text(path).replace(r"\(", "(").replace(r"\)", ")")
+
+    assert "Top Factors" in text
+    for factor in factors:
+        assert r"\177 " + factor in text, f"top factor not rendered as its own bullet: {factor}"
+    assert ", ".join(factors) not in text, "top factors must be separate bullets, not one joined paragraph"
+
+
+def test_top_factor_wraps_without_truncation(tmp_path):
+    out = tmp_path / "top_factors_wrap.pdf"
+    long_factor = (
+        "This is a deliberately very long explanatory factor that must wrap naturally "
+        "across multiple lines within the page width without being clipped or truncated."
+    )
+    risk_data = {"risk_level": "HIGH", "risk_score": 74.9, "top_factors": [long_factor]}
+    path = generate_fir_report(_base_features(), risk_data, output_path=str(out))
+    text = _pdf_text(path)
+
+    for word in long_factor.split():
+        assert word in text, f"wrapped top factor lost word: {word}"

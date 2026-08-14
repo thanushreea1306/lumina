@@ -295,7 +295,7 @@ lumina/
 │   ├── audit_model.py
 │   ├── generate_ml_visuals.py
 │   └── stress_eval.py
-├── tests/                   # 140 tests
+├── tests/                   # 142 tests
 ├── archive/ml_pipeline/     # historical, non-active training experiments
 ├── run.py                   # backend entrypoint
 ├── requirements.txt
@@ -360,7 +360,7 @@ The benchmarks use fixed seeds, so the numbers in `metrics.json` and `stress_met
 
 ## Testing
 
-**140 tests pass** (`python -m pytest tests/ -v`). Coverage includes:
+**142 tests pass** (`python -m pytest tests/ -v`). Coverage includes:
 
 - risk-engine escalation gating and false-positive guards
 - model-artifact loading and degradation behavior

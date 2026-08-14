@@ -7,8 +7,8 @@ from reportlab.platypus import Paragraph
 from datetime import datetime
 import os
 
-TOP_FACTORS_STYLE = ParagraphStyle(
-    name="TopFactors",
+TOP_FACTOR_STYLE = ParagraphStyle(
+    name="TopFactor",
     fontName="Helvetica",
     fontSize=11,
     leading=14,
@@ -118,13 +118,17 @@ def generate_fir_report(features: dict, risk_data: dict, output_path: str = None
     c.drawString(70, y, f"Risk Score: {risk_data.get('risk_score', 0)}/100")
     y -= 18
 
-    top_factors_para = Paragraph(
-        f"Top Factors: {', '.join(risk_data.get('top_factors', ['None']))}",
-        TOP_FACTORS_STYLE,
-    )
-    factors_height = top_factors_para.wrapOn(c, width - 70 - 50, height)[1]
-    top_factors_para.drawOn(c, 70, y - factors_height)
-    y -= factors_height + 22
+    c.setFont("Helvetica-Bold", 12)
+    c.drawString(70, y, "Top Factors")
+    y -= 20
+
+    c.setFont("Helvetica", 11)
+    for factor in risk_data.get("top_factors", ["None"]):
+        factor_para = Paragraph(f"• {factor}", TOP_FACTOR_STYLE)
+        factor_height = factor_para.wrapOn(c, width - 70 - 50, height)[1]
+        factor_para.drawOn(c, 70, y - factor_height)
+        y -= factor_height + 4
+    y -= 18
     
     # Section 3: Recommended Actions
     c.setFont("Helvetica-Bold", 14)
