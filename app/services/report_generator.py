@@ -1,8 +1,22 @@
 # app/services/report_generator.py
+from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
+from reportlab.lib.styles import ParagraphStyle
 from reportlab.pdfgen import canvas
+from reportlab.platypus import Paragraph
 from datetime import datetime
 import os
+
+TOP_FACTORS_STYLE = ParagraphStyle(
+    name="TopFactors",
+    fontName="Helvetica",
+    fontSize=11,
+    leading=14,
+    textColor=colors.black,
+    alignment=0,
+    spaceBefore=0,
+    spaceAfter=0,
+)
 
 RECOMMENDED_ACTIONS = {
     "LOW": [
@@ -103,8 +117,14 @@ def generate_fir_report(features: dict, risk_data: dict, output_path: str = None
     c.setFont("Helvetica", 11)
     c.drawString(70, y, f"Risk Score: {risk_data.get('risk_score', 0)}/100")
     y -= 18
-    c.drawString(70, y, f"Top Factors: {', '.join(risk_data.get('top_factors', ['None']))}")
-    y -= 25
+
+    top_factors_para = Paragraph(
+        f"Top Factors: {', '.join(risk_data.get('top_factors', ['None']))}",
+        TOP_FACTORS_STYLE,
+    )
+    factors_height = top_factors_para.wrapOn(c, width - 70 - 50, height)[1]
+    top_factors_para.drawOn(c, 70, y - factors_height)
+    y -= factors_height + 22
     
     # Section 3: Recommended Actions
     c.setFont("Helvetica-Bold", 14)
