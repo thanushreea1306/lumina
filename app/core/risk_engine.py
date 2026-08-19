@@ -4,6 +4,7 @@ import os
 from typing import Dict, List, Optional
 
 import joblib
+import numpy as np
 import pandas as pd
 
 from app.core.features import MODEL_EXCLUDED_FEATURES, extract_features
@@ -31,9 +32,11 @@ class RiskEngine:
         self.model_path = "models/saved/risk_classifier.pkl"
         self.scaler_path = "models/saved/scaler.pkl"
         self.features_path = "models/saved/features.pkl"
+        self.calibrator_path = "models/saved/calibrator.pkl"
         self.model = None
         self.scaler = None
         self.model_features = None
+        self.calibrator = None
         self.model_status = self.STATUS_UNAVAILABLE
         self.error_detail = None
         self._load_attempted = False
@@ -42,6 +45,10 @@ class RiskEngine:
     @property
     def loaded(self) -> bool:
         return self._load_attempted
+
+    @property
+    def calibration_available(self) -> bool:
+        return self.calibrator is not None
 
     def load(self) -> None:
         """Load and validate all ML artifacts.
@@ -103,6 +110,18 @@ class RiskEngine:
 
         self._set_status(self.STATUS_AVAILABLE, None)
 
+        # Load calibrator (optional — graceful fallback if absent)
+        self.calibrator = None
+        if os.path.exists(self.calibrator_path):
+            try:
+                self.calibrator = joblib.load(self.calibrator_path)
+                logger.info("Calibration layer loaded from %s", self.calibrator_path)
+            except Exception as exc:
+                logger.warning("Calibrator artifact present but failed to load: %s", exc)
+                self.calibrator = None
+        else:
+            logger.info("No calibrator artifact found at %s; using raw model probabilities.", self.calibrator_path)
+
     def _set_status(self, status: str, error_detail: Optional[str]) -> None:
         self.model_status = status
         self.error_detail = error_detail
@@ -129,23 +148,40 @@ class RiskEngine:
     def _ml_probability(self, features: dict) -> Optional[float]:
         """ML risk probability using the exact feature order from features.pkl.
 
+        Returns the raw model probability as a single float, or None when ML
+        is unavailable/degraded or prediction fails.  Never fabricates 0.5.
+
         Input is limited to the deployed model schema via _model_input_row;
-        telemetry-only fields are excluded from inference. Returns None when
-        ML is unavailable/degraded. Never fabricates 0.5.
+        telemetry-only fields are excluded from inference.
         """
         if self.model_status != self.STATUS_AVAILABLE:
             return None
         try:
             row = self._model_input_row(features)
-            probability = self.model.predict_proba(self.scaler.transform(row))[0][1]
+            raw_probability = float(self.model.predict_proba(self.scaler.transform(row))[0][1])
             self.error_detail = None
-            return float(probability)
+            return raw_probability
         except Exception as exc:
             message = f"ML prediction failed at runtime: {exc}"
             self.error_detail = message
             if message != self._last_runtime_error:
                 self._last_runtime_error = message
                 logger.error(message)
+            return None
+
+    def _calibrate(self, features: dict) -> Optional[float]:
+        """Return calibrated probability using the fitted calibrator.
+
+        Returns None if calibration is unavailable or fails.  This is a
+        separate method so it can fail independently of _ml_probability.
+        """
+        if self.calibrator is None:
+            return None
+        try:
+            row = self._model_input_row(features)
+            return float(self.calibrator.predict_proba(self.scaler.transform(row))[0][1])
+        except Exception as cal_exc:
+            logger.warning("Calibration failed at runtime: %s", cal_exc)
             return None
 
     def _safety_rules(self, telemetry: dict, features: dict) -> tuple:
@@ -234,14 +270,29 @@ class RiskEngine:
     def score(self, telemetry: dict, mode: str = "demo") -> Dict:
         """Main scoring method: fuse ML probability with explicit safety rules.
 
-        When ML is available the 50/50 fusion is used. Otherwise the rule score
-        is used alone and ml_probability is None (never a fabricated 0.5).
+        When ML is available the calibrated probability is used for the 50/50
+        fusion (falling back to raw probability if calibration is unavailable).
+        When ML is entirely unavailable the rule score is used alone and
+        ml_probability is None (never a fabricated 0.5).
         """
         if not self._load_attempted:
             self.load()
 
         features = extract_features(telemetry)
-        ml_score = self._ml_probability(features)
+        try:
+            raw_ml = self._ml_probability(features)
+        except Exception as exc:
+            logger.warning("ML probability computation failed unexpectedly: %s", exc)
+            raw_ml = None
+        try:
+            calibrated_ml = self._calibrate(features) if raw_ml is not None else None
+        except Exception as exc:
+            logger.warning("Calibration failed unexpectedly: %s", exc)
+            calibrated_ml = None
+
+        # Choose which probability to use for fusion
+        ml_score = calibrated_ml if calibrated_ml is not None else raw_ml
+
         contributions, rule_score = self._safety_rules(telemetry, features)
 
         missing_telemetry = [
@@ -252,7 +303,7 @@ class RiskEngine:
 
         model_status = self.model_status
         error_detail = self.error_detail
-        if ml_score is None and self.model_status == self.STATUS_AVAILABLE:
+        if raw_ml is None and self.model_status == self.STATUS_AVAILABLE:
             model_status = self.STATUS_DEGRADED
             error_detail = error_detail or "ML prediction failed at runtime."
 
@@ -289,6 +340,7 @@ class RiskEngine:
         else:
             alert_status = "none"
 
+        # Build explanation string
         if ml_score is None:
             explanation = (
                 f"Risk level '{risk_level}' with score {round(fused_score, 1)}/100 "
@@ -296,10 +348,13 @@ class RiskEngine:
                 f"Rule contribution {round(rule_score * 100, 1)}%)."
             )
         else:
+            calibration_note = ""
+            if calibrated_ml is not None and raw_ml is not None and abs(calibrated_ml - raw_ml) > 0.001:
+                calibration_note = f" [raw {round(raw_ml * 100, 1)}%, calibrated]"
             explanation = (
                 f"Risk level '{risk_level}' with score {round(fused_score, 1)}/100 "
                 f"(ML probability {round(ml_score * 100, 1)}%, "
-                f"rule contribution {round(rule_score * 100, 1)}%)."
+                f"rule contribution {round(rule_score * 100, 1)}%{calibration_note})."
             )
 
         if ml_cap_applied:
@@ -315,6 +370,9 @@ class RiskEngine:
             "risk_score": round(fused_score, 1),
             "risk_level": risk_level,
             "ml_probability": round(ml_score * 100, 1) if ml_score is not None else None,
+            "raw_ml_probability": round(raw_ml * 100, 1) if raw_ml is not None else None,
+            "calibrated_ml_probability": round(calibrated_ml * 100, 1) if calibrated_ml is not None else None,
+            "calibration_available": self.calibration_available,
             "rule_contribution": round(rule_score * 100, 1),
             "ml_cap_applied": ml_cap_applied,
             "features": features,

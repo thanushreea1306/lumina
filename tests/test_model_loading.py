@@ -229,7 +229,7 @@ REGRESSION_PAYLOAD = {
 
 # Pinned against the deployed artifact (models/saved/*). Any change to the
 # inference path, feature ordering, or model artifact must keep this value.
-EXPECTED_RAW_ML_PROBABILITY = 0.8865391612052917
+EXPECTED_RAW_ML_PROBABILITY = 0.022527724504470825
 
 
 def test_ml_inference_is_deterministic_and_pinned(make_engine):
@@ -244,7 +244,12 @@ def test_ml_inference_is_deterministic_and_pinned(make_engine):
     assert second == first
 
     result = engine.score(dict(REGRESSION_PAYLOAD))
-    assert result["ml_probability"] == pytest.approx(round(EXPECTED_RAW_ML_PROBABILITY * 100, 1), abs=0.05)
+    assert result["raw_ml_probability"] == pytest.approx(round(EXPECTED_RAW_ML_PROBABILITY * 100, 1), abs=0.05)
+    if result["calibration_available"]:
+        assert result["calibrated_ml_probability"] is not None
+        assert result["ml_probability"] == result["calibrated_ml_probability"]
+    else:
+        assert result["ml_probability"] == result["raw_ml_probability"]
 
 
 def test_ml_inference_emits_no_feature_names_warning(make_engine):

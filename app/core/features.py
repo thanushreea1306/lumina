@@ -1,9 +1,11 @@
 from __future__ import annotations
 
-import math
-
 from typing import Any, Dict, Mapping
 
+from app.core.transforms import (
+    ML_FEATURE_NAMES,
+    derive_ml_features,
+)
 
 # The six raw call-behavior fields accepted by the scoring API. These are a
 # subset of the 11-feature ML schema (the remaining 5 ML features are derived
@@ -41,37 +43,7 @@ MODEL_EXCLUDED_FEATURES = frozenset(TELEMETRY_FIELDS + TELEMETRY_MISSING_FLAGS)
 
 def canonical_feature_names() -> list[str]:
     """Return the canonical feature ordering used by the risk engine."""
-    return [
-        "call_duration_min",
-        "is_unknown_number",
-        "is_video_call",
-        "hour_of_day",
-        "caller_call_history",
-        "outgoing_activity_ratio",
-        "is_weekend",
-        "call_duration_log",
-        "is_early_morning",
-        "is_late_night",
-        "activity_category",
-        "screen_time_on_call_percent",
-        "num_app_switches",
-        "num_home_presses",
-        "has_sms_activity",
-        "has_social_app_activity",
-        "location_change",
-        "screen_brightness",
-        "screen_on_continuous_hours",
-        "persistence_hours",
-        "is_missing_screen_time_on_call_percent",
-        "is_missing_num_app_switches",
-        "is_missing_num_home_presses",
-        "is_missing_has_sms_activity",
-        "is_missing_has_social_app_activity",
-        "is_missing_location_change",
-        "is_missing_screen_brightness",
-        "is_missing_screen_on_continuous_hours",
-        "is_missing_persistence_hours",
-    ]
+    return list(ML_FEATURE_NAMES) + list(TELEMETRY_FIELDS) + list(TELEMETRY_MISSING_FLAGS)
 
 
 def _to_float(value: Any, default: float = 0.0) -> float:
@@ -130,44 +102,16 @@ def extract_features(signals: Mapping[str, Any] | None = None) -> Dict[str, Any]
     An explicitly supplied null/None value is treated exactly like an absent field
     and is never coerced into an observed False/0/0.0 signal.
     The output ordering is stable and matches the canonical feature schema.
+
+    ML features are derived via app.core.transforms (canonical single source
+    of truth) to guarantee train/serve consistency.
     """
     payload = dict(signals or {})
 
-    call_duration = _to_float(
-        payload.get("call_duration_min", payload.get("call_duration_minutes", payload.get("duration_minutes"))),
-        default=0.0,
-    )
-    if call_duration < 0:
-        call_duration = 0.0
+    # --- Derive the 11 ML features via canonical transforms ---
+    ml_features = derive_ml_features(payload)
 
-    is_unknown_number = _to_bool(payload.get("is_unknown_number"), default=False)
-    is_video_call = _to_bool(payload.get("is_video_call"), default=False)
-
-    hour_value = _to_int(payload.get("hour_of_day"), default=12)
-    hour_value = max(0, min(23, hour_value))
-    day_of_week = payload.get("day_of_week")
-    if day_of_week is None and payload.get("is_weekend") is not None:
-        weekend_value = _to_bool(payload.get("is_weekend"), default=False)
-    elif day_of_week is not None:
-        weekend_value = int(day_of_week in {5, 6})
-    else:
-        weekend_value = 0  # unknown - never fabricate weekend from hour_of_day
-
-    caller_call_history = _to_int(payload.get("caller_call_history"), default=0)
-    outgoing_activity_ratio = _to_float(payload.get("outgoing_activity_ratio"), default=0.5)
-    outgoing_activity_ratio = _clamp(outgoing_activity_ratio, 0.0, 1.0)
-
-    call_duration_log = math.log1p(call_duration) if call_duration >= 0 else 0.0
-    is_early_morning = 1 if 5 <= hour_value <= 8 else 0
-    is_late_night = 1 if hour_value >= 22 or hour_value <= 4 else 0
-
-    if outgoing_activity_ratio < 0.33:
-        activity_category = 0
-    elif outgoing_activity_ratio < 0.66:
-        activity_category = 1
-    else:
-        activity_category = 2
-
+    # --- Telemetry fields ---
     screen_time_on_call_percent = _to_float(payload.get("screen_time_on_call_percent"), default=0.0)
     num_app_switches = _to_int(payload.get("num_app_switches"), default=0)
     num_home_presses = _to_int(payload.get("num_home_presses"), default=0)
@@ -178,18 +122,9 @@ def extract_features(signals: Mapping[str, Any] | None = None) -> Dict[str, Any]
     screen_on_continuous_hours = _to_float(payload.get("screen_on_continuous_hours"), default=0.0)
     persistence_hours = _to_float(payload.get("persistence_hours"), default=0.0)
 
-    return {
-        "call_duration_min": round(call_duration, 3),
-        "is_unknown_number": 1 if is_unknown_number else 0,
-        "is_video_call": 1 if is_video_call else 0,
-        "hour_of_day": hour_value,
-        "caller_call_history": caller_call_history,
-        "outgoing_activity_ratio": round(outgoing_activity_ratio, 3),
-        "is_weekend": int(weekend_value),
-        "call_duration_log": round(call_duration_log, 3),
-        "is_early_morning": int(is_early_morning),
-        "is_late_night": int(is_late_night),
-        "activity_category": int(activity_category),
+    # --- Build the full 29-field output ---
+    result = dict(ml_features)
+    result.update({
         "screen_time_on_call_percent": round(screen_time_on_call_percent, 3),
         "num_app_switches": num_app_switches,
         "num_home_presses": num_home_presses,
@@ -208,5 +143,5 @@ def extract_features(signals: Mapping[str, Any] | None = None) -> Dict[str, Any]
         "is_missing_screen_brightness": 0 if _is_present(payload, "screen_brightness") else 1,
         "is_missing_screen_on_continuous_hours": 0 if _is_present(payload, "screen_on_continuous_hours") else 1,
         "is_missing_persistence_hours": 0 if _is_present(payload, "persistence_hours") else 1,
-    }
-
+    })
+    return result

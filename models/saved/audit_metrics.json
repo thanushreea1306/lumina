@@ -1,6 +1,6 @@
 {
   "disclaimer": "synthetic benchmark \u2014 not real-world validation",
-  "generated_at_script": "train_simple_model.py",
+  "generated_at_script": "audit_model.py",
   "model": {
     "type": "XGBClassifier",
     "params": {
@@ -35,99 +35,37 @@
   "feature_contract": "Canonical features from app.core.transforms.ML_FEATURE_NAMES",
   "synthetic_dataset": {
     "n_samples": 15000,
-    "scam_rate": 0.14926666666666666,
-    "distribution_source": "notebooks/train_simple_model.py generate_realistic_calls()",
-    "improvements": "Realistic overlap between scam/normal distributions; ~15% benign-looking scam calls, ~20% scam-like normal calls"
-  },
-  "split": {
-    "trainval": 12000,
-    "test": 3000
-  },
-  "calibration": {
-    "method": "sigmoid (Platt scaling) via CalibratedClassifierCV",
-    "fitted_on": "5-fold cross-validation on trainval set (never sees test)",
-    "ece_raw": 0.0469,
-    "ece_calibrated": 0.0745,
-    "brier_raw": 0.0688,
-    "brier_calibrated": 0.0716
+    "scam_rate": 0.14833333333333334,
+    "distribution_source": "notebooks/train_simple_model.py generate_realistic_calls()"
   },
   "raw_model_metrics": {
-    "accuracy": 0.9077,
-    "precision": 0.7317,
-    "recall": 0.6027,
-    "f1": 0.661,
-    "roc_auc": 0.9295,
-    "brier": 0.0688
+    "accuracy": 0.9109,
+    "precision": 0.7368,
+    "recall": 0.6216,
+    "f1": 0.6743,
+    "roc_auc": 0.933,
+    "brier": 0.0648
   },
   "calibrated_model_metrics": {
-    "accuracy": 0.9063,
-    "precision": 0.742,
-    "recall": 0.5714,
-    "f1": 0.6456,
-    "roc_auc": 0.9284,
-    "brier": 0.0716
-  },
-  "confusion_matrix_raw": {
-    "tn": 2453,
-    "fp": 99,
-    "fn": 178,
-    "tp": 270
-  },
-  "confusion_matrix_cal": {
-    "tn": 2463,
-    "fp": 89,
-    "fn": 192,
-    "tp": 256
-  },
-  "cross_validation": {
-    "n_folds": 5,
-    "metric_means": {
-      "accuracy": 0.911,
-      "precision": 0.7353,
-      "recall": 0.6303,
-      "f1": 0.6787,
-      "roc_auc": 0.9362
-    },
-    "metric_stds": {
-      "accuracy": 0.0047,
-      "precision": 0.0153,
-      "recall": 0.0246,
-      "f1": 0.0198,
-      "roc_auc": 0.0062
+    "accuracy": 0.9104,
+    "precision": 0.7454,
+    "recall": 0.6013,
+    "f1": 0.6657,
+    "roc_auc": 0.933,
+    "brier": 0.0665,
+    "confusion_matrix": {
+      "tn": 12318,
+      "fp": 457,
+      "fn": 887,
+      "tp": 1338
     }
   },
-  "threshold_analysis": [
-    {
-      "threshold": 0.3,
-      "precision": 0.6103,
-      "recall": 0.7411,
-      "f1": 0.6694
-    },
-    {
-      "threshold": 0.4,
-      "precision": 0.6681,
-      "recall": 0.6786,
-      "f1": 0.6733
-    },
-    {
-      "threshold": 0.5,
-      "precision": 0.7317,
-      "recall": 0.6027,
-      "f1": 0.661
-    },
-    {
-      "threshold": 0.6,
-      "precision": 0.7517,
-      "recall": 0.4933,
-      "f1": 0.5957
-    },
-    {
-      "threshold": 0.7,
-      "precision": 0.8095,
-      "recall": 0.3795,
-      "f1": 0.5167
-    }
-  ],
+  "confusion_matrix": {
+    "tn": 12281,
+    "fp": 494,
+    "fn": 842,
+    "tp": 1383
+  },
   "feature_importance": [
     {
       "feature": "outgoing_activity_ratio",

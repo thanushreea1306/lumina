@@ -84,22 +84,21 @@ flowchart LR
 
 ### ML layer
 
-The deployed classifier is an **XGBoost** `XGBClassifier` (binary, `binary:logistic`) operating on the 11 call-behavior features. Training is fully scripted in `notebooks/train_simple_model.py`:
+The deployed classifier is an **XGBoost** `XGBClassifier` (binary, `binary:logistic`) operating on the 11 call-behavior features, wrapped with a **Platt (sigmoid) calibration layer** (`CalibratedClassifierCV`). Training is fully scripted in `notebooks/train_simple_model.py`:
 
-- **Data**: 15,000 synthetic call snapshots (scam rate ~15%), generated from class-conditional distributions.
-- **Model**: `n_estimators=100`, `max_depth=4`, `learning_rate=0.1`, `subsample=0.8`, `colsample_bytree=0.8`, `random_state=42`.
+- **Data**: 15,000 synthetic call snapshots (scam rate ~15%), generated from class-conditional distributions with realistic overlap between scam and normal calls.
+- **Model**: `n_estimators=150`, `max_depth=4`, `learning_rate=0.08`, `subsample=0.8`, `colsample_bytree=0.8`, `min_child_weight=3`, `reg_alpha=0.1`, `reg_lambda=1.0`, `random_state=42`.
 - **Preprocessing**: `StandardScaler` fitted on the training split.
-- **Split**: 80/20 stratified train/test with a fixed random seed (`random_state=42`).
-- **Artifacts**: tracked at `models/saved/risk_classifier.pkl`, `scaler.pkl`, `features.pkl`.
+- **Split**: 80/20 stratified train/test with a fixed random seed (`random_state=42`). Calibration is fitted via 5-fold cross-validation on the training split.
+- **Artifacts**: tracked at `models/saved/risk_classifier.pkl`, `scaler.pkl`, `features.pkl`, `calibrator.pkl`.
+- **Feature contract**: all feature transformations (binning, log transforms, time-of-day flags) are defined in `app/core/transforms.py` — a single canonical module shared by training, inference, and evaluation. There is no train/serve skew.
 
-Feature importance on the synthetic development data is dominated by `outgoing_activity_ratio` (~60%) and `activity_category` (~20%) — consistent with the isolation thesis: reduced outward communication is the strongest signal the model learns.
+Feature importance on the synthetic development data is dominated by `outgoing_activity_ratio` (~32%) and `is_video_call` (~13%) — consistent with the isolation thesis: reduced outward communication is the strongest signal the model learns.
 
-- Raw `predict_proba` output is fused, not calibrated; probabilities should not be read as true frequencies.
+- The risk engine exposes both `raw_ml_probability` and `calibrated_ml_probability`. When the calibration layer is available, the calibrated probability is used for fusion; otherwise the raw probability is used as a safe fallback.
 - Telemetry is excluded from the ML vector by construction (`MODEL_EXCLUDED_FEATURES` in `app/core/features.py`).
 - On load, `RiskEngine` validates that the model's `n_features_in_` equals the scaler's feature count and the `features.pkl` list, that the feature ordering matches the scaler's training order, and that no telemetry field appears in the model schema. Invalid states set `model_status` to `degraded` and ML is not served.
 - If the ML artifacts are unavailable or the prediction fails at runtime, scoring falls back to the rule score alone and `ml_probability` is returned as `null` — a fabricated probability (e.g. `0.5`) is never substituted.
-
-> Known small train/serve skew, documented for transparency: the training generator bins `activity_category` with `pd.cut(bins=3)` over the observed data range (`notebooks/train_simple_model.py`), while runtime uses fixed 0.33 / 0.66 thresholds (`app/core/features.py`). It is a minor, deterministic mismatch, not a semantic one.
 
 ### Safety-rule layer
 
@@ -124,7 +123,7 @@ The scripted demo scenarios use fixed dashboard payloads; the Python device simu
 
 ## Canonical Feature Schema
 
-`app/core/features.py` defines a deterministic, 29-field canonical schema: **11 ML features + 9 telemetry/context fields + 9 missingness indicators**.
+`app/core/features.py` defines a deterministic, 29-field canonical schema: **11 ML features + 9 telemetry/context fields + 9 missingness indicators**. All feature transformations are defined in `app/core/transforms.py`, a single canonical module shared by training, inference, and evaluation — eliminating train/serve skew.
 
 ### ML features (11)
 
@@ -140,7 +139,7 @@ The scripted demo scenarios use fixed dashboard payloads; the Python device simu
 | 8 | `call_duration_log` | `log1p(call_duration_min)` |
 | 9 | `is_early_morning` | `5 <= hour_of_day <= 8` |
 | 10 | `is_late_night` | `hour_of_day >= 22 or hour_of_day <= 4` |
-| 11 | `activity_category` | binned `outgoing_activity_ratio` (0.33 / 0.66) |
+| 11 | `activity_category` | binned `outgoing_activity_ratio` (0.33 / 0.66, via `app/core/transforms.py`) |
 
 ### Telemetry fields (9, excluded from ML)
 
@@ -205,11 +204,11 @@ Validation is separated into a controlled development benchmark and an **indepen
 
 | Metric | Result |
 |--------|-------:|
-| Accuracy | 99.88% |
-| Precision (scam) | 99.60% |
-| Recall (scam) | 99.60% |
-| F1 (scam) | ~99.60% |
-| ROC-AUC | 1.000 |
+| Accuracy | 99.69% |
+| Precision (scam) | 100.0% |
+| Recall (scam) | 95.78% |
+| F1 (scam) | 97.84% |
+| ROC-AUC | 0.999 |
 
 Because the generator uses strongly class-conditional distributions, the classes are almost separable by construction. **These numbers measure internal consistency of the training/inference pipeline — they are not real-world detection accuracy.**
 
@@ -221,12 +220,12 @@ Because the generator uses strongly class-conditional distributions, the classes
 
 | Metric | Stress result |
 |--------|--------------:|
-| Accuracy | 74.98% |
-| Precision (scam) | 76.88% |
-| Recall (scam) | 68.39% |
-| F1 (scam) | 72.39% |
-| ROC-AUC | 0.824 |
-| Brier score | 0.2232 |
+| Accuracy | 85.11% |
+| Precision (scam) | 76.36% |
+| Recall (scam) | 83.68% |
+| F1 (scam) | 79.85% |
+| ROC-AUC | 0.930 |
+| Brier score | 0.1014 |
 
 > **Important:** Stress-test labels are generated from a scenario policy operating on the same call-behavior feature space consumed by the model. They are not independent real-world ground truth. The benchmark therefore measures robustness/consistency under synthetic distribution shift, not real-world detection performance.
 
@@ -238,15 +237,15 @@ Measured failure modes (from `stress_metrics.json`):
 
 | Slice | n | Metric | Value |
 |--------|----:|--------|------:|
-| Short calls (0–30 min) | 3,697 | scam recall | 0.53% |
-| 120–481 min calls | 2,318 | scam recall | 94.0% |
-| Threshold-boundary cases | 1,600 | accuracy | 64.6% |
-| Threshold-boundary cases | 1,600 | ROC-AUC | 0.705 |
-| General stress subset | 5,200 | ROC-AUC | 0.851 |
+| Short calls (0–30 min) | 1,858 | scam recall | 0.97% |
+| 120–481 min calls | 2,287 | scam recall | 99.3% |
+| Threshold-boundary cases | 1,600 | accuracy | 54.25% |
+| Threshold-boundary cases | 1,600 | ROC-AUC | 0.565 |
+| General stress subset | 5,200 | ROC-AUC | 0.968 |
 
-**Short Calls (0–30 min): 0.53% scam recall.** The current ML model is not effective for short-duration scenarios, highlighting a major limitation and an area for future early-stage detection improvements.
+**Short Calls (0–30 min): 0.97% scam recall.** The current ML model is not effective for short-duration scenarios, highlighting a major limitation and an area for future early-stage detection improvements.
 
-On long calls it is strong (120–481 min: 94.0% recall). Lumina is designed around the long, isolating digital-arrest call — it is not a general call-scam detector, and we do not present it as one.
+On long calls it is very strong (120–481 min: 99.3% recall). Lumina is designed around the long, isolating digital-arrest call — it is not a general call-scam detector, and we do not present it as one.
 
 This is **still synthetic evaluation and does not constitute real-world validation**. These failure modes are reported rather than hidden.
 
@@ -275,7 +274,7 @@ The following are **potential integration targets / feasibility mapping** for a 
 lumina/
 ├── app/
 │   ├── api/                 # FastAPI route modules (detection/panic; scoring lives in main.py)
-│   ├── core/                # features.py, risk_engine.py, db.py
+│   ├── core/                # features.py, transforms.py, risk_engine.py, db.py
 │   └── services/            # alerts, reports, simulator, support integrations
 ├── android_app/             # Kotlin skeleton (future on-device capture)
 ├── dashboard/               # Streamlit app + assets
@@ -288,6 +287,7 @@ lumina/
 │   ├── risk_classifier.pkl
 │   ├── scaler.pkl
 │   ├── features.pkl
+│   ├── calibrator.pkl       # Platt sigmoid calibration layer
 │   ├── metrics.json         # development benchmark
 │   └── stress_metrics.json  # stress benchmark
 ├── notebooks/
@@ -295,7 +295,7 @@ lumina/
 │   ├── audit_model.py
 │   ├── generate_ml_visuals.py
 │   └── stress_eval.py
-├── tests/                   # 142 tests
+├── tests/                   # 199 tests
 ├── archive/ml_pipeline/     # historical, non-active training experiments
 ├── run.py                   # backend entrypoint
 ├── requirements.txt
@@ -360,7 +360,7 @@ The benchmarks use fixed seeds, so the numbers in `metrics.json` and `stress_met
 
 ## Testing
 
-**142 tests pass** (`python -m pytest tests/ -v`). Coverage includes:
+**199 tests pass** (`python -m pytest tests/ -v`). Coverage includes:
 
 - risk-engine escalation gating and false-positive guards
 - model-artifact loading and degradation behavior
@@ -370,6 +370,9 @@ The benchmarks use fixed seeds, so the numbers in `metrics.json` and `stress_met
 - silent-intervention gating
 - report generation and report-download path-traversal protection
 - dashboard rendering and API integration
+- canonical feature transforms (feature contract, boundary values, edge cases)
+- calibration artifact loading, calibrated probability range, and calibration fallback
+- ML fallback behavior (unavailable model, degraded model, prediction failure)
 
 ---
 
@@ -412,9 +415,10 @@ The benchmarks use fixed seeds, so the numbers in `metrics.json` and `stress_met
 
 ## Roadmap
 
-- **V2 — Real-world sensing**: consent-driven on-device Android telemetry wired to the API.
-- **V3 — Stronger intelligence**: ethically sourced datasets, probability calibration, session/subject-level validation, NLP-based coercion analysis, robustness to distribution shift.
-- **V4 — Intervention network**: trusted-contact workflows, real-time telecom integrations, coordinated support pathways.
+- **V2 — Calibration & robustness**: Platt (sigmoid) probability calibration, canonical feature transforms eliminating train/serve skew, improved training data with realistic class overlap, evaluation metrics expanded with Brier score and calibration analysis.
+- **V3 — Real-world sensing**: consent-driven on-device Android telemetry wired to the API.
+- **V4 — Stronger intelligence**: ethically sourced datasets, session/subject-level validation, NLP-based coercion analysis, robustness to distribution shift.
+- **V5 — Intervention network**: trusted-contact workflows, real-time telecom integrations, coordinated support pathways.
 
 ---
 

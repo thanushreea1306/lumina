@@ -11,6 +11,9 @@
 import json
 import os
 
+import sys
+from pathlib import Path
+
 import joblib
 import numpy as np
 import pandas as pd
@@ -24,12 +27,16 @@ from sklearn.metrics import (
     roc_auc_score,
 )
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from app.core.transforms import ML_FEATURE_NAMES, add_derived_columns
+
 DISCLAIMER = "synthetic stress/holdout benchmark - NOT real-world validation"
 PROTOCOL_VERSION = "1.0"
 
 MODEL_PATH = "models/saved/risk_classifier.pkl"
 SCALER_PATH = "models/saved/scaler.pkl"
 FEATURES_PATH = "models/saved/features.pkl"
+CALIBRATOR_PATH = "models/saved/calibrator.pkl"
 OUTPUT_PATH = "models/saved/stress_metrics.json"
 
 # Telemetry-only names (from app/core/features.py) that must never appear in
@@ -74,7 +81,15 @@ def load_artifacts():
         raise SystemExit(
             f"Schema includes telemetry-only fields ({', '.join(telemetry_in_schema)}); ML must not be served."
         )
-    return model, scaler, features
+
+    calibrator = None
+    if os.path.exists(CALIBRATOR_PATH):
+        try:
+            calibrator = joblib.load(CALIBRATOR_PATH)
+        except Exception:
+            pass
+
+    return model, scaler, features, calibrator
 
 
 # ---------------------------------------------------------------------------
@@ -196,15 +211,8 @@ def generate_stress_calls(n_samples=N_SAMPLES, seed=SEED):
 
     df = pd.DataFrame(rows)
 
-    # Derived features - exactly the runtime formulas from app/core/features.py
-    df["call_duration_log"] = np.log1p(df["call_duration_min"]).round(3)
-    df["is_early_morning"] = ((df["hour_of_day"] >= 5) & (df["hour_of_day"] <= 8)).astype(int)
-    df["is_late_night"] = ((df["hour_of_day"] >= 22) | (df["hour_of_day"] <= 4)).astype(int)
-    df["activity_category"] = pd.cut(
-        df["outgoing_activity_ratio"],
-        bins=[-0.001, 0.33, 0.66, 1.001],
-        labels=[0, 1, 2],
-    ).astype(int)
+    # Derived features — canonical transforms from app.core.transforms
+    df = add_derived_columns(df)
 
     subsets = {"general": n_general, "boundary": n_boundary, "contradictory": n_contradictory}
     return df, subsets
@@ -243,10 +251,10 @@ def main():
     print("=" * 60)
     print(f"Disclaimer: {DISCLAIMER}\n")
 
-    model, scaler, features = load_artifacts()
+    model, scaler, features, calibrator = load_artifacts()
     print(f"Artifacts loaded and validated: {type(model).__name__}, "
           f"scaler (n={getattr(scaler, 'n_features_in_', '?')}), "
-          f"{len(features)} features")
+          f"{len(features)} features, calibrator={'yes' if calibrator is not None else 'no'}")
 
     df, subsets = generate_stress_calls()
     y_true = df["is_scam"].to_numpy()
@@ -259,36 +267,73 @@ def main():
     # Scale with the SAVED scaler only - never refit.
     X_scaled = scaler.transform(X)
     y_pred = model.predict(X_scaled)
-    y_proba = model.predict_proba(X_scaled)[:, 1]
+    y_proba_raw = model.predict_proba(X_scaled)[:, 1]
 
     accuracy = float(accuracy_score(y_true, y_pred))
     precision = float(precision_score(y_true, y_pred))
     recall = float(recall_score(y_true, y_pred))
     f1 = float(f1_score(y_true, y_pred))
-    roc_auc = float(roc_auc_score(y_true, y_proba))
-    brier = float(brier_score_loss(y_true, y_proba))
+    roc_auc = float(roc_auc_score(y_true, y_proba_raw))
+    brier_raw = float(brier_score_loss(y_true, y_proba_raw))
     tn, fp, fn, tp = confusion_matrix(y_true, y_pred).ravel()
 
     print("\n" + "=" * 60)
-    print("OVERALL (stress holdout)")
+    print("OVERALL RAW MODEL (stress holdout)")
     print("=" * 60)
     print(f"Accuracy:  {accuracy:.4f}")
     print(f"Precision: {precision:.4f}")
     print(f"Recall:    {recall:.4f}")
     print(f"F1:        {f1:.4f}")
     print(f"ROC-AUC:   {roc_auc:.4f}")
-    print(f"Brier:     {brier:.4f}  (lower is better; <0.25 beats guessing 0.5/0.5)")
+    print(f"Brier:     {brier_raw:.4f}  (lower is better; <0.25 beats guessing 0.5/0.5)")
     print(f"Confusion: TN={tn} FP={fp} FN={fn} TP={tp}")
+
+    # Calibrated metrics (if calibrator available)
+    calibrated_metrics = None
+    if calibrator is not None:
+        try:
+            y_proba_cal = calibrator.predict_proba(X_scaled)[:, 1]
+            y_pred_cal = (y_proba_cal >= 0.5).astype(int)
+            cal_accuracy = float(accuracy_score(y_true, y_pred_cal))
+            cal_precision = float(precision_score(y_true, y_pred_cal))
+            cal_recall = float(recall_score(y_true, y_pred_cal))
+            cal_f1 = float(f1_score(y_true, y_pred_cal))
+            cal_roc_auc = float(roc_auc_score(y_true, y_proba_cal))
+            cal_brier = float(brier_score_loss(y_true, y_proba_cal))
+            cal_tn, cal_fp, cal_fn, cal_tp = confusion_matrix(y_true, y_pred_cal).ravel()
+
+            print("\n" + "=" * 60)
+            print("OVERALL CALIBRATED MODEL (stress holdout)")
+            print("=" * 60)
+            print(f"Accuracy:  {cal_accuracy:.4f}")
+            print(f"Precision: {cal_precision:.4f}")
+            print(f"Recall:    {cal_recall:.4f}")
+            print(f"F1:        {cal_f1:.4f}")
+            print(f"ROC-AUC:   {cal_roc_auc:.4f}")
+            print(f"Brier:     {cal_brier:.4f}")
+            print(f"Confusion: TN={cal_tn} FP={cal_fp} FN={cal_fn} TP={cal_tp}")
+
+            calibrated_metrics = {
+                "accuracy": round(cal_accuracy, 4),
+                "precision": round(cal_precision, 4),
+                "recall": round(cal_recall, 4),
+                "f1": round(cal_f1, 4),
+                "roc_auc": round(cal_roc_auc, 4),
+                "brier": round(cal_brier, 4),
+                "confusion_matrix": {"tn": int(cal_tn), "fp": int(cal_fp), "fn": int(cal_fn), "tp": int(cal_tp)},
+            }
+        except Exception as exc:
+            print(f"\nWarning: calibration failed on stress data: {exc}")
 
     # Per-slice results
     slices = {}
     for name in ("general", "boundary", "contradictory"):
         m = subset == name
-        slices[f"subset::{name}"] = _slice_metrics(df, y_true, y_pred, y_proba, m)
+        slices[f"subset::{name}"] = _slice_metrics(df, y_true, y_pred, y_proba_raw, m)
     bins = [(0, 30), (30, 60), (60, 120), (120, 481)]
     for lo, hi in bins:
         m = (df["call_duration_min"] >= lo) & (df["call_duration_min"] < hi)
-        slices[f"duration::{lo}-{hi}"] = _slice_metrics(df, y_true, y_pred, y_proba, m)
+        slices[f"duration::{lo}-{hi}"] = _slice_metrics(df, y_true, y_pred, y_proba_raw, m)
 
     print("\nPer-slice results written to output.")
 
@@ -318,8 +363,8 @@ def main():
                 "duration": "multiplicative lognormal(0, 0.15), clipped [0.5, 480]",
                 "outgoing_activity_ratio": "additive N(0, 0.06), clipped [0, 1]",
             },
-            "derived_features": "runtime formulas from app/core/features.py (log1p, "
-                                "0.33/0.66 activity_category bins, hour-based early/late flags)",
+            "derived_features": "Canonical transforms from app/core/transforms.py "
+                                "(log1p, 0.33/0.66 activity_category bins, hour-based early/late flags)",
             "scoring": "frozen saved scaler.transform (never refit) + predict/predict_proba",
         },
         "model": {
@@ -333,8 +378,9 @@ def main():
             "recall": round(recall, 4),
             "f1": round(f1, 4),
             "roc_auc": round(roc_auc, 4),
-            "brier": round(brier, 4),
+            "brier": round(brier_raw, 4),
         },
+        "calibrated_metrics": calibrated_metrics,
         "confusion_matrix": {"tn": int(tn), "fp": int(fp), "fn": int(fn), "tp": int(tp)},
         "per_slice": slices,
     }
