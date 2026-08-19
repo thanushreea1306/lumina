@@ -84,7 +84,7 @@ flowchart LR
 
 ### ML layer
 
-The deployed classifier is an **XGBoost** `XGBClassifier` (binary, `binary:logistic`) operating on the 11 call-behavior features, wrapped with a **Platt (sigmoid) calibration layer** (`CalibratedClassifierCV`). Training is fully scripted in `notebooks/train_simple_model.py`:
+The deployed classifier is an **XGBoost** `XGBClassifier` (binary, `binary:logistic`) operating on the 11 call-behavior features. A **Platt (sigmoid) calibration layer** (`CalibratedClassifierCV`) was fitted and evaluated but did not improve probability quality on the synthetic benchmark (Brier 0.0688 → 0.0716, ECE 0.0469 → 0.0745), so the deployed risk engine uses the raw XGBoost probability for fusion. The calibrated probability is still computed and reported for comparison. Training is fully scripted in `notebooks/train_simple_model.py`:
 
 - **Data**: 15,000 synthetic call snapshots (scam rate ~15%), generated from class-conditional distributions with realistic overlap between scam and normal calls.
 - **Model**: `n_estimators=150`, `max_depth=4`, `learning_rate=0.08`, `subsample=0.8`, `colsample_bytree=0.8`, `min_child_weight=3`, `reg_alpha=0.1`, `reg_lambda=1.0`, `random_state=42`.
@@ -95,7 +95,7 @@ The deployed classifier is an **XGBoost** `XGBClassifier` (binary, `binary:logis
 
 Feature importance on the synthetic development data is dominated by `outgoing_activity_ratio` (~32%) and `is_video_call` (~13%) — consistent with the isolation thesis: reduced outward communication is the strongest signal the model learns.
 
-- The risk engine exposes both `raw_ml_probability` and `calibrated_ml_probability`. When the calibration layer is available, the calibrated probability is used for fusion; otherwise the raw probability is used as a safe fallback.
+- The risk engine exposes `ml_probability` (raw XGBoost probability, used for fusion), `raw_ml_probability`, and `calibrated_ml_probability` (Platt-scaled, reported for comparison but not used in fusion). When the ML model is unavailable, scoring falls back to the rule score alone and `ml_probability` is returned as `null`.
 - Telemetry is excluded from the ML vector by construction (`MODEL_EXCLUDED_FEATURES` in `app/core/features.py`).
 - On load, `RiskEngine` validates that the model's `n_features_in_` equals the scaler's feature count and the `features.pkl` list, that the feature ordering matches the scaler's training order, and that no telemetry field appears in the model schema. Invalid states set `model_status` to `degraded` and ML is not served.
 - If the ML artifacts are unavailable or the prediction fails at runtime, scoring falls back to the rule score alone and `ml_probability` is returned as `null` — a fabricated probability (e.g. `0.5`) is never substituted.
@@ -420,7 +420,7 @@ The benchmarks use fixed seeds, so the numbers in `audit_metrics.json` and `stre
 
 ## Roadmap
 
-- **V2 — Calibration & robustness**: Platt (sigmoid) probability calibration, canonical feature transforms eliminating train/serve skew, improved training data with realistic class overlap, evaluation metrics expanded with Brier score and calibration analysis.
+- **V2 — Calibration & robustness**: Platt (sigmoid) probability calibration (evaluated; did not improve Brier/ECE on synthetic data, so raw XGBoost probabilities are used for fusion), canonical feature transforms eliminating train/serve skew, improved training data with realistic class overlap, evaluation metrics expanded with Brier score and calibration analysis.
 - **V3 — Real-world sensing**: consent-driven on-device Android telemetry wired to the API.
 - **V4 — Stronger intelligence**: ethically sourced datasets, session/subject-level validation, NLP-based coercion analysis, robustness to distribution shift.
 - **V5 — Intervention network**: trusted-contact workflows, real-time telecom integrations, coordinated support pathways.

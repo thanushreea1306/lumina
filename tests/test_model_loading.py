@@ -245,11 +245,8 @@ def test_ml_inference_is_deterministic_and_pinned(make_engine):
 
     result = engine.score(dict(REGRESSION_PAYLOAD))
     assert result["raw_ml_probability"] == pytest.approx(round(EXPECTED_RAW_ML_PROBABILITY * 100, 1), abs=0.05)
-    if result["calibration_available"]:
-        assert result["calibrated_ml_probability"] is not None
-        assert result["ml_probability"] == result["calibrated_ml_probability"]
-    else:
-        assert result["ml_probability"] == result["raw_ml_probability"]
+    # ml_probability is always the raw probability (used for fusion)
+    assert result["ml_probability"] == result["raw_ml_probability"]
 
 
 def test_ml_inference_emits_no_feature_names_warning(make_engine):

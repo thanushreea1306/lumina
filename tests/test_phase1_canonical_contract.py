@@ -299,7 +299,7 @@ class TestCalibratedProbabilityRange:
 # ---------------------------------------------------------------------------
 
 class TestCalibrationFallback:
-    def test_score_uses_calibrated_when_available(self):
+    def test_score_uses_raw_probability_for_fusion(self):
         engine = RiskEngine()
         engine.load()
         result = engine.score({
@@ -307,11 +307,34 @@ class TestCalibrationFallback:
             "is_unknown_number": 1,
             "is_video_call": 1,
         })
-        if result["calibration_available"] and result["calibrated_ml_probability"] is not None:
-            assert result["ml_probability"] == result["calibrated_ml_probability"]
-        elif result["raw_ml_probability"] is not None:
+        # ml_probability must always be the raw probability (used for fusion)
+        if result["raw_ml_probability"] is not None:
             assert result["ml_probability"] == result["raw_ml_probability"]
-        # If both are None, ml_probability is None (rules-only)
+        else:
+            assert result["ml_probability"] is None
+        # calibrated is reported for comparison but not used for fusion
+        if result["calibration_available"]:
+            assert result["calibrated_ml_probability"] is not None
+
+    def test_fusion_never_uses_calibrated_probability(self):
+        """Explicit: ml_probability equals raw, not calibrated, when they differ."""
+        engine = RiskEngine()
+        engine.load()
+        if not engine.calibration_available:
+            pytest.skip("Calibrator not available")
+        result = engine.score({
+            "call_duration_min": 60,
+            "is_unknown_number": 1,
+            "is_video_call": 1,
+            "hour_of_day": 22,
+            "caller_call_history": 0,
+            "outgoing_activity_ratio": 0.1,
+        })
+        if result["raw_ml_probability"] is not None and result["calibrated_ml_probability"] is not None:
+            # When they differ, ml_probability must be the raw one
+            if result["raw_ml_probability"] != result["calibrated_ml_probability"]:
+                assert result["ml_probability"] == result["raw_ml_probability"]
+                assert result["ml_probability"] != result["calibrated_ml_probability"]
 
     def test_score_survives_calibrator_corruption(self, monkeypatch):
         engine = RiskEngine()

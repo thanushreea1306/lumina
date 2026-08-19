@@ -281,8 +281,12 @@ class RiskEngine:
     def score(self, telemetry: dict, mode: str = "demo") -> Dict:
         """Main scoring method: fuse ML probability with explicit safety rules.
 
-        When ML is available the calibrated probability is used for the 50/50
-        fusion (falling back to raw probability if calibration is unavailable).
+        The raw XGBoost probability is used for the 50/50 fusion.  Platt
+        calibration was evaluated but worsened Brier and ECE on the synthetic
+        benchmark, so raw probabilities are preferred.  The calibrated value
+        is still computed and reported for comparison when the calibrator is
+        available.
+
         When ML is entirely unavailable the rule score is used alone and
         ml_probability is None (never a fabricated 0.5).
         """
@@ -301,8 +305,8 @@ class RiskEngine:
             logger.warning("Calibration failed unexpectedly: %s", exc)
             calibrated_ml = None
 
-        # Choose which probability to use for fusion
-        ml_score = calibrated_ml if calibrated_ml is not None else raw_ml
+        # Always use raw probability for fusion (calibration worsens quality)
+        ml_score = raw_ml
 
         contributions, rule_score = self._safety_rules(telemetry, features)
 
@@ -359,13 +363,11 @@ class RiskEngine:
                 f"Rule contribution {round(rule_score * 100, 1)}%)."
             )
         else:
-            calibration_note = ""
-            if calibrated_ml is not None and raw_ml is not None and abs(calibrated_ml - raw_ml) > 0.001:
-                calibration_note = f" [raw {round(raw_ml * 100, 1)}%, calibrated]"
             explanation = (
                 f"Risk level '{risk_level}' with score {round(fused_score, 1)}/100 "
-                f"(ML probability {round(ml_score * 100, 1)}%, "
-                f"rule contribution {round(rule_score * 100, 1)}%{calibration_note})."
+                f"(ML probability {round(ml_score * 100, 1)}% (raw XGBoost, "
+                f"calibrated probability evaluated but not used for fusion), "
+                f"rule contribution {round(rule_score * 100, 1)}%)."
             )
 
         if ml_cap_applied:
@@ -380,7 +382,7 @@ class RiskEngine:
         result = {
             "risk_score": round(fused_score, 1),
             "risk_level": risk_level,
-            "ml_probability": round(ml_score * 100, 1) if ml_score is not None else None,
+            "ml_probability": round(raw_ml * 100, 1) if raw_ml is not None else None,
             "raw_ml_probability": round(raw_ml * 100, 1) if raw_ml is not None else None,
             "calibrated_ml_probability": round(calibrated_ml * 100, 1) if calibrated_ml is not None else None,
             "calibration_available": self.calibration_available,
