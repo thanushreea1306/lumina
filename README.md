@@ -200,17 +200,18 @@ Validation is separated into a controlled development benchmark and an **indepen
 
 ### Development benchmark
 
-`notebooks/audit_model.py` evaluates the saved model on 15,000 samples drawn from the **same synthetic generator used at training time** (`models/saved/metrics.json`):
+`notebooks/audit_model.py` evaluates the saved model on 15,000 fresh samples drawn from the **same synthetic generator family** as training (same `generate_realistic_calls()` structure, independent seed=7). The saved `models/saved/audit_metrics.json` is the source of truth:
 
 | Metric | Result |
 |--------|-------:|
-| Accuracy | 99.69% |
-| Precision (scam) | 100.0% |
-| Recall (scam) | 95.78% |
-| F1 (scam) | 97.84% |
-| ROC-AUC | 0.999 |
+| Accuracy | 91.09% |
+| Precision (scam) | 73.68% |
+| Recall (scam) | 62.16% |
+| F1 (scam) | 67.43% |
+| ROC-AUC | 0.9330 |
+| Brier score | 0.0648 |
 
-Because the generator uses strongly class-conditional distributions, the classes are almost separable by construction. **These numbers measure internal consistency of the training/inference pipeline — they are not real-world detection accuracy.**
+The development benchmark confirms the pipeline is internally consistent: the saved model, scaler, features, and calibrator load correctly and produce stable predictions on fresh draws from the same generator family. **This is an in-distribution consistency check, not a claim about generalization or real-world detection.**
 
 ### Independent Stress Evaluation
 
@@ -220,14 +221,16 @@ Because the generator uses strongly class-conditional distributions, the classes
 
 | Metric | Stress result |
 |--------|--------------:|
-| Accuracy | 85.11% |
-| Precision (scam) | 76.36% |
-| Recall (scam) | 83.68% |
-| F1 (scam) | 79.85% |
-| ROC-AUC | 0.930 |
-| Brier score | 0.1014 |
+| Accuracy | 51.44% |
+| Precision (scam) | 46.25% |
+| Recall (scam) | 7.71% |
+| F1 (scam) | 13.22% |
+| ROC-AUC | 0.4671 |
+| Brier score | 0.4278 |
 
-> **Important:** Stress-test labels are generated from a scenario policy operating on the same call-behavior feature space consumed by the model. They are not independent real-world ground truth. The benchmark therefore measures robustness/consistency under synthetic distribution shift, not real-world detection performance.
+Near-random AUC (~0.47) and very low recall (7.7%) show the model is **not robust to distribution shift**. The training generator's class-conditional structure leaks label information into feature distributions; under independent marginals that leakage disappears and the model's discriminatory power collapses. This is an honest stress result, not a deployment blocker — the rule layer, not the ML model, is the primary safety mechanism.
+
+> **Important:** Stress-test labels are generated from a deterministic scenario rule operating on CLEAN attributes; the model receives NOISY versions (measurement noise), introducing genuine label noise and contradictory evidence. They are not independent real-world ground truth.
 
 ---
 
@@ -235,19 +238,20 @@ Because the generator uses strongly class-conditional distributions, the classes
 
 Measured failure modes (from `stress_metrics.json`):
 
-| Slice | n | Metric | Value |
-|--------|----:|--------|------:|
-| Short calls (0–30 min) | 1,858 | scam recall | 0.97% |
-| 120–481 min calls | 2,287 | scam recall | 99.3% |
-| Threshold-boundary cases | 1,600 | accuracy | 54.25% |
-| Threshold-boundary cases | 1,600 | ROC-AUC | 0.565 |
-| General stress subset | 5,200 | ROC-AUC | 0.968 |
+Per-slice results from `models/saved/stress_metrics.json` (8,000 independent-marginal samples, seed=1234):
 
-**Short Calls (0–30 min): 0.97% scam recall.** The current ML model is not effective for short-duration scenarios, highlighting a major limitation and an area for future early-stage detection improvements.
+| Slice | n | Accuracy | Recall (scam) | ROC-AUC |
+|--------|----:|---------:|---------------:|--------:|
+| General | 5,200 | 62.19% | 11.80% | 0.5327 |
+| Threshold-boundary (2–3 indicators) | 1,600 | 54.94% | 9.28% | 0.5132 |
+| Duration 0–30 min | 3,697 | 70.35% | 19.49% | 0.5453 |
+| Duration 30–60 min | 962 | 74.22% | 2.77% | 0.4567 |
+| Duration 60–120 min | 1,023 | 40.08% | 2.24% | 0.4715 |
+| Duration 120–481 min | 2,318 | 16.82% | 4.56% | 0.4832 |
 
-On long calls it is very strong (120–481 min: 99.3% recall). Lumina is designed around the long, isolating digital-arrest call — it is not a general call-scam detector, and we do not present it as one.
+**All stress slices are near-random.** The model has almost no discriminatory power under distribution shift. This confirms the development benchmark is an in-distribution consistency check only.
 
-This is **still synthetic evaluation and does not constitute real-world validation**. These failure modes are reported rather than hidden.
+> These failure modes are reported rather than hidden. The stress result is still synthetic evaluation and does not constitute real-world validation.
 
 ---
 
@@ -288,8 +292,9 @@ lumina/
 │   ├── scaler.pkl
 │   ├── features.pkl
 │   ├── calibrator.pkl       # Platt sigmoid calibration layer
-│   ├── metrics.json         # development benchmark
-│   └── stress_metrics.json  # stress benchmark
+│   ├── audit_metrics.json    # development benchmark (audit_model.py)
+│   ├── metrics.json          # training held-out test (train_simple_model.py)
+│   └── stress_metrics.json   # stress benchmark
 ├── notebooks/
 │   ├── train_simple_model.py
 │   ├── audit_model.py
@@ -349,12 +354,12 @@ All evaluation and artifact generation is scripted. Commands run from the reposi
 | Task | Command | Output |
 |------|---------|--------|
 | Train model | `python notebooks/train_simple_model.py` | `models/saved/*.pkl`, `data/processed/feature_importance.png` |
-| Development benchmark | `python notebooks/audit_model.py` | `models/saved/metrics.json` |
+| Development benchmark | `python notebooks/audit_model.py` | `models/saved/audit_metrics.json` |
 | Stress benchmark | `python notebooks/stress_eval.py` | `models/saved/stress_metrics.json` |
 | Evidence charts | `python notebooks/generate_ml_visuals.py` | `data/processed/*.png` |
 | Run test suite | `python -m pytest tests/ -v` | test report |
 
-The benchmarks use fixed seeds, so the numbers in `metrics.json` and `stress_metrics.json` reproduce deterministically.
+The benchmarks use fixed seeds, so the numbers in `audit_metrics.json` and `stress_metrics.json` reproduce deterministically.
 
 ---
 

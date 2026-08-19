@@ -24,6 +24,17 @@ def _telemetry_in_schema(feature_names) -> list:
 
 
 class RiskEngine:
+    """Fused ML + safety-rule risk scorer.
+
+    The ML layer (XGBoost) and the safety-rule layer share 5 input signals:
+    call_duration_min, is_unknown_number, is_video_call, outgoing_activity_ratio,
+    and caller_call_history. This overlap is intentional: both layers can
+    independently flag the same isolation indicators, providing redundancy.
+
+    Escalation gates ensure ML is corroborative only — a high ML probability
+    alone can never push the fused score into HIGH or CRITICAL. The rule
+    layer remains the primary safety mechanism.
+    """
     STATUS_AVAILABLE = "available"
     STATUS_DEGRADED = "degraded"
     STATUS_UNAVAILABLE = "unavailable"

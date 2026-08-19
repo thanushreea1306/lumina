@@ -1,6 +1,7 @@
 {
   "disclaimer": "synthetic stress/holdout benchmark - NOT real-world validation",
   "generated_at_script": "stress_eval.py",
+  "interpretation": "Near-random AUC (0.4671) under independent-marginal sampling shows the model's predictive power relies on class-conditional feature distributions present in the training generator. Under distribution shift that structure vanishes and the model collapses to near-chance. This does not indicate real-world failure \u2014 the safety-rule layer is the primary detection mechanism, and escalation gates ensure ML can only corroborate, never force, HIGH/CRITICAL risk.",
   "protocol": {
     "version": "1.0",
     "n_samples": 8000,

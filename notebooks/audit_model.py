@@ -1,8 +1,9 @@
 # notebooks/audit_model.py
-# Synthetic benchmark of the saved risk classifier.
-# Honest label: these numbers only show how the model behaves on data drawn
-# from the SAME synthetic generator used at training time. They are NOT
-# real-world validation of detection performance.
+# In-distribution consistency check of the saved risk classifier.
+# Uses the same generate_realistic_calls() function as training (same
+# generator family, independent seed=7). This confirms the pipeline is
+# internally consistent — it is NOT an out-of-distribution generalization
+# benchmark. See stress_eval.py for distribution-shift evaluation.
 import json
 import os
 import sys
@@ -91,7 +92,7 @@ def generate_realistic_calls(n_samples=15000, seed=7):
 
 def main():
     print("=" * 60)
-    print("LUMINA — Model Audit (synthetic benchmark)")
+    print("LUMINA — In-Distribution Consistency Check (synthetic)")
     print("=" * 60)
     print(f"Disclaimer: {DISCLAIMER}\n")
 

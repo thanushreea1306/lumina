@@ -13,6 +13,10 @@ The 11 call-behavior features consumed by the deployed model are:
     Derived (5):
         is_weekend, call_duration_log, is_early_morning,
         is_late_night, activity_category
+
+Note: 5 of the 11 features (is_weekend, call_duration_log, is_early_morning,
+is_late_night, activity_category) are deterministic transforms of the 6 raw
+inputs. The model therefore has ~6 independent degrees of freedom, not 11.
 """
 
 from __future__ import annotations
