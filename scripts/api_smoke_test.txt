@@ -55,14 +55,14 @@ try:
 except Exception as e:
     print(f"   ❌ Error: {e}")
 
-# Test 4: NGOs
+# Test 4: NGOs (honest NOT_CONFIGURED until a live directory is wired)
 print("\n4. Testing NGOs Endpoint...")
 try:
-    r = requests.get("http://localhost:8000/api/ngos/all")
+    r = requests.get("http://localhost:8000/api/ngos")
     print(f"   Status: {r.status_code}")
     if r.status_code == 200:
         data = r.json()
-        print(f"   Total NGOs: {data.get('total', 0)}")
+        print(f"   Status: {data.get('status')}")
     else:
         print(f"   Error: {r.text}")
 except Exception as e:
