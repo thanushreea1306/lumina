@@ -1,274 +1,226 @@
-# LUMINA — AI Bridge Against Digital-Arrest Isolation
+# LUMINA
 
-A research prototype for behavioral-isolation detection and silent trusted-contact intervention against "digital-arrest" scams.
-
----
-
-## Problem & Insight
-
-Digital-arrest scams impersonate police or government officials. The victim is kept on a long video call, threatened with arrest, and explicitly told not to contact anyone. The decisive feature of the attack is not the content of the deception — it is the **isolation** it imposes:
-
-- prolonged, uncontrolled calls
-- unknown callers with no verifiable history
-- video calls used for intimidation
-- reduced or zero outward communication
-- device behavior that locks the user into the interaction
-
-Traditional reporting tools act **after** the victim recognizes the fraud. A victim under active digital arrest is usually unable to seek help at all. Lumina targets an earlier intervention point: recognizing the behavioral pattern while the person is still inside the trap, and reaching a trusted contact on their behalf.
+A real-time safety-support system that helps users recognize and resist social-engineering pressure during phone calls — particularly digital-arrest and authority-impersonation scams.
 
 ---
 
-## System Architecture & Data Flow
+## Overview
 
-```text
-INCOMING EVENT (call + telemetry)
-                │
-                ▼
-   CANONICAL FEATURE SCHEMA (29 fields)
-                │
-     ┌──────────┴──────────┐
-     ▼                     ▼
-  ML LAYER            SAFETY-RULE LAYER
-  (11 call-           (call + telemetry
-  behavior            context, missingness
-  features)           indicators)
-     └──────────┬──────────┘
-                ▼
-          GATED FUSION
-                │
-                ▼
-     RISK SCORE + LEVEL
-                │
-                ▼
-    SILENT INTERVENTION
-```
+LUMINA is designed around a specific problem: **a person under active social-engineering pressure may be unable to think clearly, verify claims, or seek help independently.**
 
-The central architectural boundary is explicit: **device telemetry never enters the ML model directly.** Telemetry fields are consumed only by the safety-rule layer, so missing telemetry can never be silently coerced into model input.
+The system does not attempt to "detect scams" with certainty. Instead, it:
 
-Data flow:
+1. Captures real device signals (call lifecycle) as **honest evidence** — never fabricated.
+2. Accepts **user-confirmed observations** (what the person actually experiences).
+3. Evaluates evidence through a **deterministic safety engine** — not ML classification.
+4. Produces **explainable safety states** with clear recommended actions.
+5. Supports the user in **making a safer decision** — not making decisions for them.
 
-- A call + telemetry scenario enters the API.
-- Canonical features are generated and separated into ML features and telemetry/context.
-- XGBoost and the safety-rule layer evaluate the evidence independently.
-- Gated fusion produces the risk score, level, and explainable evidence.
-- HIGH/CRITICAL risk can trigger the trusted-contact intervention path; demo delivery is simulated by default.
+LUMINA is a safety-support tool, not an authority. It does not declare guilt, certainty, or scam status. It says: *"Based on what has been reported, here is what to consider."*
 
 ---
 
-## How Lumina Works
+## Problem
 
-Lumina works by fusing two independent layers:
+Social-engineering attacks on phone calls share common patterns:
 
-1. an **XGBoost classifier** over 11 call-behavior features, and
-2. a **deterministic safety-rule layer** over call + telemetry context,
+- **Authority impersonation** — the caller claims to be police, a bank, or a government agency.
+- **Urgency and threats** — "you must act now or face arrest/consequences."
+- **Secrecy** — "do not tell anyone about this call."
+- **Financial pressure** — requests for money transfers, OTPs, or gift cards.
+- **Credential extraction** — requests for passwords, PINs, or remote access.
+- **Isolation** — keeping the victim on a long call, preventing verification.
 
-then applying conservative **escalation gates** so the ML model can corroborate evidence but never manufacture a HIGH or CRITICAL risk on its own.
-
-```mermaid
-flowchart LR
-    A[Call + telemetry input] --> B[Canonical feature extraction]
-    B --> C1[11 call-behavior features]
-    B --> C2[Telemetry / context]
-    C1 --> D[XGBoost]
-    C2 --> E[Safety-rule layer]
-    D --> F[Gated fusion]
-    E --> F
-    F --> G[Risk score + level]
-    G --> H[Explainable evidence]
-    G --> I{HIGH / CRITICAL?}
-    I -->|Yes| J[Trusted-contact alert]
-    I -->|No| K[No alert]
-    H --> L[SQLite incident log]
-    H --> M[PDF incident report]
-```
-
-### ML layer
-
-The deployed classifier is an **XGBoost** `XGBClassifier` (binary, `binary:logistic`) operating on the 11 call-behavior features. A **Platt (sigmoid) calibration layer** (`CalibratedClassifierCV`) was fitted and evaluated but did not improve probability quality on the synthetic benchmark (Brier 0.0688 → 0.0716, ECE 0.0469 → 0.0745), so the deployed risk engine uses the raw XGBoost probability for fusion. The calibrated probability is still computed and reported for comparison. Training is fully scripted in `notebooks/train_simple_model.py`:
-
-- **Data**: 15,000 synthetic call snapshots (scam rate ~15%), generated from class-conditional distributions with realistic overlap between scam and normal calls.
-- **Model**: `n_estimators=150`, `max_depth=4`, `learning_rate=0.08`, `subsample=0.8`, `colsample_bytree=0.8`, `min_child_weight=3`, `reg_alpha=0.1`, `reg_lambda=1.0`, `random_state=42`.
-- **Preprocessing**: `StandardScaler` fitted on the training split.
-- **Split**: 80/20 stratified train/test with a fixed random seed (`random_state=42`). Calibration is fitted via 5-fold cross-validation on the training split.
-- **Artifacts**: tracked at `models/saved/risk_classifier.pkl`, `scaler.pkl`, `features.pkl`, `calibrator.pkl`.
-- **Feature contract**: all feature transformations (binning, log transforms, time-of-day flags) are defined in `app/core/transforms.py` — a single canonical module shared by training, inference, and evaluation. There is no train/serve skew.
-
-Feature importance on the synthetic development data is dominated by `outgoing_activity_ratio` (~32%) and `is_video_call` (~13%) — consistent with the isolation thesis: reduced outward communication is the strongest signal the model learns.
-
-- The risk engine exposes `ml_probability` (raw XGBoost probability, used for fusion), `raw_ml_probability`, and `calibrated_ml_probability` (Platt-scaled, reported for comparison but not used in fusion). When the ML model is unavailable, scoring falls back to the rule score alone and `ml_probability` is returned as `null`.
-- Telemetry is excluded from the ML vector by construction (`MODEL_EXCLUDED_FEATURES` in `app/core/features.py`).
-- On load, `RiskEngine` validates that the model's `n_features_in_` equals the scaler's feature count and the `features.pkl` list, that the feature ordering matches the scaler's training order, and that no telemetry field appears in the model schema. Invalid states set `model_status` to `degraded` and ML is not served.
-- If the ML artifacts are unavailable or the prediction fails at runtime, scoring falls back to the rule score alone and `ml_probability` is returned as `null` — a fabricated probability (e.g. `0.5`) is never substituted.
-
-### Safety-rule layer
-
-`RiskEngine._safety_rules()` evaluates explicit, explainable signals with fixed weights, including:
-
-- very long calls (>= 60 min, >= 120 min)
-- unknown caller / video call
-- very low outgoing activity (< 0.2)
-- screen locked to the call, no app switching, no home presses
-- no SMS / social activity, no location change, high brightness, multi-hour persistence
-- a single counter-evidence signal (known caller with active outward communication) that **reduces** the score
-
-Each rule carries a human-readable reason and contributes to a rule score capped at `1.0`. This is the same evidence surfaced to the user as `top_factors` / `safety_rule_contributions`.
-
-### Dashboard
-
-The Streamlit dashboard (`dashboard/app.py`) calls the live API and renders whatever the engine returns — there is no separate hardcoded scoring path. It provides a current risk banner, explainable evidence, scripted **digital-arrest** and **normal-call** scenarios driven through the real engine, a behavior timeline and risk-evolution chart, intervention status (simulated delivery), incident history and PDF report generation/download, and a MODEL EVIDENCE panel with the synthetic benchmark summary and the generated charts (feature importance, confusion matrix, ROC).
-
-The scripted demo scenarios use fixed dashboard payloads; the Python device simulator (`python -m app.services.android_simulator`) powers the dashboard's random-snapshot mode. The simulator's `IsolationDetector` heuristic (its own thresholds) is demo-only and separate from the deployed engine — the dashboard score comes exclusively from `/api/score`.
+Simply labeling a call as "scam" is insufficient because:
+- The victim may not believe it is a scam while under pressure.
+- False positives damage trust.
+- The situation is dynamic — risk escalates as pressure intensifies.
+- The victim needs actionable guidance, not a binary verdict.
 
 ---
 
-## Canonical Feature Schema
-
-`app/core/features.py` defines a deterministic, 29-field canonical schema: **11 ML features + 9 telemetry/context fields + 9 missingness indicators**. All feature transformations are defined in `app/core/transforms.py`, a single canonical module shared by training, inference, and evaluation — eliminating train/serve skew.
-
-### ML features (11)
-
-| # | Feature | Source |
-|---|---------|--------|
-| 1 | `call_duration_min` | raw |
-| 2 | `is_unknown_number` | raw |
-| 3 | `is_video_call` | raw |
-| 4 | `hour_of_day` | raw |
-| 5 | `caller_call_history` | raw |
-| 6 | `outgoing_activity_ratio` | raw |
-| 7 | `is_weekend` | raw / derived |
-| 8 | `call_duration_log` | `log1p(call_duration_min)` |
-| 9 | `is_early_morning` | `5 <= hour_of_day <= 8` |
-| 10 | `is_late_night` | `hour_of_day >= 22 or hour_of_day <= 4` |
-| 11 | `activity_category` | binned `outgoing_activity_ratio` (0.33 / 0.66, via `app/core/transforms.py`) |
-
-### Telemetry fields (9, excluded from ML)
-
-`screen_time_on_call_percent`, `num_app_switches`, `num_home_presses`, `has_sms_activity`, `has_social_app_activity`, `location_change`, `screen_brightness`, `screen_on_continuous_hours`, `persistence_hours`.
-
-### Missingness indicators (9)
-
-`is_missing_<field>` for each telemetry field. An absent or explicitly null telemetry value is treated as **missing**, not as an observed `0`/`False` — the safety-rule layer gates every telemetry-dependent signal on its missingness flag, so no behavioral claim is fabricated from missing data.
-
----
-
-## Gated Fusion & Escalation
-
-The final score is a weighted blend of ML probability and rule score, expressed on a 0–100 scale:
+## LUMINA's Approach
 
 ```
-final_score = (0.5 * ML_probability + 0.5 * rule_score) * 100
+REAL SIGNALS + USER-CONFIRMED OBSERVATIONS
+        ↓
+    EVIDENCE
+        ↓
+  DECISION CONTEXT
+        ↓
+  SAFETY ASSESSMENT
+        ↓
+EXPLAINABLE INTERVENTION
+        ↓
+  PROTECTIVE ACTION
+        ↓
+    OUTCOME
+        ↓
+FUTURE LEARNING
 ```
 
-**Risk levels:**
+The architecture has a clear separation of concerns:
 
-| Score | Level |
-|------:|-------|
-| >= 75 | CRITICAL |
-| >= 50 | HIGH |
-| >= 30 | MEDIUM |
-| < 30  | LOW |
+- **Evidence** is factual: what was observed (by the device) or reported (by the user).
+- **Decision Context** aggregates evidence without interpretation.
+- **Safety Assessment** applies deterministic rules to produce a safety state.
+- **Intervention** provides the user with a clear, honest recommendation.
+- **Outcome** records what the user actually did.
 
-**Escalation gates** make ML corroborative only:
-
-- If the rule score < 50, the final score is capped at **49.9** — a high ML probability alone cannot reach HIGH.
-- If the rule score < 75, the final score is capped at **74.9** — a high ML probability alone cannot reach CRITICAL.
-
-ML contributes in both directions: it can raise or lower the fused score, while the escalation gates prevent ML from independently creating HIGH or CRITICAL risk.
-
-**Fallback:** when the ML artifacts are unavailable or the prediction fails at runtime, scoring falls back to the rule score alone and `ml_probability` is returned as `null`. A fabricated probability (e.g. `0.5`) is never substituted.
-
-### Intervention
-
-When risk reaches HIGH or CRITICAL, the silent-intervention path constructs a trusted-contact alert (score alone only records `alert_status`).
-
-- **Default (demo) mode**: the alert is built and marked `SIMULATED` / `delivered: false`. No external message is sent.
-- **Optional real delivery**: Twilio SMS can be enabled only through explicit configuration — `LUMINA_ALERT_MODE=real` plus valid `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM_NUMBER`, and `LUMINA_TRUSTED_CONTACTS`.
-- **Abuse protection** (`AlertGuard`): per-victim cooldown (default 60 s), rate limit (max 5 alerts / 60 s window), and duplicate-incident suppression. Recipients outside the trusted-contact allowlist are blocked.
-- There is **no automatic emergency escalation** to police, government, or NGOs. Support endpoints (`/api/ngos`, `/api/government-tools`, `/api/community-alerts`, etc.) return demo data only — static or in-memory — with no live external integration.
+The deterministic safety engine is the **authoritative decision layer**. ML models, if present, are subordinate to evidence and safety rules — they can corroborate but never override.
 
 ---
 
-## Prototype Scope & Transparency Disclosure
+## Safety States
 
-Prototype scope: Lumina is currently evaluated on synthetic data and uses simulated alerts by default. The Android collector is a skeleton and no live telecom integration is included. All reported benchmark results are clearly identified as synthetic and are not claims of real-world detection performance.
+| State | Meaning | Recommended Action |
+|-------|---------|-------------------|
+| **CLEAR** | No concerning indicators reported or observed. | Continue normally. |
+| **WATCH** | At least one observation warrants attention. | Stay alert. Verify independently if possible. |
+| **PAUSE** | A high-risk action is being requested (e.g., OTP, money transfer). | Do not proceed. Pause and verify. |
+| **VERIFY** | Multiple pressure indicators present. | Stop. Verify the caller's identity through an independent channel. |
+| **PROTECT** | Coercion pattern detected (authority claim + urgency + financial/credential request). | **STOP AND VERIFY INDEPENDENTLY.** Do not send money, codes, or grant access. |
+| **RECOVERY** | The user reports they performed a high-risk action. | Seek help immediately. Contact your bank if financial information was shared. |
 
----
-
-## Model Evaluation & Benchmarks
-
-Validation is separated into a controlled development benchmark and an **independent stress evaluation**. Both are synthetic. Neither is a claim about real-world detection performance.
-
-### Development benchmark
-
-`notebooks/audit_model.py` evaluates the saved model on 15,000 fresh samples drawn from the **same synthetic generator family** as training (same `generate_realistic_calls()` structure, independent seed=7). The saved `models/saved/audit_metrics.json` is the source of truth:
-
-| Metric | Result |
-|--------|-------:|
-| Accuracy | 91.09% |
-| Precision (scam) | 73.68% |
-| Recall (scam) | 62.16% |
-| F1 (scam) | 67.43% |
-| ROC-AUC | 0.9330 |
-| Brier score | 0.0648 |
-
-The development benchmark confirms the pipeline is internally consistent: the saved model, scaler, features, and calibrator load correctly and produce stable predictions on fresh draws from the same generator family. **This is an in-distribution consistency check, not a claim about generalization or real-world detection.**
-
-### Independent Stress Evaluation
-
-*Synthetic distribution shift + edge/adversarial cases*
-
-`notebooks/stress_eval.py` freezes the **deployed artifacts** (model, scaler, features — tracked artifacts, schema-validated and unchanged; no retraining occurred) and evaluates them on a deliberately harder synthetic distribution of 8,000 samples introducing overlapping class distributions, contradictory evidence, threshold-boundary cases, measurement noise, and distribution shift / out-of-distribution regions. Results are written to `models/saved/stress_metrics.json`:
-
-| Metric | Stress result |
-|--------|--------------:|
-| Accuracy | 51.44% |
-| Precision (scam) | 46.25% |
-| Recall (scam) | 7.71% |
-| F1 (scam) | 13.22% |
-| ROC-AUC | 0.4671 |
-| Brier score | 0.4278 |
-
-Near-random AUC (~0.47) and very low recall (7.7%) show the model is **not robust to distribution shift**. The training generator's class-conditional structure leaks label information into feature distributions; under independent marginals that leakage disappears and the model's discriminatory power collapses. This is an honest stress result, not a deployment blocker — the rule layer, not the ML model, is the primary safety mechanism.
-
-> **Important:** Stress-test labels are generated from a deterministic scenario rule operating on CLEAN attributes; the model receives NOISY versions (measurement noise), introducing genuine label noise and contradictory evidence. They are not independent real-world ground truth.
+These states are deterministic — the same evidence always produces the same state. There is no randomness, no hidden scoring, and no ML-driven state transitions.
 
 ---
 
-## Measured Failure Modes & Transparency
+## Evidence Model
 
-Measured failure modes (from `stress_metrics.json`):
+LUMINA uses an explicit evidence model where **missing data is represented as missing**, never converted into `0`, `false`, or empty strings.
 
-Per-slice results from `models/saved/stress_metrics.json` (8,000 independent-marginal samples, seed=1234):
+### Evidence Sources
 
-| Slice | n | Accuracy | Recall (scam) | ROC-AUC |
-|--------|----:|---------:|---------------:|--------:|
-| General | 5,200 | 62.19% | 11.80% | 0.5327 |
-| Threshold-boundary (2–3 indicators) | 1,600 | 54.94% | 9.28% | 0.5132 |
-| Duration 0–30 min | 3,697 | 70.35% | 19.49% | 0.5453 |
-| Duration 30–60 min | 962 | 74.22% | 2.77% | 0.4567 |
-| Duration 60–120 min | 1,023 | 40.08% | 2.24% | 0.4715 |
-| Duration 120–481 min | 2,318 | 16.82% | 4.56% | 0.4832 |
+| Source | Description |
+|--------|-------------|
+| `DEVICE` | Genuinely observed by the device (call lifecycle, direction, duration). |
+| `USER` | Explicitly reported by the user (observations they select). |
+| `SYSTEM` | Derived by the system from existing evidence. |
+| `MODEL` | Produced by an ML model (subordinate to safety rules). |
+| `RULE` | Produced by the deterministic safety engine. |
 
-**All stress slices are near-random.** The model has almost no discriminatory power under distribution shift. This confirms the development benchmark is an in-distribution consistency check only.
+### Evidence Statuses
 
-> These failure modes are reported rather than hidden. The stress result is still synthetic evaluation and does not constitute real-world validation.
+| Status | Meaning |
+|--------|---------|
+| `OBSERVED` | The signal was actually observed. |
+| `USER_CONFIRMED` | The user explicitly confirmed this observation. |
+| `UNKNOWN` | The signal could not be determined. |
+| `NOT_AVAILABLE` | The platform does not provide this signal. |
+| `NOT_PERMITTED` | The user has not granted permission for this signal. |
+| `INFERRED` | Derived from other evidence (clearly marked as such). |
+
+Unknown or unavailable evidence is never silently converted into a positive or negative observation.
 
 ---
 
-## Technical Feasibility & Android Integration Roadmap
+## Android Client
 
-The current `android_app/` implementation is a Kotlin skeleton, not a production telemetry collector. It does not provide live telemetry collection.
+The Android app captures real call lifecycle events and allows users to report observations during a call.
 
-The following are **potential integration targets / feasibility mapping** for a future consent-driven Android implementation:
+### Implemented Features
 
-- `TelecomManager` — call state and call-log context
-- `PhoneStateListener` — real-time call-state changes
-- `UsageStatsManager` — app-usage and screen-interaction context
-- `DisplayManager` — display/interaction state
-- `PowerManager` — screen-on and interaction persistence
-- `AccessibilityService` — only where appropriate and permitted, for user-visible interaction signals
+- **Real call lifecycle capture** via `TelephonyManager` / `PhoneStateListener`.
+- **CallStateMachine** — pure-logic state machine that produces truthful completed-call records.
+- **Local event persistence** — events stored on-device before any network call.
+- **Offline-first sync queue** — events persist locally; upload happens only when the backend is reachable.
+- **Retry with bounded backoff** — transient failures retry with exponential backoff (2s → 60s max).
+- **Stale session recovery** — if the backend session expires, a new session is created and pending events are retried.
+- **User observations** — 16 observation types (authority claim, urgency, OTP request, etc.) that the user explicitly selects and submits.
+- **Decision retrieval** — fetches the safety decision from the backend.
+- **User response recording** — records what the user actually did (performed/declined/paused).
+- **HMAC-SHA256 authenticated transport** — every request is signed; sessions are bound to devices.
+- **Android Keystore-backed secret storage** — device credentials encrypted with AES-256-GCM.
 
-> **These are future integration targets, not currently implemented production capabilities.**
+### What the Android Client Does NOT Do
+
+- No microphone recording or audio analysis.
+- No SMS monitoring or contact harvesting.
+- No location tracking or screen capture.
+- No automatic call blocking.
+- No ML inference on-device.
+- No fabrication of caller identity or scam status.
+
+### Verification Status
+
+| Component | Status |
+|-----------|--------|
+| Unit tests (71) | Verified |
+| Build (assembleDebug) | Verified |
+| HMAC interop with backend | Verified |
+| Keystore implementation | Verified (static) |
+| Physical device runtime | Not yet verified |
+| Emulator runtime | Not yet verified |
+
+---
+
+## Backend
+
+The backend is a FastAPI application with SQLite persistence and a deterministic safety engine.
+
+### Architecture
+
+- **FastAPI** — async Python web framework.
+- **SQLite** — append-only evidence persistence.
+- **Deterministic safety engine** — no randomness, no ML in the decision path.
+- **HMAC-SHA256 authentication** — device registration + request signing.
+- **Session ownership** — each session is bound to a registered device.
+
+### Implemented Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/api/devices/register` | Register a new device (returns `device_id` + `device_secret`). |
+| `POST` | `/api/sessions` | Create a new session (auth required). |
+| `POST` | `/api/sessions/{id}/events` | Append a timeline event (auth required). |
+| `POST` | `/api/sessions/{id}/observations` | Add a user-confirmed observation (auth required). |
+| `GET` | `/api/sessions/{id}` | Read a session (auth required). |
+| `GET` | `/api/sessions/{id}/decision` | Evaluate safety decision (auth required). |
+| `POST` | `/api/sessions/{id}/respond` | Record user response (auth required). |
+| `POST` | `/api/sessions/{id}/outcome` | Record outcome (auth required). |
+
+All protected endpoints require valid HMAC-SHA256 authentication headers (`X-Device-ID`, `X-Timestamp`, `X-Nonce`, `X-Signature`).
+
+---
+
+## Security
+
+### Implemented
+
+- **HMAC-SHA256 request signing** — every protected request is authenticated.
+- **Device registration** — each device receives unique credentials once.
+- **Replay prevention** — nonce tracking + timestamp window (±5 minutes).
+- **Session ownership** — cross-device access returns HTTP 403.
+- **Constant-time signature comparison** — `hmac.compare_digest()`.
+- **Generic error messages** — authentication failures do not reveal whether a device exists.
+- **HTTPS-only transport** — cleartext HTTP is rejected.
+- **Android Keystore** — device secret encrypted with AES-256-GCM, hardware-backed key.
+- **No hardcoded secrets** — credentials generated at runtime, never committed.
+
+### Not Yet Implemented
+
+- Credential rotation (currently requires re-registration).
+- Rate limiting on the registration endpoint.
+- Production TLS certificate pinning.
+
+---
+
+## Privacy
+
+LUMINA is designed with privacy by default:
+
+- **No microphone access** — no audio recording or transcription.
+- **No SMS monitoring** — no message content is read.
+- **No contact harvesting** — the contact list is never accessed.
+- **No location tracking** — GPS is not used.
+- **No social media monitoring** — no social graph analysis.
+- **No screen capture** — no screenshots or screen recording.
+- **No automatic blocking** — the user retains full control.
+- **Consent-gated** — data collection requires explicit user consent.
+- **Evidence-only** — only facts that were genuinely observed or reported are stored.
+
+Unavailable or unpermitted signals remain unavailable rather than being fabricated.
 
 ---
 
@@ -277,153 +229,131 @@ The following are **potential integration targets / feasibility mapping** for a 
 ```
 lumina/
 ├── app/
-│   ├── api/                 # FastAPI route modules (detection/panic; scoring lives in main.py)
-│   ├── core/                # features.py, transforms.py, risk_engine.py, db.py
-│   └── services/            # alerts, reports, simulator, support integrations
-├── android_app/             # Kotlin skeleton (future on-device capture)
-├── dashboard/               # Streamlit app + assets
-├── config/                  # config package
-├── data/
-│   ├── processed/           # generated evidence charts
-│   └── incidents.db         # SQLite incident log
-├── reports/                 # generated PDF incident reports
-├── models/saved/            # model artifacts + benchmark results
-│   ├── risk_classifier.pkl
-│   ├── scaler.pkl
-│   ├── features.pkl
-│   ├── calibrator.pkl       # Platt sigmoid calibration layer
-│   ├── audit_metrics.json    # development benchmark (audit_model.py)
-│   ├── metrics.json          # training held-out test (train_simple_model.py)
-│   └── stress_metrics.json   # stress benchmark
-├── notebooks/
-│   ├── train_simple_model.py
-│   ├── audit_model.py
-│   ├── generate_ml_visuals.py
-│   └── stress_eval.py
-├── tests/                   # 199 tests
-├── archive/ml_pipeline/     # historical, non-active training experiments
-├── run.py                   # backend entrypoint
+│   ├── api/                    # FastAPI route modules
+│   ├── core/                   # Risk engine, features, transforms, DB
+│   ├── evidence/               # Evidence model, safety engine, auth, API
+│   │   ├── models.py           # Evidence, Session, TimelineEvent
+│   │   ├── safety_state.py     # Deterministic safety state machine
+│   │   ├── decision_context.py # Evidence aggregation
+│   │   ├── explainability.py   # Human-readable explanations
+│   │   ├── pipeline.py         # Safety evaluation pipeline
+│   │   ├── actions.py          # Protective action definitions
+│   │   ├── auth.py             # HMAC-SHA256 authentication
+│   │   ├── db.py               # SQLite persistence
+│   │   └── router.py           # FastAPI endpoints
+│   └── services/               # Alert, report generation
+├── android_app/
+│   ├── app/src/main/java/com/lumina/app/
+│   │   ├── CallEvent.kt        # Call lifecycle data model
+│   │   ├── CallStateMachine.kt # Pure-logic state machine
+│   │   ├── CallMonitor.kt      # TelephonyManager integration
+│   │   ├── DeviceAuth.kt       # HMAC signing
+│   │   ├── SecretStore.kt      # Keystore-backed credential storage
+│   │   ├── LuminaTransport.kt  # HTTPS transport with auth
+│   │   ├── SyncManager.kt      # Offline-first sync with backoff
+│   │   ├── ObservationManager.kt # User observation lifecycle
+│   │   └── ...                 # Other components
+│   └── app/src/test/           # 71 JVM unit tests
+├── tests/                      # 339 backend tests
+├── dashboard/                  # Streamlit dashboard
+├── models/saved/               # ML artifacts (subordinate to safety engine)
+├── data/                       # Runtime data (not committed)
 ├── requirements.txt
-└── LICENSE                  # MIT
+└── README.md
 ```
-
----
-
-## Quickstart & Reproducibility
-
-Requirements: Python 3.10+ (developed on 3.14). Dependencies are listed in `requirements.txt` (FastAPI, uvicorn, pydantic, scikit-learn, XGBoost, pandas, numpy, Streamlit, ReportLab, Twilio, etc.).
-
-```bash
-git clone https://github.com/thanushreea1306/lumina.git
-cd lumina
-python -m venv venv
-venv\Scripts\activate            # Windows
-pip install -r requirements.txt
-```
-
-**Start the backend:**
-
-```bash
-python run.py                    # FastAPI on :8000
-```
-
-**Start the dashboard:**
-
-```bash
-streamlit run dashboard/app.py   # Streamlit on :8501
-```
-
-**Optional telemetry simulator (demo data source):**
-
-```bash
-python -m app.services.android_simulator
-```
-
-| Interface | URL |
-|-----------|-----|
-| Backend API | http://localhost:8000 |
-| Swagger UI | http://localhost:8000/docs |
-| Dashboard | http://localhost:8501 |
-
-The dashboard and API are wired for local development (CORS allows the Streamlit origin). The API is also reachable directly via `curl` / the interactive docs.
-
-### Reproducibility
-
-All evaluation and artifact generation is scripted. Commands run from the repository root:
-
-| Task | Command | Output |
-|------|---------|--------|
-| Train model | `python notebooks/train_simple_model.py` | `models/saved/*.pkl`, `data/processed/feature_importance.png` |
-| Development benchmark | `python notebooks/audit_model.py` | `models/saved/audit_metrics.json` |
-| Stress benchmark | `python notebooks/stress_eval.py` | `models/saved/stress_metrics.json` |
-| Evidence charts | `python notebooks/generate_ml_visuals.py` | `data/processed/*.png` |
-| Run test suite | `python -m pytest tests/ -v` | test report |
-
-The benchmarks use fixed seeds, so the numbers in `audit_metrics.json` and `stress_metrics.json` reproduce deterministically.
 
 ---
 
 ## Testing
 
-**199 tests pass** (`python -m pytest tests/ -v`). Coverage includes:
+### Backend
 
-- risk-engine escalation gating and false-positive guards
-- model-artifact loading and degradation behavior
-- telemetry-to-ML boundary and missing-telemetry safety
-- API integration and risk-response field contracts
-- alert abuse protection (cooldown, rate limits, duplicate suppression)
-- silent-intervention gating
-- report generation and report-download path-traversal protection
-- dashboard rendering and API integration
-- canonical feature transforms (feature contract, boundary values, edge cases)
-- calibration artifact loading, calibrated probability range, and calibration fallback
-- ML fallback behavior (unavailable model, degraded model, prediction failure)
+```
+339 tests passed
+```
+
+Covers: evidence model, safety states, decision context, explainability, API contracts, authentication, idempotency, session lifecycle, device event ingestion, observation flow, E2E integration, HMAC interoperability.
+
+### Android
+
+```
+71 tests passed, 0 failed, 0 errors
+```
+
+Covers: call state machine, event adapter, sync manager, observation manager, HMAC signing, nonce generation, auth headers, secret storage.
+
+### Build
+
+```
+Android: BUILD SUCCESSFUL — APK generated
+Backend: All tests passing
+```
 
 ---
 
-## Privacy / Security / Limitations
+## Development Setup
 
-**Implemented:**
+### Backend
 
-- telemetry/ML separation (telemetry is excluded from model input by construction)
-- report-download path-traversal protection (filename sanitization and path containment)
-- alert cooldown, rate limiting, and duplicate suppression
-- missing-data handling that never fabricates behavioral signals from absent telemetry
-- controlled intervention behavior (simulated by default, no automatic escalation)
+Requirements: Python 3.10+
 
-**Not implemented (explicit future work):**
+```bash
+git clone https://github.com/thanushreea1306/lumina.git
+cd lumina
+python -m venv venv
+source venv/bin/activate   # or venv\Scripts\activate on Windows
+pip install -r requirements.txt
+python run.py              # FastAPI on :8000
+```
 
-- production authentication and authorization
-- encrypted database storage (incident records are stored in plain SQLite at `data/incidents.db`)
-- automatic retention or deletion of stored records
-- live telecom integration
-- production on-device (Android) telemetry collection — the Kotlin app under `android_app/` is a skeleton
+Run tests:
 
-**Limitations:**
+```bash
+python -m pytest -q         # 339 tests
+```
 
-- The model is trained on **synthetic** data; real-world detection performance has **not** been measured.
-- SMS alerts are **simulated by default**; real delivery requires explicit configuration and credentials.
-- No live telecom / call-metadata integration; Android on-device capture is a skeleton.
-- The text-scam scanner (`/api/detect/panic`) is rule-based, not an ML/NLP model.
-- Incident storage is plain SQLite without encryption or retention guarantees.
-- There is no production authentication and no automated external escalation.
+### Android
 
-**Design principles:**
+Requirements: JDK 17, Android SDK (API 34), Gradle 8.6+
 
-1. **The model corroborates and can moderate rule evidence; escalation gates prevent ML from forcing HIGH/CRITICAL on its own.**
-2. **Missing data is missing.** Null telemetry is never coerced into a behavioral signal, and ML never sees telemetry at all.
-3. **Every decision is explainable.** Each risk assessment exposes the contributing signals and their reasons.
-4. **Intervention is conservative.** Alerts are simulated by default, abuse-guarded, and aimed at trusted contacts — never at automated escalation.
-5. **Honest evaluation.** Synthetic benchmarks are labeled as synthetic, and the harder stress result is reported alongside the development benchmark.
+```bash
+cd android_app
+./gradlew assembleDebug     # APK at app/build/outputs/apk/debug/
+./gradlew testDebugUnitTest # 71 tests
+```
+
+---
+
+## Limitations
+
+- **No physical-device runtime verification yet** — the Android app has been built and unit-tested, but not yet run on a real device or emulator.
+- **No emulator runtime verification yet.**
+- **Credential rotation not yet implemented** — if a device secret is compromised, the device must re-register.
+- **`PhoneStateListener` is deprecated** (API 31+) — functional on current targets but should migrate to `TelephonyCallback`.
+- **No production authentication** — the HMAC system provides device identity but not user accounts.
+- **Single-process backend** — nonce tracking is in-memory; not suitable for multi-worker deployment without shared state.
 
 ---
 
 ## Roadmap
 
-- **V2 — Calibration & robustness**: Platt (sigmoid) probability calibration (evaluated; did not improve Brier/ECE on synthetic data, so raw XGBoost probabilities are used for fusion), canonical feature transforms eliminating train/serve skew, improved training data with realistic class overlap, evaluation metrics expanded with Brier score and calibration analysis.
-- **V3 — Real-world sensing**: consent-driven on-device Android telemetry wired to the API.
-- **V4 — Stronger intelligence**: ethically sourced datasets, session/subject-level validation, NLP-based coercion analysis, robustness to distribution shift.
-- **V5 — Intervention network**: trusted-contact workflows, real-time telecom integrations, coordinated support pathways.
+- **Phase 8**: Physical device runtime verification and end-to-end Android → backend testing.
+- **Phase 9**: Credential rotation and production authentication design.
+- **Phase 10**: Observation UI refinement and decision display polish.
+
+---
+
+## Responsible Claims
+
+LUMINA is a **safety-support tool**, not a scam-detection authority. It:
+
+- Does not claim to identify every scam or social-engineering attempt.
+- Does not make legal, financial, or medical recommendations.
+- Does not replace law enforcement, financial institutions, or human judgment.
+- Provides **information and guidance** based on what has been observed and reported.
+- Leaves all final decisions to the user.
+
+The deterministic safety engine produces **advisory states**, not verdicts. A CLEAR state means "no concerning indicators have been reported" — not "this call is safe."
 
 ---
 

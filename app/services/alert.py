@@ -155,7 +155,8 @@ def send_family_alert(
 ) -> dict:
     """Send (or simulate) a family alert with abuse protection.
 
-    Demo mode (default) returns ``delivery_status = "SIMULATED DELIVERY"``.
+    Demo mode (default) returns ``delivery_status = "SIMULATED (NOT DELIVERED)"``
+    and ``delivered = False``: the alert is evaluated/logged but never sent.
     Real mode is gated behind Twilio env vars loaded via python-dotenv.
     """
     now = now if now is not None else time.time()
@@ -209,8 +210,9 @@ def send_family_alert(
         "alert": message,
         "recipient": recipient,
         "timestamp": datetime.now().isoformat(),
-        "reason": "demo mode - simulated delivery (no message actually sent)",
-        "delivery_status": "SIMULATED DELIVERY",
+        "reason": "demo mode - alert evaluated and logged but NOT delivered; no message was sent",
+        "delivery_status": "SIMULATED (NOT DELIVERED)",
+        "delivered": False,
     }
 
 

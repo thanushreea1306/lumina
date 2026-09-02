@@ -2,11 +2,9 @@
 import base64
 import math
 import os
-import random
 import re
 import sys
 import textwrap
-from dataclasses import asdict
 
 import pandas as pd
 import requests
@@ -69,132 +67,6 @@ TELEMETRY_LABELS = {
     "persistence_hours": "Persistence hours",
 }
 
-DIGITAL_ARREST_SCENARIO = [
-    {
-        "t": 2,
-        "label": "Call connects - unknown number",
-        "signals": {
-            "call_duration_min": 2, "is_unknown_number": 1, "is_video_call": 0,
-            "hour_of_day": 10, "caller_call_history": 0, "outgoing_activity_ratio": 0.6,
-            "screen_time_on_call_percent": 30, "num_app_switches": 5, "num_home_presses": 4,
-            "has_sms_activity": 1, "has_social_app_activity": 1, "location_change": 120,
-            "screen_brightness": 35, "screen_on_continuous_hours": 0, "persistence_hours": 0,
-        },
-        "note": "Unknown number connects. Victim still uses the phone normally.",
-    },
-    {
-        "t": 20,
-        "label": "Caller switches to video - pressure builds",
-        "signals": {
-            "call_duration_min": 25, "is_unknown_number": 1, "is_video_call": 1,
-            "hour_of_day": 10, "caller_call_history": 0, "outgoing_activity_ratio": 0.45,
-            "screen_time_on_call_percent": 55, "num_app_switches": 3, "num_home_presses": 2,
-            "has_sms_activity": 1, "has_social_app_activity": 1, "location_change": 60,
-            "screen_brightness": 50, "screen_on_continuous_hours": 0, "persistence_hours": 0,
-        },
-        "note": "Victim is moved to a video call; screen time rises, app use drops.",
-    },
-    {
-        "t": 50,
-        "label": "Authority claim + secrecy demand",
-        "signals": {
-            "call_duration_min": 55, "is_unknown_number": 1, "is_video_call": 1,
-            "hour_of_day": 10, "caller_call_history": 0, "outgoing_activity_ratio": 0.25,
-            "screen_time_on_call_percent": 70, "num_app_switches": 1, "num_home_presses": 1,
-            "has_sms_activity": 0, "has_social_app_activity": 0, "location_change": 25,
-            "screen_brightness": 70, "screen_on_continuous_hours": 0, "persistence_hours": 0,
-        },
-        "note": "Caller impersonates authority. Victim stops messaging and social apps.",
-    },
-    {
-        "t": 90,
-        "label": "Isolation deepens",
-        "signals": {
-            "call_duration_min": 95, "is_unknown_number": 1, "is_video_call": 1,
-            "hour_of_day": 10, "caller_call_history": 0, "outgoing_activity_ratio": 0.1,
-            "screen_time_on_call_percent": 90, "num_app_switches": 0, "num_home_presses": 0,
-            "has_sms_activity": 0, "has_social_app_activity": 0, "location_change": 10,
-            "screen_brightness": 90, "screen_on_continuous_hours": 2, "persistence_hours": 1,
-        },
-        "note": "No app switching, no movement - the victim is anchored to the call.",
-    },
-    {
-        "t": 150,
-        "label": "Escalated threat - digital arrest",
-        "signals": {
-            "call_duration_min": 165, "is_unknown_number": 1, "is_video_call": 1,
-            "hour_of_day": 10, "caller_call_history": 0, "outgoing_activity_ratio": 0.03,
-            "screen_time_on_call_percent": 98, "num_app_switches": 0, "num_home_presses": 0,
-            "has_sms_activity": 0, "has_social_app_activity": 0, "location_change": 2,
-            "screen_brightness": 100, "screen_on_continuous_hours": 5, "persistence_hours": 3,
-        },
-        "note": "Every digital-arrest indicator is now active - maximum escalation.",
-    },
-]
-
-NORMAL_CALL_SCENARIO = [
-    {
-        "t": 0,
-        "label": "Call connects - known family number",
-        "signals": {
-            "call_duration_min": 2, "is_unknown_number": 0, "is_video_call": 0,
-            "hour_of_day": 14, "caller_call_history": 15, "outgoing_activity_ratio": 0.85,
-            "screen_time_on_call_percent": 20, "num_app_switches": 15, "num_home_presses": 12,
-            "has_sms_activity": 1, "has_social_app_activity": 1, "location_change": 400,
-            "screen_brightness": 30, "screen_on_continuous_hours": 0, "persistence_hours": 0,
-        },
-        "note": "Known number, normal screen use, phone used normally.",
-    },
-    {
-        "t": 10,
-        "label": "Catching up with family",
-        "signals": {
-            "call_duration_min": 12, "is_unknown_number": 0, "is_video_call": 0,
-            "hour_of_day": 14, "caller_call_history": 15, "outgoing_activity_ratio": 0.8,
-            "screen_time_on_call_percent": 30, "num_app_switches": 18, "num_home_presses": 14,
-            "has_sms_activity": 1, "has_social_app_activity": 1, "location_change": 300,
-            "screen_brightness": 35, "screen_on_continuous_hours": 0, "persistence_hours": 0,
-        },
-        "note": "Normal app and message activity continues.",
-    },
-    {
-        "t": 20,
-        "label": "Conversation continues (brief video)",
-        "signals": {
-            "call_duration_min": 25, "is_unknown_number": 0, "is_video_call": 1,
-            "hour_of_day": 14, "caller_call_history": 15, "outgoing_activity_ratio": 0.75,
-            "screen_time_on_call_percent": 40, "num_app_switches": 14, "num_home_presses": 10,
-            "has_sms_activity": 1, "has_social_app_activity": 1, "location_change": 250,
-            "screen_brightness": 40, "screen_on_continuous_hours": 0, "persistence_hours": 0,
-        },
-        "note": "Even with video, normal outgoing activity keeps risk low.",
-    },
-    {
-        "t": 35,
-        "label": "Wrapping up the call",
-        "signals": {
-            "call_duration_min": 38, "is_unknown_number": 0, "is_video_call": 0,
-            "hour_of_day": 14, "caller_call_history": 15, "outgoing_activity_ratio": 0.7,
-            "screen_time_on_call_percent": 35, "num_app_switches": 16, "num_home_presses": 11,
-            "has_sms_activity": 1, "has_social_app_activity": 1, "location_change": 220,
-            "screen_brightness": 35, "screen_on_continuous_hours": 0, "persistence_hours": 0,
-        },
-        "note": "Behavior remains normal throughout.",
-    },
-    {
-        "t": 45,
-        "label": "Call ends naturally",
-        "signals": {
-            "call_duration_min": 45, "is_unknown_number": 0, "is_video_call": 0,
-            "hour_of_day": 14, "caller_call_history": 15, "outgoing_activity_ratio": 0.65,
-            "screen_time_on_call_percent": 30, "num_app_switches": 12, "num_home_presses": 9,
-            "has_sms_activity": 1, "has_social_app_activity": 1, "location_change": 200,
-            "screen_brightness": 30, "screen_on_continuous_hours": 0, "persistence_hours": 0,
-        },
-        "note": "No isolation signals - low risk maintained.",
-    },
-]
-
 INTERVENTIONS = {
     "critical": {
         "title": "[CRITICAL] IMMEDIATE FAMILY INTERVENTION REQUIRED",
@@ -241,6 +113,59 @@ def _health_status() -> dict:
         return {"api": "online", "model_status": data.get("model_status", "unknown")}
     except Exception:
         return {"api": "offline", "model_status": "unknown"}
+
+
+@st.cache_data(show_spinner=False)
+def _model_metrics() -> dict:
+    """Truthful benchmark numbers loaded from the saved model artifacts.
+
+    Every value shown in the dashboard comes from these JSON files (or an honest
+    'unavailable' fallback), never from hardcoded claims.
+    """
+    import json as _json
+
+    saved = os.path.join(_REPO_ROOT, "models", "saved")
+    defaults = {
+        "n_samples": None,
+        "n_features": 11,
+        "top_feature": "outgoing_activity_ratio",
+        "top_importance": None,
+        "dev_accuracy": None,
+        "dev_roc_auc": None,
+        "stress_roc_auc": None,
+        "short_recall": None,
+        "loaded": False,
+    }
+
+    def _read(name):
+        path = os.path.join(saved, name)
+        try:
+            with open(path, "r", encoding="utf-8") as fh:
+                return _json.load(fh)
+        except Exception:
+            return None
+
+    audit = _read("audit_metrics.json") or _read("metrics.json")
+    stress = _read("stress_metrics.json")
+    if not audit:
+        return defaults
+
+    metrics = defaults.copy()
+
+    cal = audit.get("calibrated_model_metrics") or {}
+    top = (audit.get("feature_importance") or [{}])[0]
+    metrics["loaded"] = True
+    metrics["n_samples"] = (audit.get("synthetic_dataset") or {}).get("n_samples")
+    metrics["top_importance"] = top.get("importance")
+    metrics["dev_accuracy"] = cal.get("accuracy")
+    metrics["dev_roc_auc"] = cal.get("roc_auc")
+    if stress:
+        so = stress.get("overall_metrics") or {}
+        metrics["stress_roc_auc"] = so.get("roc_auc")
+        slices = stress.get("per_slice") or {}
+        short = slices.get("duration::0-30") or {}
+        metrics["short_recall"] = short.get("recall")
+    return metrics
 
 
 # ============================= LOGO ASSETS =============================
@@ -869,107 +794,6 @@ def _to_body(signals: dict, include_telemetry: bool = True) -> dict:
     return body
 
 
-def score_snapshot(signals: dict, include_telemetry: bool = True) -> dict:
-    response = requests.post(
-        f"{API_BASE}/api/score",
-        json=_to_body(signals, include_telemetry),
-        timeout=30,
-    )
-    response.raise_for_status()
-    return response.json()
-
-
-def trigger_intervention(signals: dict, include_telemetry: bool = True) -> dict:
-    response = requests.post(
-        f"{API_BASE}/api/silent-intervention",
-        json=_to_body(signals, include_telemetry),
-        params={"victim_name": "Family Member"},
-        timeout=30,
-    )
-    response.raise_for_status()
-    return response.json()
-
-
-def _row(signals: dict, t: int, label: str, note: str, include_telemetry: bool) -> dict:
-    result = score_snapshot(signals, include_telemetry)
-    return {
-        "t": t,
-        "label": label,
-        "note": note,
-        "signals": signals,
-        "score": result["risk_score"],
-        "level": result["risk_level"],
-        "factors": result.get("top_factors", []),
-        "alert_message": result.get("alert_message", ""),
-        "explanation": result.get("explanation", ""),
-        "ml_probability": result.get("ml_probability"),
-        "rule_contribution": result.get("rule_contribution"),
-        "ml_cap_applied": result.get("ml_cap_applied"),
-        "safety_rule_contributions": result.get("safety_rule_contributions", []),
-        "missing_telemetry": result.get("missing_telemetry", []),
-        "model_status": result.get("model_status", "unavailable"),
-    }
-
-
-def run_scenario(scenario, name: str, include_telemetry: bool) -> list:
-    timeline = []
-    progress = st.progress(0, text=f"Running {name}...")
-    for i, snap in enumerate(scenario):
-        progress.progress((i + 1) / len(scenario), text=f"Scoring: {snap['label']}")
-        timeline.append(_row(snap["signals"], snap["t"], snap["label"], snap["note"], include_telemetry))
-    progress.empty()
-    return timeline
-
-
-def _simulator_signals() -> tuple:
-    """One random snapshot from the Python AndroidDeviceSimulator (simulated source)."""
-    from app.services.android_simulator import AndroidDeviceSimulator
-
-    sim = AndroidDeviceSimulator()
-    if random.random() < 0.5:
-        telem = sim.generate_scam_scenario()
-        kind = "scam"
-    else:
-        telem = sim.generate_normal_scenario()
-        kind = "normal"
-    d = asdict(telem)
-    is_scam = kind == "scam"
-    signals = {
-        "call_duration_min": d.get("call_duration_minutes", 0),
-        "is_unknown_number": int(is_scam),
-        "is_video_call": int(bool(d.get("is_video_call"))),
-        "hour_of_day": 12,
-        "caller_call_history": 0 if is_scam else 8,
-        "outgoing_activity_ratio": 0.1 if is_scam else 0.7,
-        "day_of_week": 2,
-        "screen_time_on_call_percent": d.get("screen_time_on_call_percent", 0),
-        "num_app_switches": d.get("num_app_switches", 0),
-        "num_home_presses": d.get("num_home_presses", 0),
-        "has_sms_activity": int(bool(d.get("has_sms_activity"))),
-        "has_social_app_activity": int(bool(d.get("has_social_app_activity"))),
-        "location_change": d.get("location_change", 0),
-        "screen_brightness": d.get("screen_brightness", 0),
-        "screen_on_continuous_hours": d.get("screen_on_continuous_hours", 0),
-        "persistence_hours": 2 if d.get("call_duration_minutes", 0) > 60 else 0,
-    }
-    return signals, kind
-
-
-def run_simulator_snapshot(include_telemetry: bool) -> tuple:
-    signals, kind = _simulator_signals()
-    is_scam = kind == "scam"
-    label = "Simulated scam call" if is_scam else "Simulated normal call"
-    note = (
-        "Random snapshot from the AndroidDeviceSimulator (scam profile: unknown caller, "
-        "long video call, high isolation signals)."
-        if is_scam
-        else "Random snapshot from the AndroidDeviceSimulator (normal profile: known caller, "
-        "normal device activity)."
-    )
-    row = _row(signals, 0, label, note, include_telemetry)
-    return [row], "scam" if is_scam else "normal"
-
-
 def reset_state():
     for key in [
         "timeline",
@@ -1021,8 +845,8 @@ def render_hero() -> None:
 
     badges = (
         model_pill
-        + _pill("SIMULATED TELEMETRY", "slate")
-        + _pill("DEMO · NOT DELIVERED", "red")
+        + _pill("AWAITING ON-DEVICE DATA", "slate")
+        + _pill("ALERTS · NOT CONFIGURED", "red")
     )
 
     st.markdown(
@@ -1615,122 +1439,46 @@ tab_overview, tab_pipeline, tab_evidence, tab_intervention, tab_report, tab_inci
 )
 
 with tab_overview:
-    # ---------- 01 · TELEMETRY SOURCE ----------
+    # ---------- 01 · DATA SOURCE ----------
     _section(
         "01",
-        "Telemetry Source",
-        "Simulated inputs only - scripted scenarios or random snapshots from the Python "
-        "AndroidDeviceSimulator. There is no real on-device capture yet.",
+        "Data Source",
+        "No simulated device source is used. LUMINA awaits real on-device telemetry, which the Android "
+        "app is not yet connected to feed. The risk engine is ready but no live call snapshots are being scored.",
     )
     with st.container(border=True):
-        telemetry_mode = st.radio(
-            "Simulated telemetry mode",
-            [
-                "FULL TELEMETRY",
-                "SIMULATED GAPS",
-            ],
-            index=0,
-            horizontal=True,
-            label_visibility="visible",
-            key="telemetry_mode",
+        st.markdown(
+            f"""
+            <div class="mode-card">
+                <div class="mode-card-title">{_icon("shield", 16)} Awaiting Real Device Data</div>
+                <div class="mode-card-sub">Real telemetry is accepted via <b>POST /api/detect-isolation</b>
+                as soon as the Android client connects. No live device data has been received yet.</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
         )
-        include_telemetry = telemetry_mode.startswith("FULL")
-
-        c1, c2, c3, c4 = st.columns(4)
-        with c1:
-            run_scam = st.button("RUN DIGITAL ARREST SIMULATION", type="primary", width="stretch", key="run_scam")
-        with c2:
-            run_normal = st.button("RUN NORMAL CALL", width="stretch", key="run_normal")
-        with c3:
-            run_sim = st.button("RUN RANDOM SIMULATOR", width="stretch", key="run_sim")
-        with c4:
-            st.button("RESET", type="tertiary", width="stretch", key="reset_state", on_click=reset_state)
-
-    st.caption(
-        "SIMULATED GAPS sends the snapshot WITHOUT device telemetry. The engine reports those fields as "
-        "missing and never treats them as behavioral evidence - see the notice under the pipeline."
-    )
-
-    if run_scam:
-        try:
-            st.session_state.pop("intervention", None)
-            st.session_state["timeline"] = run_scenario(DIGITAL_ARREST_SCENARIO, "Digital Arrest Scenario", include_telemetry)
-            st.session_state["scenario_name"] = "Digital Arrest Scenario"
-            st.session_state["include_telemetry"] = include_telemetry
-        except Exception as exc:
-            st.error(f"Backend call failed: {exc}. Start it with `python run.py`.")
-
-    if run_normal:
-        try:
-            st.session_state.pop("intervention", None)
-            st.session_state["timeline"] = run_scenario(NORMAL_CALL_SCENARIO, "Normal Call Scenario", include_telemetry)
-            st.session_state["scenario_name"] = "Normal Call Scenario"
-            st.session_state["include_telemetry"] = include_telemetry
-        except Exception as exc:
-            st.error(f"Backend call failed: {exc}. Start it with `python run.py`.")
-
-    if run_sim:
-        try:
-            st.session_state.pop("intervention", None)
-            sim_timeline, kind = run_simulator_snapshot(include_telemetry)
-            st.session_state["timeline"] = sim_timeline
-            st.session_state["scenario_name"] = f"AndroidDeviceSimulator - {'scam' if kind == 'scam' else 'normal'} snapshot"
-            st.session_state["include_telemetry"] = include_telemetry
-        except Exception as exc:
-            st.error(f"Backend call failed: {exc}. Start it with `python run.py`.")
+        st.caption(
+            "The previous scripted scenarios (Digital Arrest / Normal Call) and the Python "
+            "AndroidDeviceSimulator were removed in Phase 1 because they fabricated call behavior. "
+            "LUMINA now reports only real, received telemetry - and shows an honest 'no data yet' state until then."
+        )
 
     # ---------- 02 · CURRENT RISK / EMPTY STATE ----------
-    timeline = st.session_state.get("timeline")
-    if timeline:
-        last = timeline[-1]
-        if "intervention" not in st.session_state:
-            try:
-                st.session_state["intervention"] = trigger_intervention(last["signals"], include_telemetry)
-            except Exception as exc:
-                st.session_state["intervention"] = {"error": str(exc)}
-        intervention = st.session_state.get("intervention")
-        _section(
-            "02",
-            "Current Risk",
-            "Live gated assessment for the latest snapshot of this run.",
+    _section(
+        "02",
+        "Current Risk",
+        "No live assessment is shown until real call telemetry arrives from a connected device.",
+    )
+    with st.container(border=True):
+        st.markdown(
+            f"""
+            <div class="mode-card">
+                <div class="mode-card-title">{_icon("magnifier", 16)} No active call is being monitored</div>
+                <div class="mode-card-sub">The engine will score and explain the next snapshot the instant real data arrives.</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
         )
-        risk_hero(last["level"], last["score"], intervention, last)
-        st.caption(
-            f"Latest assessment at t={last['t']} min · {st.session_state.get('scenario_name', '')} · "
-            f"model status: {last['model_status']}"
-        )
-    else:
-        mode_c1, mode_c2, mode_c3 = st.columns(3)
-        with mode_c1:
-            st.markdown(
-                f"""
-                <div class="mode-card">
-                    <div class="mode-card-title">{_icon("handcuffs", 16)} Digital Arrest Scenario</div>
-                    <div class="mode-card-sub">Unknown caller → video call → authority pressure → isolation signals.</div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-        with mode_c2:
-            st.markdown(
-                f"""
-                <div class="mode-card">
-                    <div class="mode-card-title">{_icon("phone", 16)} Normal Call Scenario</div>
-                    <div class="mode-card-sub">Known caller + normal activity → remains LOW risk.</div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-        with mode_c3:
-            st.markdown(
-                f"""
-                <div class="mode-card">
-                    <div class="mode-card-title">{_icon("magnifier", 16)} Random Simulator Snapshot</div>
-                    <div class="mode-card-sub">Test a simulated device snapshot with configurable telemetry.</div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
 
 # ---------- SHARED SCENARIO STATE FOR DETAIL TABS ----------
 timeline = st.session_state.get("timeline")
@@ -1764,7 +1512,7 @@ with tab_pipeline:
         c_high.metric("End of call", f"{timeline[-1]['score']:.0f} / 100")
     else:
         st.markdown(
-            '<div class="notice notice-muted">Run a simulation to populate the risk pipeline.</div>',
+            '<div class="notice notice-muted">Awaiting real device telemetry to populate the risk pipeline.</div>',
             unsafe_allow_html=True,
         )
 
@@ -1785,6 +1533,17 @@ with tab_evidence:
         unsafe_allow_html=True,
     )
 
+    _me = _model_metrics()
+    n_samples = f"{_me['n_samples']:,}" if _me.get("n_samples") else "unknown"
+    n_features = _me.get("n_features") or "?"
+    top_pct = f"{_me['top_importance'] * 100:.0f}%" if _me.get("top_importance") is not None else "unknown"
+    top_feat = _me.get("top_feature") or "unknown"
+    dev_acc = f"{_me['dev_accuracy'] * 100:.2f}%" if _me.get("dev_accuracy") is not None else "unknown"
+    dev_auc = f"{_me['dev_roc_auc']:.4f}" if _me.get("dev_roc_auc") is not None else "unknown"
+    stress_auc = f"{_me['stress_roc_auc']:.4f}" if _me.get("stress_roc_auc") is not None else "unknown"
+    short_recall = f"{_me['short_recall'] * 100:.2f}%" if _me.get("short_recall") is not None else "unknown"
+    metric_note = "" if _me.get("loaded") else "   (model artifact JSON unavailable)"
+
     st.markdown(
         f"""
         <div class="pipe-row">
@@ -1797,20 +1556,20 @@ with tab_evidence:
             <div class="pipe">
                 <div class="pipe-icon">{_icon("magnifier", 16)}</div>
                 <div class="pipe-kicker">Training Data</div>
-                <div class="pipe-value">15,000</div>
+                <div class="pipe-value">{n_samples}</div>
                 <div class="pipe-sub">synthetic call snapshots</div>
             </div>
             <div class="pipe">
                 <div class="pipe-icon">{_icon("siren", 16)}</div>
                 <div class="pipe-kicker">Features</div>
-                <div class="pipe-value">11</div>
+                <div class="pipe-value">{n_features}</div>
                 <div class="pipe-sub">call-behavior features</div>
             </div>
             <div class="pipe">
                 <div class="pipe-icon">{_icon("warning", 16)}</div>
                 <div class="pipe-kicker">Dominant Feature</div>
-                <div class="pipe-value">~60%</div>
-                <div class="pipe-sub">outgoing_activity_ratio</div>
+                <div class="pipe-value">{top_pct}</div>
+                <div class="pipe-sub">{top_feat}</div>
             </div>
         </div>
         """,
@@ -1829,22 +1588,23 @@ with tab_evidence:
             <div class="pipe">
                 <div class="pipe-icon">{_icon("shield", 16)}</div>
                 <div class="pipe-kicker">Development Benchmark</div>
-                <div class="pipe-value">99.88% acc · 1.00 AUC</div>
+                <div class="pipe-value">{dev_acc} acc · {dev_auc} AUC</div>
                 <div class="pipe-sub">Synthetic · internal consistency</div>
             </div>
             <div class="pipe">
                 <div class="pipe-icon">{_icon("siren", 16)}</div>
                 <div class="pipe-kicker">Stress Evaluation</div>
-                <div class="pipe-value">0.824 ROC-AUC</div>
+                <div class="pipe-value">{stress_auc} ROC-AUC</div>
                 <div class="pipe-sub">Harder synthetic evaluation</div>
             </div>
             <div class="pipe">
                 <div class="pipe-icon">{_icon("warning", 16)}</div>
                 <div class="pipe-kicker">Short-Call Recall</div>
-                <div class="pipe-value">0.53%</div>
+                <div class="pipe-value">{short_recall}</div>
                 <div class="pipe-sub">recall on 0-30 min calls</div>
             </div>
         </div>
+        {metric_note}
         """,
         unsafe_allow_html=True,
     )
@@ -1860,7 +1620,7 @@ with tab_evidence:
     with img_c1:
         st.image(
             os.path.join(_evidence_dir, "feature_importance.png"),
-            caption="Feature Importance - outgoing_activity_ratio is the dominant feature (~60% in the synthetic benchmark).",
+            caption=f"Feature Importance - top feature is outgoing_activity_ratio at ~{_me['top_importance'] * 100:.0f}% in the synthetic benchmark." if _me.get("top_importance") is not None else "Feature Importance (synthetic benchmark).",
             use_container_width=True,
         )
     with img_c2:
@@ -1942,8 +1702,8 @@ with tab_evidence:
         behavior_timeline_story(timeline)
     else:
         st.markdown(
-            '<div class="notice notice-muted">Run a simulation to populate detection evidence and the '
-            "behavior timeline.</div>",
+            '<div class="notice notice-muted">Awaiting real device telemetry to populate detection evidence '
+            "and the behavior timeline.</div>",
             unsafe_allow_html=True,
         )
 
@@ -1961,7 +1721,7 @@ with tab_intervention:
             st.error(f"Intervention check failed: {intervention['error']}")
     else:
         st.markdown(
-            '<div class="notice notice-muted">Run a simulation to evaluate the intervention recommendation.</div>',
+            '<div class="notice notice-muted">Awaiting real device telemetry to evaluate the intervention recommendation.</div>',
             unsafe_allow_html=True,
         )
 
@@ -2022,7 +1782,7 @@ with tab_report:
             )
     else:
         st.markdown(
-            '<div class="notice notice-muted">Run a simulation to generate an incident report.</div>',
+            '<div class="notice notice-muted">Awaiting real device telemetry to generate an incident report.</div>',
             unsafe_allow_html=True,
         )
 
@@ -2053,8 +1813,8 @@ st.markdown(
     unsafe_allow_html=True,
 )
 st.caption(
-    "LUMINA is a research prototype. All telemetry shown is SIMULATED (scripted scenarios / Python "
-    "AndroidDeviceSimulator); no real device data is captured. All alerts are evaluated and logged by the "
-    "backend but NOT delivered in demo mode - no SMS is sent."
+    "LUMINA is a research prototype. Simulated scenario/telemetry sources were removed; the dashboard "
+    "currently shows no live data because the Android app is not yet connected. Alerts are evaluated "
+    "honestly: nothing is claimed as delivered unless a real SMS channel is configured and sent."
 )
 

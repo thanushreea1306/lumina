@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">LUMINA</string>
+    <string name="consent_text">LUMINA captures call lifecycle information (when a call starts/ends and its duration) on this device only. It does not record or analyze the human content of conversations, does not synthesize \"isolation\" or \"scam\" risk from device data, and does not upload anything without your consent and a real, explicitly configured https backend. Your phone number is recorded as \u2018unknown\u2019 unless the platform genuinely provides it. This foundation does not use microphone, SMS, contacts, or social-app activity.</string>
+
+    <!-- Observation section -->
+    <string name="section_observations">Report what is happening</string>
+    <string name="observation_hint">Select what the caller is doing. Only select what you actually observed.</string>
+    <string name="notes_hint">Optional: add a note about what happened</string>
+    <string name="submit_observation">Submit observation</string>
+    <string name="observation_saved">Observation saved locally</string>
+    <string name="observation_synced">Observation synced to backend</string>
+    <string name="observation_failed">Observation upload failed</string>
+
+    <!-- Decision section -->
+    <string name="section_decision">Safety assessment</string>
+    <string name="decision_loading">Loading assessment from backend\u2026</string>
+    <string name="decision_unavailable">Decision unavailable — your observations remain stored locally and will sync when possible.</string>
+    <string name="decision_no_session">No active session. Start monitoring first.</string>
+    <string name="decision_refresh">Refresh assessment</string>
+
+    <!-- Decision states -->
+    <string name="state_CLEAR">No concerning indicators have been reported or observed by LUMINA</string>
+    <string name="state_WATCH">Stay alert — be cautious about requests for money, codes, or access</string>
+    <string name="state_PAUSE">Pause — do not share codes, passwords, or money. Verify independently.</string>
+    <string name="state_VERIFY">Verify independently before proceeding with any requested action</string>
+    <string name="state_PROTECT">Stop and verify independently. Do not send money, codes, or grant access.</string>
+    <string name="state_RECOVERY">Secure your accounts. Change passwords and contact your bank directly.</string>
+
+    <!-- User response -->
+    <string name="section_response">Your response</string>
+    <string name="response_paused">I paused to verify</string>
+    <string name="response_declined">I refused / declined</string>
+    <string name="response_performed">I did it (performed the action)</string>
+    <string name="response_sent">Response recorded</string>
+
+    <!-- Sync status -->
+    <string name="sync_pending">Sync pending</string>
+    <string name="sync_complete">All synced</string>
+
+    <!-- Accessibility -->
+    <string name="obs_authority_claim_desc">Select if the caller claimed to be from an authority such as police, bank, or government</string>
+    <string name="obs_threat_arrest_desc">Select if the caller threatened arrest</string>
+    <string name="obs_threat_legal_desc">Select if the caller threatened legal action</string>
+    <string name="obs_urgency_desc">Select if the caller pressured you to act immediately</string>
+    <string name="obs_secrecy_desc">Select if the caller asked you to keep the matter secret</string>
+    <string name="obs_money_desc">Select if the caller asked you to send or transfer money</string>
+    <string name="obs_otp_desc">Select if the caller asked for a one-time password or verification code</string>
+    <string name="obs_password_desc">Select if the caller asked for your password</string>
+    <string name="obs_id_doc_desc">Select if the caller asked for identity documents</string>
+    <string name="obs_remote_access_desc">Select if the caller asked you to install an app or grant remote access</string>
+    <string name="obs_app_install_desc">Select if the caller asked you to install a specific application</string>
+    <string name="obs_bank_transfer_desc">Select if the caller asked for a bank transfer</string>
+    <string name="obs_crypto_desc">Select if the caller asked for a cryptocurrency transfer</string>
+    <string name="obs_gift_card_desc">Select if the caller asked you to buy gift cards</string>
+    <string name="obs_call_back_desc">Select if the caller told you to call a specific number back</string>
+    <string name="obs_verification_blocked_desc">Select if the caller prevented you from verifying their identity</string>
+</resources>

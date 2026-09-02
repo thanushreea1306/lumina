@@ -1,12 +1,14 @@
 # tests/test_dashboard_app.py
-"""Streamlit AppTest verification for the redesigned LUMINA dashboard.
+"""Streamlit AppTest verification for the LUMINA dashboard.
 
 Runs dashboard/app.py through streamlit.testing.v1.AppTest with the HTTP
-backend mocked, so no live FastAPI server is required. These tests only cover
-the presentation layer: the app renders the hero/empty state, full vs. gapped
-telemetry is sent correctly, running a scenario renders the pipeline, risk,
-intervention, timeline, incident table, and PDF-report flow - all without
-raising exceptions.
+backend mocked, so no live FastAPI server is required. These tests cover the
+presentation layer only:
+
+- the honest empty state (no simulated scenario buttons, no device radio),
+- model evidence is read from the saved benchmark JSON (not hardcoded),
+- the incidents table renders backend records,
+- no exceptions are raised while rendering.
 """
 
 import sys
@@ -22,22 +24,8 @@ if str(ROOT) not in sys.path:
 
 APP_PATH = str(ROOT / "dashboard" / "app.py")
 
-TELEMETRY_FIELDS = [
-    "screen_time_on_call_percent",
-    "num_app_switches",
-    "num_home_presses",
-    "has_sms_activity",
-    "has_social_app_activity",
-    "location_change",
-    "screen_brightness",
-    "screen_on_continuous_hours",
-    "persistence_hours",
-]
-
 
 def _score_response(payload):
-    has_telemetry = "extra_telemetry" in payload
-    missing = [] if has_telemetry else list(TELEMETRY_FIELDS)
     return {
         "risk_score": 81.2,
         "risk_level": "critical",
@@ -57,22 +45,9 @@ def _score_response(payload):
             {"reason": "Video call intimidation", "weight": 0.25, "active": True},
             {"reason": "Known family number", "weight": -0.2, "active": True},
         ],
-        "missing_telemetry": missing,
+        "missing_telemetry": [],
         "model_status": "available",
     }
-
-
-def _intervention_response(payload):
-    body = _score_response(payload)
-    body.update({
-        "intervention_triggered": True,
-        "delivery_status": "SIMULATED",
-        "delivered": False,
-        "alert_sent_to": ["+91-9999999999"],
-        "reason": "demo mode - no real SMS delivery channel",
-        "message": "LUMINA ALERT: ... (SIMULATED - not delivered)",
-    })
-    return body
 
 
 class _FakeResponse:
@@ -90,7 +65,7 @@ class _FakeResponse:
 
 
 @pytest.fixture
-def patched_api(monkeypatch, captured_payloads):
+def patched_api(monkeypatch):
     """Mock the HTTP backend so the dashboard runs fully offline."""
 
     def fake_get(url, *args, **kwargs):
@@ -106,34 +81,14 @@ def patched_api(monkeypatch, captured_payloads):
                     "explanation": "Rule contribution 80% crossed the 75% critical threshold.",
                 }]
             })
-        if "/api/download-report/" in url:
-            return _FakeResponse(content=b"%PDF-1.4\nfake-report")
         raise AssertionError(f"unexpected GET: {url}")
 
     def fake_post(url, *args, **kwargs):
-        payload = kwargs.get("json", {})
-        captured_payloads.append(payload)
-        if url.endswith("/api/score"):
-            return _FakeResponse(json_body=_score_response(payload))
-        if url.endswith("/api/silent-intervention"):
-            return _FakeResponse(json_body=_intervention_response(payload))
-        if url.endswith("/api/generate-report"):
-            return _FakeResponse(json_body={
-                "pdf_path": "reports/lumina_incident.pdf",
-                "risk_score": 81.2,
-                "risk_level": "critical",
-                "filename": "lumina_incident.pdf",
-            })
         raise AssertionError(f"unexpected POST: {url}")
 
     monkeypatch.setattr(requests, "get", fake_get)
     monkeypatch.setattr(requests, "post", fake_post)
     return fake_get
-
-
-@pytest.fixture
-def captured_payloads():
-    return []
 
 
 def _new_app():
@@ -148,93 +103,51 @@ def _assert_no_exceptions(at):
     assert not at.exception, [e.value for e in at.exception]
 
 
-def test_empty_state_renders_hero_modes_and_logo(patched_api):
+def test_empty_state_renders_hero_and_honest_overview(patched_api):
     at = _new_app()
     at.run()
     _assert_no_exceptions(at)
 
     text = _markdown_text(at)
     assert "lumina-hero" in text
-    assert "data:image/png;base64," in text
     assert "SYSTEM ONLINE" in text
-    assert "LUMINA is standing by" not in text
-    assert "Digital Arrest Scenario" in text
-    assert "Normal Call Scenario" in text
-    assert "Random Simulator Snapshot" in text
+    assert "AWAITING ON-DEVICE DATA" in text
+    assert "Awaiting Real Device Data" in text
+    assert "No active call is being monitored" in text
+
+    assert "Digital Arrest Scenario" not in text
+    assert "Normal Call Scenario" not in text
+    assert "Random Simulator Snapshot" not in text
+    assert "AndroidDeviceSimulator" not in text
 
     labels = [b.label for b in at.button]
-    assert "RUN DIGITAL ARREST SIMULATION" in labels
-    assert "RESET" in labels
-    assert not at.get("plotly_chart")
+    assert not any("RUN" in label for label in labels)
+    assert not any("Simulate" in label for label in labels)
+    assert not any("SIMULATION" in label for label in labels)
+
+    assert not at.radio, [r.value for r in at.radio]
     assert not at.metric
+    assert not at.get("plotly_chart")
 
 
-def test_full_telemetry_sends_device_fields(patched_api, captured_payloads):
+def test_model_evidence_reads_truthful_benchmark_values(patched_api):
     at = _new_app()
-    at.run()
-    assert at.radio[0].value == "FULL TELEMETRY"
-    at.button(key="run_scam").click()
-    at.run()
-    _assert_no_exceptions(at)
-
-    score_payloads = [p for p in captured_payloads if "call_duration_min" in p]
-    assert score_payloads
-    assert "extra_telemetry" in score_payloads[0]
-    assert set(TELEMETRY_FIELDS) <= set(score_payloads[0]["extra_telemetry"])
-
-
-def test_simulated_gaps_omits_telemetry_and_reports_missing(patched_api, captured_payloads):
-    at = _new_app()
-    at.run()
-    at.radio[0].set_value("SIMULATED GAPS")
-    at.run()
-    at.button(key="run_normal").click()
-    at.run()
-    _assert_no_exceptions(at)
-
-    score_payloads = [p for p in captured_payloads if "call_duration_min" in p]
-    assert score_payloads
-    assert "extra_telemetry" not in score_payloads[0]
-
-    text = _markdown_text(at)
-    assert "Missing telemetry" in text
-    assert "20/29" in text
-
-
-def test_scenario_renders_pipeline_risk_intervention_and_timeline(patched_api):
-    at = _new_app()
-    at.run()
-    at.button(key="run_scam").click()
     at.run()
     _assert_no_exceptions(at)
 
     text = _markdown_text(at)
-    assert "pipe-row" in text
-    assert "CRITICAL" in text
-    assert "risk-hero critical" in text
-    assert "INTERVENTION TRIGGERED" in text
-    assert "IMMEDIATE FAMILY INTERVENTION REQUIRED" in text
-    assert "Silent Intervention / Delivery" in text
-    assert "timeline" in text
+    assert "91.04% acc" in text          # calibrated accuracy (0.9104) from audit_metrics.json
+    assert "0.9330 AUC" in text          # calibrated roc_auc (0.9330)
+    assert "0.4671 ROC-AUC" in text      # stress overall roc_auc (0.4671)
+    assert "19.49%" in text              # short-call recall (0.1949) from stress per_slice
+    assert "32%" in text                 # dominant feature importance (~0.3217)
 
-    assert at.metric
-    assert at.get("plotly_chart")
-    assert at.get("dataframe")
-
-
-def test_incident_report_generation_flow(patched_api):
-    at = _new_app()
-    at.run()
-    at.button(key="run_scam").click()
-    at.run()
-    at.button(key="gen_report").click()
-    at.run()
-    _assert_no_exceptions(at)
-
-    download = at.get("download_button")
-    assert len(download) == 1
-    text = _markdown_text(at)
-    assert "Report generated" in text
+    # The old hardcoded claims must be gone.
+    assert "99.88%" not in text
+    assert "~60%" not in text
+    assert "0.824" not in text
+    assert "0.53%" not in text
+    assert "1.00 AUC" not in text
 
 
 def test_incidents_table_shows_backend_records(patched_api):

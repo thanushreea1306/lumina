@@ -1,54 +1,440 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
-    android:layout_height="match_parent"
-    android:orientation="vertical"
-    android:padding="16dp"
-    android:gravity="center">
-
-    <TextView
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="💡 LUMINA"
-        android:textSize="32sp"
-        android:textStyle="bold"
-        android:textColor="#1a237e" />
-
-    <TextView
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="Isolation Detector"
-        android:textSize="16sp"
-        android:layout_marginBottom="24dp" />
-
-    <TextView
-        android:id="@+id/statusText"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="🟢 LUMINA Ready"
-        android:textSize="18sp"
-        android:layout_marginBottom="12dp" />
-
-    <TextView
-        android:id="@+id/riskScoreText"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="Risk: 0% - Monitoring"
-        android:textSize="16sp"
-        android:layout_marginBottom="24dp" />
-
-    <Button
-        android:id="@+id/startButton"
+    android:layout_height="match_parent">
+    <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="🛡️ Start Monitoring"
-        android:layout_marginBottom="12dp" />
+        android:orientation="vertical"
+        android:padding="16dp"
+        android:gravity="center_horizontal">
 
-    <Button
-        android:id="@+id/testButton"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="📞 Simulate Scam Call"
-        android:backgroundTint="#c62828" />
+        <!-- Title -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="💡 LUMINA"
+            android:textSize="32sp"
+            android:textStyle="bold"
+            android:textColor="#1a237e"
+            android:contentDescription="LUMINA safety assistant" />
 
-</LinearLayout>
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Call Safety Monitor"
+            android:textSize="16sp"
+            android:layout_marginBottom="12dp" />
+
+        <!-- Status -->
+        <TextView
+            android:id="@+id/statusText"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Waiting for consent"
+            android:textSize="18sp"
+            android:layout_marginBottom="12dp"
+            android:gravity="center"
+            android:contentDescription="Current monitoring status" />
+
+        <TextView
+            android:id="@+id/syncStatusText"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text=""
+            android:textSize="14sp"
+            android:layout_marginBottom="16dp"
+            android:gravity="center"
+            android:contentDescription="Sync status" />
+
+        <!-- Consent -->
+        <TextView
+            android:id="@+id/consentText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/consent_text"
+            android:textSize="14sp"
+            android:layout_marginBottom="8dp"
+            android:gravity="start" />
+
+        <Button
+            android:id="@+id/consentButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="I understand &amp; consent to local call monitoring"
+            android:minHeight="48dp"
+            android:layout_marginBottom="16dp"
+            android:contentDescription="Record your consent to local call monitoring" />
+
+        <!-- Endpoint config -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Backend endpoint (must be https)"
+            android:textSize="14sp" />
+
+        <EditText
+            android:id="@+id/endpointInput"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="https://your-backend.example"
+            android:inputType="textUri"
+            android:minHeight="48dp" />
+
+        <Button
+            android:id="@+id/saveEndpointButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Save endpoint"
+            android:minHeight="48dp"
+            android:layout_marginBottom="16dp"
+            android:contentDescription="Save the backend endpoint URL" />
+
+        <!-- Monitoring controls -->
+        <Button
+            android:id="@+id/startButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="🛡️ Start Monitoring"
+            android:minHeight="48dp"
+            android:layout_marginBottom="8dp"
+            android:contentDescription="Start call monitoring" />
+
+        <!-- ============================================ -->
+        <!-- OBSERVATION SECTION -->
+        <!-- ============================================ -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/section_observations"
+            android:textSize="20sp"
+            android:textStyle="bold"
+            android:textColor="#1a237e"
+            android:layout_marginTop="24dp"
+            android:layout_marginBottom="4dp"
+            android:contentDescription="Observation reporting section" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/observation_hint"
+            android:textSize="14sp"
+            android:layout_marginBottom="8dp" />
+
+        <!-- Observation type grid -->
+        <com.google.android.material.chip.ChipGroup
+            android:id="@+id/observationChipGroup"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="8dp"
+            android:contentDescription="Select the observations you want to report">
+
+            <com.google.android.material.chip.Chip
+                android:id="@+id/chip_authority_claim"
+                style="@style/Widget.MaterialComponents.Chip.Choice"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Authority claim"
+                android:minHeight="48dp"
+                android:contentDescription="@string/obs_authority_claim_desc" />
+
+            <com.google.android.material.chip.Chip
+                android:id="@+id/chip_threat_arrest"
+                style="@style/Widget.MaterialComponents.Chip.Choice"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Threat of arrest"
+                android:minHeight="48dp"
+                android:contentDescription="@string/obs_threat_arrest_desc" />
+
+            <com.google.android.material.chip.Chip
+                android:id="@+id/chip_threat_legal"
+                style="@style/Widget.MaterialComponents.Chip.Choice"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Threat of legal action"
+                android:minHeight="48dp"
+                android:contentDescription="@string/obs_threat_legal_desc" />
+
+            <com.google.android.material.chip.Chip
+                android:id="@+id/chip_urgency"
+                style="@style/Widget.MaterialComponents.Chip.Choice"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Urgency pressure"
+                android:minHeight="48dp"
+                android:contentDescription="@string/obs_urgency_desc" />
+
+            <com.google.android.material.chip.Chip
+                android:id="@+id/chip_secrecy"
+                style="@style/Widget.MaterialComponents.Chip.Choice"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Secrecy request"
+                android:minHeight="48dp"
+                android:contentDescription="@string/obs_secrecy_desc" />
+
+            <com.google.android.material.chip.Chip
+                android:id="@+id/chip_money"
+                style="@style/Widget.MaterialComponents.Chip.Choice"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Money request"
+                android:minHeight="48dp"
+                android:contentDescription="@string/obs_money_desc" />
+
+            <com.google.android.material.chip.Chip
+                android:id="@+id/chip_otp"
+                style="@style/Widget.MaterialComponents.Chip.Choice"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="OTP / code request"
+                android:minHeight="48dp"
+                android:contentDescription="@string/obs_otp_desc" />
+
+            <com.google.android.material.chip.Chip
+                android:id="@+id/chip_password"
+                style="@style/Widget.MaterialComponents.Chip.Choice"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Password request"
+                android:minHeight="48dp"
+                android:contentDescription="@string/obs_password_desc" />
+
+            <com.google.android.material.chip.Chip
+                android:id="@+id/chip_id_doc"
+                style="@style/Widget.MaterialComponents.Chip.Choice"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="ID document request"
+                android:minHeight="48dp"
+                android:contentDescription="@string/obs_id_doc_desc" />
+
+            <com.google.android.material.chip.Chip
+                android:id="@+id/chip_remote_access"
+                style="@style/Widget.MaterialComponents.Chip.Choice"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Remote access request"
+                android:minHeight="48dp"
+                android:contentDescription="@string/obs_remote_access_desc" />
+
+            <com.google.android.material.chip.Chip
+                android:id="@+id/chip_app_install"
+                style="@style/Widget.MaterialComponents.Chip.Choice"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="App install request"
+                android:minHeight="48dp"
+                android:contentDescription="@string/obs_app_install_desc" />
+
+            <com.google.android.material.chip.Chip
+                android:id="@+id/chip_bank_transfer"
+                style="@style/Widget.MaterialComponents.Chip.Choice"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Bank transfer request"
+                android:minHeight="48dp"
+                android:contentDescription="@string/obs_bank_transfer_desc" />
+
+            <com.google.android.material.chip.Chip
+                android:id="@+id/chip_crypto"
+                style="@style/Widget.MaterialComponents.Chip.Choice"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Crypto transfer request"
+                android:minHeight="48dp"
+                android:contentDescription="@string/obs_crypto_desc" />
+
+            <com.google.android.material.chip.Chip
+                android:id="@+id/chip_gift_card"
+                style="@style/Widget.MaterialComponents.Chip.Choice"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Gift card request"
+                android:minHeight="48dp"
+                android:contentDescription="@string/obs_gift_card_desc" />
+
+            <com.google.android.material.chip.Chip
+                android:id="@+id/chip_call_back"
+                style="@style/Widget.MaterialComponents.Chip.Choice"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Call-back instruction"
+                android:minHeight="48dp"
+                android:contentDescription="@string/obs_call_back_desc" />
+
+            <com.google.android.material.chip.Chip
+                android:id="@+id/chip_verification_blocked"
+                style="@style/Widget.MaterialComponents.Chip.Choice"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Verification blocked"
+                android:minHeight="48dp"
+                android:contentDescription="@string/obs_verification_blocked_desc" />
+
+        </com.google.android.material.chip.ChipGroup>
+
+        <EditText
+            android:id="@+id/observationNotes"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="@string/notes_hint"
+            android:inputType="textMultiLine"
+            android:minHeight="48dp"
+            android:layout_marginBottom="8dp"
+            android:contentDescription="Optional notes about the observation" />
+
+        <Button
+            android:id="@+id/submitObservationButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/submit_observation"
+            android:minHeight="48dp"
+            android:layout_marginBottom="16dp"
+            android:enabled="false"
+            android:contentDescription="Submit the selected observations to the backend" />
+
+        <TextView
+            android:id="@+id/observationStatusText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text=""
+            android:textSize="14sp"
+            android:layout_marginBottom="24dp"
+            android:contentDescription="Observation submission status" />
+
+        <!-- ============================================ -->
+        <!-- DECISION SECTION -->
+        <!-- ============================================ -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/section_decision"
+            android:textSize="20sp"
+            android:textStyle="bold"
+            android:textColor="#1a237e"
+            android:layout_marginTop="8dp"
+            android:layout_marginBottom="8dp"
+            android:contentDescription="Safety assessment section" />
+
+        <TextView
+            android:id="@+id/decisionStateText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/decision_no_session"
+            android:textSize="18sp"
+            android:textStyle="bold"
+            android:layout_marginBottom="8dp"
+            android:contentDescription="Current safety state" />
+
+        <TextView
+            android:id="@+id/decisionReasonText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text=""
+            android:textSize="14sp"
+            android:layout_marginBottom="8dp"
+            android:contentDescription="Reasons for the safety assessment" />
+
+        <TextView
+            android:id="@+id/decisionActionText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text=""
+            android:textSize="14sp"
+            android:textStyle="bold"
+            android:layout_marginBottom="8dp"
+            android:contentDescription="Recommended action" />
+
+        <TextView
+            android:id="@+id/decisionMissingText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text=""
+            android:textSize="12sp"
+            android:layout_marginBottom="8dp"
+            android:contentDescription="Missing information" />
+
+        <Button
+            android:id="@+id/refreshDecisionButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/decision_refresh"
+            android:minHeight="48dp"
+            android:layout_marginBottom="24dp"
+            android:contentDescription="Refresh the safety assessment from the backend" />
+
+        <!-- ============================================ -->
+        <!-- USER RESPONSE SECTION -->
+        <!-- ============================================ -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/section_response"
+            android:textSize="20sp"
+            android:textStyle="bold"
+            android:textColor="#1a237e"
+            android:layout_marginBottom="8dp"
+            android:contentDescription="Record your response to the caller" />
+
+        <TextView
+            android:id="@+id/responsePromptText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="If the caller asked you to do something, record what you did:"
+            android:textSize="14sp"
+            android:layout_marginBottom="8dp" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginBottom="8dp">
+
+            <Button
+                android:id="@+id/responseDeclinedButton"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Declined"
+                android:minHeight="48dp"
+                android:layout_marginEnd="4dp"
+                android:enabled="false"
+                android:contentDescription="Record that you refused or declined the caller request" />
+
+            <Button
+                android:id="@+id/responsePausedButton"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Paused"
+                android:minHeight="48dp"
+                android:layout_marginStart="4dp"
+                android:layout_marginEnd="4dp"
+                android:enabled="false"
+                android:contentDescription="Record that you paused to verify before acting" />
+
+            <Button
+                android:id="@+id/responsePerformedButton"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Performed"
+                android:minHeight="48dp"
+                android:layout_marginStart="4dp"
+                android:enabled="false"
+                android:contentDescription="Record that you performed the requested action" />
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/responseStatusText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text=""
+            android:textSize="14sp"
+            android:layout_marginBottom="16dp"
+            android:contentDescription="Response submission status" />
+
+    </LinearLayout>
+</ScrollView>

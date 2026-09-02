@@ -2,17 +2,44 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
-    <!-- Permissions -->
+    <!--
+      Permissions retained in the Phase-2 foundation and why:
+
+      READ_PHONE_STATE      runtime, normal - lets the foreground service observe
+                            call lifecycle transitions (LISTEN_CALL_STATE) so a
+                            start/end/duration record can be captured. This is the
+                            core MVP signal. The incoming number is only surfaced
+                            by the platform under narrow conditions and is treated
+                            as UNKNOWN otherwise.
+
+      INTERNET              - required for the (currently opt-in, not-yet-wired)
+                            HTTPS upload boundary.
+
+      FOREGROUND_SERVICE    - the call capture must run as a foreground service to
+                            be allowed by the OS; visible as a persistent
+                            notification.
+
+      FOREGROUND_SERVICE_DATA_SYNC
+                            - Android 14 (target 34) requires each foreground
+                            service to declare a type; dataSync matches uploading
+                            observed local events.
+
+      POST_NOTIFICATIONS    - runtime, normal - show the foreground-service
+                            notification on Android 13+.
+
+      Removed in this phase because no code path uses them and they are not part
+      of the truthful MVP contract (they are invasive and/or need special access):
+        ACCESS_FINE_LOCATION   (was only logged to Logcat; not a real signal)
+        PACKAGE_USAGE_STATS    (special-access "usage access"; not part of MVP)
+    -->
     <uses-permission android:name="android.permission.READ_PHONE_STATE" />
-    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application
         android:allowBackup="true"
-        android:icon="@mipmap/ic_launcher"
         android:label="LUMINA"
         android:theme="@style/Theme.AppCompat.Light.DarkActionBar">
 
@@ -25,17 +52,24 @@
             </intent-filter>
         </activity>
 
-        <!-- Service -->
+        <!-- Foreground service that holds real call-lifecycle capture. -->
         <service
             android:name=".LuminaService"
             android:enabled="true"
-            android:exported="false" />
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
 
-        <!-- Broadcast Receiver -->
+        <!--
+          Declared receiver for the protected PHONE_STATE broadcast. It only
+          ensures the monitoring service is running when consent exists; call
+          capture itself happens inside LuminaService. exported=false: the
+          system still delivers protected broadcasts, but other apps cannot
+          invoke it.
+        -->
         <receiver
             android:name=".CallReceiver"
             android:enabled="true"
-            android:exported="true">
+            android:exported="false">
             <intent-filter>
                 <action android:name="android.intent.action.PHONE_STATE" />
             </intent-filter>

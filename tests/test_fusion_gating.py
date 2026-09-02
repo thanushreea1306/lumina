@@ -273,12 +273,12 @@ def test_api_send_alert_simulated_is_not_delivered(client):
     )
     assert response.status_code == 200
     body = response.json()
-    assert body["delivery_status"] == "SIMULATED DELIVERY"
+    assert body["delivery_status"] == "SIMULATED (NOT DELIVERED)"
     assert body["alert_sent"] is False
     assert body["delivered"] is False
 
 
-@pytest.mark.parametrize("delivery_status", ["SIMULATED DELIVERY", "FAILED", "BLOCKED"])
+@pytest.mark.parametrize("delivery_status", ["SIMULATED (NOT DELIVERED)", "FAILED", "BLOCKED"])
 def test_api_send_alert_never_claims_delivery_without_sent(client, monkeypatch, delivery_status):
     import app.main as main
 

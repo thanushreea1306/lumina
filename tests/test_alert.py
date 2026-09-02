@@ -27,7 +27,7 @@ def test_demo_mode_returns_simulated_delivery():
         features=FEATURES,
         now=1000.0,
     )
-    assert result["delivery_status"] == "SIMULATED DELIVERY"
+    assert result["delivery_status"] == "SIMULATED (NOT DELIVERED)"
     assert result["alert"] is not None
     assert "Meena" in result["alert"]
     assert result["recipient"] == "simulated_recipient"
@@ -43,7 +43,7 @@ def test_cooldown_blocks_second_alert_for_same_victim():
         elder_name="Meena", risk_level="high", duration=120,
         features=FEATURES, incident_id=1, now=1000.0,
     )
-    assert first["delivery_status"] == "SIMULATED DELIVERY"
+    assert first["delivery_status"] == "SIMULATED (NOT DELIVERED)"
 
     second = send_family_alert(
         elder_name="Meena", risk_level="high", duration=120,
@@ -57,7 +57,7 @@ def test_cooldown_blocks_second_alert_for_same_victim():
         elder_name="Meena", risk_level="high", duration=120,
         features=FEATURES, incident_id=3, now=1000.0 + 60.0,
     )
-    assert after_window["delivery_status"] == "SIMULATED DELIVERY"
+    assert after_window["delivery_status"] == "SIMULATED (NOT DELIVERED)"
 
 
 def test_rate_limiting_blocks_after_max_alerts_per_window():
@@ -68,7 +68,7 @@ def test_rate_limiting_blocks_after_max_alerts_per_window():
             elder_name="Ramesh", risk_level="high", duration=120,
             features=FEATURES, incident_id=100 + i, now=2000.0 + i,
         )
-        assert result["delivery_status"] == "SIMULATED DELIVERY"
+        assert result["delivery_status"] == "SIMULATED (NOT DELIVERED)"
 
     blocked = send_family_alert(
         elder_name="Ramesh", risk_level="high", duration=120,
@@ -81,7 +81,7 @@ def test_rate_limiting_blocks_after_max_alerts_per_window():
         elder_name="Ramesh", risk_level="high", duration=120,
         features=FEATURES, incident_id=104, now=2000.0 + 60.0,
     )
-    assert after_window["delivery_status"] == "SIMULATED DELIVERY"
+    assert after_window["delivery_status"] == "SIMULATED (NOT DELIVERED)"
 
 
 def test_duplicate_incident_is_suppressed():
@@ -89,7 +89,7 @@ def test_duplicate_incident_is_suppressed():
         elder_name="Sita", risk_level="medium", duration=30,
         features=FEATURES, incident_id=999, now=3000.0,
     )
-    assert first["delivery_status"] == "SIMULATED DELIVERY"
+    assert first["delivery_status"] == "SIMULATED (NOT DELIVERED)"
 
     dup = send_family_alert(
         elder_name="Sita", risk_level="high", duration=30,

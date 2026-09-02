@@ -1,17 +1,76 @@
-data/datasets/Fraudzen-dataset/ 
-data/datasets/*.csv 
-*.df 
-venv/ 
-__pycache__/ 
-*.pkl 
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+*.egg
+dist/
+build/
+.eggs/
+*.whl
+
+# Virtual environments
+venv/
+.venv/
+env/
+ENV/
+
+# Environment / secrets
+.env
+.env.*
+secrets/
+*.pem
+*.key
+*.p12
+
+# Testing / cache
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+
+# Data / databases (local runtime artifacts)
+data/*.db
+data/datasets/
+data/processed/
+*.db
+
+# Model artifacts (keep tracked pkl files, ignore others)
+*.pkl
 !models/saved/risk_classifier.pkl
 !models/saved/scaler.pkl
 !models/saved/features.pkl
-reports/*.pdf
-data/incidents.db 
 
-# Local environment and Python bytecode
-.env
-.env.*
-*.py[cod]
+# Reports (generated)
+reports/*.pdf
+
+# IDE
+.idea/
+*.iml
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# Android / Gradle
+android_app/.gradle/
+android_app/build/
+android_app/app/build/
+android_app/local.properties
+android_app/**/build/
+*.apk
+*.aab
+
+# Python bytecode in nested dirs
+**/__pycache__/
+**/*.pyc
+
+# Misc
 DEVPOST_SUBMISSION.md
+*.log

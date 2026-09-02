@@ -14,11 +14,8 @@ from datetime import datetime
 from app.services.report_generator import generate_fir_report
 from app.services.alert import send_family_alert
 from app.services.panic_trigger import PanicTrigger
-from app.services.senior_protection import SeniorProtection
-from app.services.government_integration import GovernmentIntegration
-from app.services.ngo_support import NGOSupport
-from app.services.community_alerts import CommunityAlerts
 from app.api import detect
+from app.evidence.router import router as evidence_router
 from app.core.features import CALL_BEHAVIOR_FIELDS, TELEMETRY_FIELDS
 from app.core.risk_engine import RiskEngine
 from app.core.db import get_incidents
@@ -99,8 +96,6 @@ class IsolationTelemetryRequest(BaseModel):
     persistence_hours: Optional[float] = None
 
 # ============ INITIALIZE SERVICES ============
-ngo_support = NGOSupport()
-community_alerts = CommunityAlerts()
 risk_engine = RiskEngine()
 
 
@@ -116,6 +111,7 @@ def current_model_status() -> dict:
 
 # ============ ROUTERS ============
 app.include_router(detect.router, prefix="/api/detect", tags=["Detection"])
+app.include_router(evidence_router, tags=["Evidence"])
 
 # Per-field coercion defaults, keyed by the canonical feature names defined
 # in app/core/features.py. The call duration field additionally accepts a
@@ -197,20 +193,16 @@ async def root():
             "features": status["features"]
         },
         "features": {
-            "panic_detection": True,
-            "senior_protection": True,
-            "government_integration": True,
-            "ngo_support": True,
-            "community_alerts": True
+            "panic_detection": True
         },
         "feature_status": {
             "panic_detection": "implemented (rule-based phrase engine)",
-            "senior_protection": "implemented (static demo data)",
-            "government_integration": "implemented (static demo data)",
-            "ngo_support": "implemented (static demo data)",
-            "community_alerts": "implemented (in-memory demo store)"
+            "senior_protection": "NOT_CONFIGURED - static demo integration removed; no live integration",
+            "government_integration": "NOT_CONFIGURED - static demo integration removed; no live integration",
+            "ngo_support": "NOT_CONFIGURED - static demo integration removed; no live integration",
+            "community_alerts": "NOT_CONFIGURED - in-memory stub removed; awaiting a real persistent implementation"
         },
-        "integration_scope": "demo: implemented API capabilities backed by in-repo/static data; no live external integration yet"
+        "integration_scope": "core risk engine only; no live external integrations configured"
     }
 
 @app.get("/health")
@@ -324,7 +316,17 @@ async def download_report(filename: str):
     return FileResponse(file_path, media_type="application/pdf", filename=safe_name)
 
 @app.post("/api/send-alert")
-async def send_alert(features: CallFeatures, elder_name: str = "Family Member"):
+async def send_alert(features: CallFeatures, elder_name: str = ""):
+    if not elder_name:
+        return {
+            "status": "NOT_CONFIGURED",
+            "alert_sent": False,
+            "delivered": False,
+            "delivery_status": "NO_RECIPIENT",
+            "message": "No elder/recipient name was provided; no alert was attempted.",
+            "reason": "no named recipient configured",
+        }
+    payload = _coerce_call_payload(features)
     payload = _coerce_call_payload(features)
     risk_result = risk_engine.score(payload)
     risk_level = risk_result["risk_level"].lower()
@@ -351,109 +353,42 @@ async def send_alert(features: CallFeatures, elder_name: str = "Family Member"):
         "timestamp": datetime.now().isoformat()
     }
 
-# ============ SENIOR PROTECTION ============
+# ============ EXTERNAL INTEGRATIONS (NOT CONFIGURED) ============
+# The previous senior-protection, government-tools, NGO and community-alerts
+# endpoints were backed by static/in-memory demo data and have been removed.
+# They return an explicit NOT_CONFIGURED state instead of fake delivery.
+
 @app.get("/api/ngos")
 async def get_ngos():
-    senior = SeniorProtection()
-    return {
-        "ngos": senior.get_ngo_list(),
-        "total": len(senior.get_ngo_list())
-    }
-
-@app.get("/api/senior-guide")
-async def get_senior_guide():
-    senior = SeniorProtection()
-    return senior.get_senior_support_guide()
-
-@app.get("/api/awareness-material")
-async def get_awareness_material():
-    senior = SeniorProtection()
-    return {
-        "material": senior.generate_awareness_material(),
-        "format": "text"
-    }
-
-# ============ GOVERNMENT TOOLS ============
-@app.get("/api/government-tools")
-async def get_government_tools():
-    gov = GovernmentIntegration()
-    return {
-        "tools": gov.get_all_tools(),
-        "emergency_numbers": gov.get_emergency_numbers()
-    }
-
-@app.get("/api/integration-guide")
-async def get_integration_guide():
-    gov = GovernmentIntegration()
-    return {
-        "guide": gov.generate_integration_guide()
-    }
-
-# ============ NGO SUPPORT ============
-@app.get("/api/ngos/all")
-async def get_all_ngos():
-    return {
-        "ngos": ngo_support.get_all_ngos(),
-        "total": len(ngo_support.get_all_ngos())
-    }
-
-@app.get("/api/ngos/region/{region}")
-async def get_ngos_by_region(region: str):
-    return {
-        "region": region,
-        "ngos": ngo_support.get_ngos_by_region(region),
-        "count": len(ngo_support.get_ngos_by_region(region))
-    }
-
-@app.get("/api/ngos/service/{service}")
-async def get_ngos_by_service(service: str):
-    return {
-        "service": service,
-        "ngos": ngo_support.get_ngos_by_service(service),
-        "count": len(ngo_support.get_ngos_by_service(service))
-    }
-
-@app.get("/api/awareness-kit")
-async def get_awareness_kit():
-    return ngo_support.get_awareness_kit()
-
-@app.get("/api/elderly-guide")
-async def get_elderly_guide():
-    return ngo_support.get_elderly_guide()
+    return {"status": "NOT_CONFIGURED", "ngos": [], "total": 0,
+            "message": "No live NGO directory is configured."}
 
 @app.post("/api/ngo-request")
 async def submit_ngo_request(ngo_id: str, request_type: str, details: dict):
-    return ngo_support.submit_ngo_request(ngo_id, request_type, details)
+    return {"status": "NOT_CONFIGURED", "submitted": False,
+            "message": "NGO request submission is not configured; no request was created."}
 
-# ============ COMMUNITY ALERTS ============
 @app.get("/api/community-alerts")
 async def get_community_alerts():
-    return {
-        "alerts": community_alerts.get_active_alerts(),
-        "total": len(community_alerts.get_active_alerts())
-    }
+    return {"status": "NOT_CONFIGURED", "alerts": [], "total": 0,
+            "message": "Community alerts are not configured; no persistent alert store exists."}
 
-@app.post("/api/community-alert")
-async def create_community_alert(scam_type: str, description: str, severity: str, location: str):
-    alert = community_alerts.create_alert(scam_type, description, severity, location)
-    return alert
-
-@app.post("/api/subscribe-alerts")
-async def subscribe_to_alerts(phone: str, location: str):
-    return community_alerts.subscribe_to_alerts(phone, location)
-
-@app.get("/api/alerts/location/{location}")
-async def get_alerts_by_location(location: str):
-    return {
-        "location": location,
-        "alerts": community_alerts.get_alerts_by_location(location),
-        "count": len(community_alerts.get_alerts_by_location(location))
-    }
+@app.get("/api/government-tools")
+async def get_government_tools():
+    return {"status": "NOT_CONFIGURED", "tools": [],
+            "message": "No live government-tool integration is configured."}
 
 # ============ SILENT INTERVENTION ENDPOINT ============
 @app.post("/api/silent-intervention")
-async def silent_intervention(features: CallFeatures, victim_name: str = "Family Member"):
+async def silent_intervention(features: CallFeatures, victim_name: str = ""):
     """Trigger silent intervention without victim action"""
+    if not victim_name:
+        return {
+            "intervention_triggered": False,
+            "delivery_status": "NO_RECIPIENT",
+            "delivered": False,
+            "reason": "no named victim provided; no intervention was attempted",
+        }
     payload = _coerce_call_payload(features)
     risk_result = risk_engine.score(payload)
     score = risk_result["risk_score"]
