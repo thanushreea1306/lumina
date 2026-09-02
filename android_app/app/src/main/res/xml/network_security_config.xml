@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Network security configuration for LUMINA.
+
+  Enforces HTTPS-only communication. Cleartext (HTTP) traffic is explicitly
+  blocked to prevent accidental data transmission over insecure connections.
+
+  LUMINA does not use certificate pinning at this stage; the default system
+  trust store is used for TLS certificate validation.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

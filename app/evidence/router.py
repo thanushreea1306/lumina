@@ -30,6 +30,7 @@ from pydantic import BaseModel, Field
 
 from app.evidence.auth import (
     NonceTracker,
+    RegistrationRateLimiter,
     authenticate_request,
     compute_signature,
     generate_device_credentials,
@@ -55,6 +56,7 @@ store = EvidenceStore()
 # In production, nonce_tracker should be shared across workers.
 # For single-process deployment, this is sufficient.
 _nonce_tracker = NonceTracker()
+_registration_limiter = RegistrationRateLimiter()
 
 
 # ---- Pydantic models ----
@@ -151,12 +153,20 @@ def _verify_ownership(device_id: str, session_id: str) -> None:
 # ---- Device registration (no auth required) ----
 
 @router.post("/api/devices/register")
-def register_device(req: RegisterDeviceRequest) -> Dict[str, str]:
+def register_device(req: RegisterDeviceRequest, request: Request) -> Dict[str, str]:
     """Register a new device and return credentials.
 
     The device_secret should be stored in Android Keystore (encrypted).
     It is never transmitted again after this response.
+
+    Rate-limited by client IP to prevent registration abuse.
     """
+    client_ip = request.client.host if request.client else "unknown"
+    if _registration_limiter.is_rate_limited(client_ip):
+        raise HTTPException(
+            status_code=429,
+            detail="Too many registration attempts. Please try again later.",
+        )
     device_id, device_secret = generate_device_credentials()
     store.register_device(device_id, device_secret)
     return {

@@ -28,6 +28,7 @@ import hashlib
 import hmac
 import os
 import secrets
+import threading
 import time
 import uuid
 from typing import Optional, Set, Tuple
@@ -213,3 +214,81 @@ def authenticate_request(
         return False, "Invalid signature"
 
     return True, None
+
+
+# ---- Device registration rate limiting ----
+
+# Default policy: 10 registrations per client per 60-second window.
+REGISTRATION_RATE_LIMIT = 10
+REGISTRATION_WINDOW_SECONDS = 60.0
+_MAX_TRACKED_CLIENTS = 10_000  # bounded storage
+
+
+class RegistrationRateLimiter:
+    """Fixed-window rate limiter for the device registration endpoint.
+
+    Tracks registration attempts by client IP address.  Each client is
+    allowed *max_requests* attempts within a *window_seconds* sliding
+    window.  The limiter is thread-safe (uses a ``threading.Lock``).
+
+    Storage is bounded: when the number of tracked clients exceeds
+    ``_MAX_TRACKED_CLIENTS``, entries whose timestamps are entirely
+    outside the window are evicted.
+    """
+
+    def __init__(
+        self,
+        max_requests: int = REGISTRATION_RATE_LIMIT,
+        window_seconds: float = REGISTRATION_WINDOW_SECONDS,
+        max_tracked_clients: int = _MAX_TRACKED_CLIENTS,
+    ) -> None:
+        self._max_requests = max_requests
+        self._window_seconds = window_seconds
+        self._max_tracked_clients = max_tracked_clients
+        # client_key -> list of request timestamps (epoch seconds)
+        self._requests: dict[str, list[float]] = {}
+        self._lock = threading.Lock()
+
+    # -- public API ---------------------------------------------------------
+
+    def is_rate_limited(self, client_key: str, *, now: float | None = None) -> bool:
+        """Return True if *client_key* has exceeded the rate limit.
+
+        A new timestamp is recorded for every call (even when limited)
+        so that the window keeps advancing.
+        """
+        if now is None:
+            now = time.monotonic()
+        with self._lock:
+            timestamps = self._requests.setdefault(client_key, [])
+            # Evict timestamps outside the window
+            cutoff = now - self._window_seconds
+            timestamps[:] = [t for t in timestamps if t > cutoff]
+            # Check limit
+            limited = len(timestamps) >= self._max_requests
+            # Always record this attempt so the window advances
+            timestamps.append(now)
+            # Bounded storage: evict stale clients when over capacity
+            if len(self._requests) > self._max_tracked_clients:
+                self._evict_stale(now)
+            return limited
+
+    def reset(self) -> None:
+        """Clear all tracked state (useful for tests)."""
+        with self._lock:
+            self._requests.clear()
+
+    # -- internal ------------------------------------------------------------
+
+    def _evict_stale(self, now: float) -> None:
+        """Remove clients whose newest timestamp is outside the window.
+
+        Must be called while holding ``_lock``.
+        """
+        cutoff = now - self._window_seconds
+        stale_keys = [
+            key for key, timestamps in self._requests.items()
+            if not timestamps or timestamps[-1] <= cutoff
+        ]
+        for key in stale_keys:
+            del self._requests[key]

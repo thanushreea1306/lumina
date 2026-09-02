@@ -20,6 +20,7 @@ from app.main import app
 from app.evidence import router as evidence_router
 from app.evidence.auth import (
     NonceTracker,
+    RegistrationRateLimiter,
     compute_signature,
     generate_device_credentials,
     is_timestamp_valid,
@@ -32,6 +33,7 @@ from app.evidence.db import EvidenceStore
 def client(tmp_path):
     evidence_router.store = EvidenceStore(path=str(tmp_path / "evidence_auth.db"))
     evidence_router._nonce_tracker = NonceTracker()
+    evidence_router._registration_limiter = RegistrationRateLimiter()
     return TestClient(app)
 
 
