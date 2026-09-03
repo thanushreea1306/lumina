@@ -28,10 +28,22 @@ app = FastAPI(
 
 logger = logging.getLogger(__name__)
 
-# CORS - Allow the local Streamlit frontend to access the API
+# CORS - Environment-driven production configuration
+# Development: localhost origins for Streamlit and React dev server
+# Production: set LUMINA_CORS_ORIGINS env var (comma-separated)
+def _get_cors_origins():
+    env_origins = os.getenv("LUMINA_CORS_ORIGINS", "")
+    if env_origins:
+        return [o.strip() for o in env_origins.split(",") if o.strip()]
+    return [
+        "http://localhost:8501", "http://127.0.0.1:8501",
+        "http://localhost:5173", "http://127.0.0.1:5173",
+        "https://lumina-1994.vercel.app",
+    ]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:8501", "http://127.0.0.1:8501", "http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origins=_get_cors_origins(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
