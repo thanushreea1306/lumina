@@ -78,3 +78,5 @@ frontend/dist/
 # Misc
 DEVPOST_SUBMISSION.md
 *.log
+
+frontend/tsconfig.tsbuildinfo
