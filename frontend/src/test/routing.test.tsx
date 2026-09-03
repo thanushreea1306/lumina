@@ -8,6 +8,7 @@ import { SessionPage } from '@/app/SessionPage';
 import { EvidencePage } from '@/app/EvidencePage';
 import { HistoryPage } from '@/app/HistoryPage';
 import { SettingsPage } from '@/app/SettingsPage';
+import { TrustedContactPage } from '@/app/TrustedContactPage';
 
 function renderAtRoute(path: string, element: React.ReactNode) {
   return render(
@@ -56,5 +57,12 @@ describe('Routing - Page renders at correct path', () => {
   it('SettingsPage renders', () => {
     renderAtRoute('/settings', <SettingsPage />);
     expect(screen.getByText(/settings/i)).toBeInTheDocument();
+  });
+
+  it('TrustedContactPage renders', () => {
+    renderAtRoute('/trusted-contact', <TrustedContactPage />);
+    // Use heading role to disambiguate from capability banner text
+    expect(screen.getByRole('heading', { name: 'Trusted Contact' })).toBeInTheDocument();
+    expect(screen.getByText(/not yet fully configured/i)).toBeInTheDocument();
   });
 });

@@ -7,6 +7,10 @@ import { SessionPage } from '@/app/SessionPage';
 import { EvidencePage } from '@/app/EvidencePage';
 import { HistoryPage } from '@/app/HistoryPage';
 import { SettingsPage } from '@/app/SettingsPage';
+import { VerifyPage } from '@/app/VerifyPage';
+import { PausePage } from '@/app/PausePage';
+import { ProtectPage } from '@/app/ProtectPage';
+import { TrustedContactPage } from '@/app/TrustedContactPage';
 
 export function App() {
   return (
@@ -47,6 +51,38 @@ export function App() {
           element={
             <AppShell>
               <HistoryPage />
+            </AppShell>
+          }
+        />
+        <Route
+          path="/verify"
+          element={
+            <AppShell>
+              <VerifyPage />
+            </AppShell>
+          }
+        />
+        <Route
+          path="/pause"
+          element={
+            <AppShell>
+              <PausePage />
+            </AppShell>
+          }
+        />
+        <Route
+          path="/protect"
+          element={
+            <AppShell>
+              <ProtectPage />
+            </AppShell>
+          }
+        />
+        <Route
+          path="/trusted-contact"
+          element={
+            <AppShell>
+              <TrustedContactPage />
             </AppShell>
           }
         />

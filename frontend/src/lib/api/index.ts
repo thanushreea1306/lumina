@@ -19,3 +19,7 @@ export {
   recordOutcome,
   userResponse,
 } from './sessions';
+export {
+  sendAlert,
+} from './alert';
+export type { SendAlertRequest, SendAlertResponse } from './alert';

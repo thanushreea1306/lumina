@@ -1,0 +1,446 @@
+/* ============================================================
+   LUMINA Intervention Styles
+   ============================================================
+   VERIFY · PAUSE · PROTECT
+   Calm, precise, forensic, human, protective.
+   ============================================================ */
+
+/* ---- Intervention Shell ---- */
+.intervention-shell {
+  max-width: 42rem;
+  margin: 0 auto;
+  padding: 0 var(--space-5);
+}
+
+/* ---- State-specific Hero Glow ---- */
+.intervention-hero {
+  position: relative;
+  padding: var(--space-8) var(--space-6);
+  border-radius: var(--radius-xl);
+  margin-bottom: var(--space-6);
+  overflow: hidden;
+}
+
+.intervention-hero::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  opacity: 0.06;
+}
+
+.intervention-hero[data-state="VERIFY"] {
+  background: var(--lumina-surface);
+  border: 1px solid var(--lumina-warning);
+  box-shadow: 0 0 40px -12px rgba(232, 181, 61, 0.2);
+}
+.intervention-hero[data-state="VERIFY"]::before {
+  background: radial-gradient(ellipse at 50% 0%, var(--lumina-warning), transparent 70%);
+  opacity: 0.08;
+}
+
+.intervention-hero[data-state="PAUSE"] {
+  background: var(--lumina-surface);
+  border: 1px solid var(--lumina-danger);
+  box-shadow: 0 0 50px -12px rgba(220, 68, 68, 0.25);
+}
+.intervention-hero[data-state="PAUSE"]::before {
+  background: radial-gradient(ellipse at 50% 0%, var(--lumina-danger), transparent 70%);
+  opacity: 0.08;
+}
+
+.intervention-hero[data-state="PROTECT"] {
+  background: var(--lumina-surface);
+  border: 2px solid var(--lumina-danger);
+  box-shadow: 0 0 60px -12px rgba(220, 68, 68, 0.35);
+}
+.intervention-hero[data-state="PROTECT"]::before {
+  background: radial-gradient(ellipse at 50% 0%, var(--lumina-danger), transparent 70%);
+  opacity: 0.1;
+}
+
+/* ---- Intervention Icon ---- */
+.intervention-icon {
+  width: 3.5rem;
+  height: 3.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-lg);
+  font-size: 1.75rem;
+  margin-bottom: var(--space-4);
+  flex-shrink: 0;
+}
+
+.intervention-icon[data-state="VERIFY"] {
+  background: rgba(232, 181, 61, 0.12);
+  border: 1px solid rgba(232, 181, 61, 0.25);
+  color: var(--lumina-warning);
+}
+
+.intervention-icon[data-state="PAUSE"] {
+  background: rgba(220, 68, 68, 0.12);
+  border: 1px solid rgba(220, 68, 68, 0.25);
+  color: var(--lumina-danger);
+}
+
+.intervention-icon[data-state="PROTECT"] {
+  background: rgba(220, 68, 68, 0.15);
+  border: 1px solid rgba(220, 68, 68, 0.3);
+  color: var(--lumina-danger);
+}
+
+/* ---- Intervention Title ---- */
+.intervention-title {
+  font-size: var(--text-2xl);
+  font-weight: 800;
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+  color: var(--lumina-text);
+  margin-bottom: var(--space-2);
+}
+
+.intervention-subtitle {
+  font-size: var(--text-base);
+  color: var(--lumina-text-secondary);
+  line-height: var(--leading-relaxed);
+}
+
+/* ---- Reason List ---- */
+.reason-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.reason-item {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-md);
+  background: rgba(0, 0, 0, 0.15);
+  border: 1px solid var(--lumina-border-subtle);
+}
+
+.reason-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  margin-top: 0.45rem;
+}
+
+.reason-dot[data-state="VERIFY"] {
+  background: var(--lumina-warning);
+}
+.reason-dot[data-state="PAUSE"] {
+  background: var(--lumina-danger);
+}
+.reason-dot[data-state="PROTECT"] {
+  background: var(--lumina-danger);
+}
+
+.reason-text {
+  font-size: var(--text-sm);
+  color: var(--lumina-text-secondary);
+  line-height: var(--leading-relaxed);
+}
+
+/* ---- Safety Guidance Card ---- */
+.guidance-card {
+  padding: var(--space-5) var(--space-6);
+  border-radius: var(--radius-lg);
+  background: var(--lumina-surface);
+  border: 1px solid var(--lumina-border);
+  margin-bottom: var(--space-4);
+}
+
+.guidance-card-title {
+  font-size: var(--text-xs);
+  font-weight: 700;
+  letter-spacing: var(--tracking-widest);
+  text-transform: uppercase;
+  color: var(--lumina-text-muted);
+  margin-bottom: var(--space-3);
+}
+
+.guidance-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.guidance-item {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  font-size: var(--text-sm);
+  color: var(--lumina-text-secondary);
+  line-height: var(--leading-relaxed);
+}
+
+.guidance-check {
+  color: var(--lumina-recovery);
+  flex-shrink: 0;
+  margin-top: 0.1rem;
+}
+
+.guidance-warn {
+  color: var(--lumina-danger);
+  flex-shrink: 0;
+  margin-top: 0.1rem;
+}
+
+/* ---- High Risk Action List ---- */
+.high-risk-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.high-risk-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-md);
+  background: rgba(220, 68, 68, 0.06);
+  border: 1px solid rgba(220, 68, 68, 0.15);
+}
+
+.high-risk-label {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--lumina-text);
+}
+
+.high-risk-status {
+  font-size: var(--text-xs);
+  font-weight: 700;
+  letter-spacing: var(--tracking-wider);
+  text-transform: uppercase;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+}
+
+.high-risk-status[data-status="REQUESTED"] {
+  color: var(--lumina-warning);
+  border: 1px solid var(--lumina-warning);
+  background: rgba(232, 181, 61, 0.08);
+}
+
+.high-risk-status[data-status="PERFORMED"] {
+  color: var(--lumina-danger);
+  border: 1px solid var(--lumina-danger);
+  background: rgba(220, 68, 68, 0.08);
+}
+
+.high-risk-status[data-status="DECLINED"] {
+  color: var(--lumina-recovery);
+  border: 1px solid var(--lumina-recovery);
+  background: rgba(93, 201, 166, 0.08);
+}
+
+.high-risk-status[data-status="PAUSED"] {
+  color: var(--lumina-system);
+  border: 1px solid var(--lumina-system);
+  background: rgba(94, 196, 212, 0.08);
+}
+
+.high-risk-status[data-status="UNKNOWN"] {
+  color: var(--lumina-text-muted);
+  border: 1px solid var(--lumina-border);
+}
+
+/* ---- Response Options ---- */
+.response-options {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.response-btn {
+  width: 100%;
+  padding: var(--space-4) var(--space-5);
+  border-radius: var(--radius-lg);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--duration-normal) var(--ease-out);
+  text-align: left;
+  font-family: inherit;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.response-btn-primary {
+  background: var(--lumina-surface);
+  border: 1px solid var(--lumina-border-strong);
+  color: var(--lumina-text);
+}
+.response-btn-primary:hover {
+  background: var(--lumina-surface-hover);
+  border-color: var(--lumina-system);
+  box-shadow: var(--shadow-md);
+}
+.response-btn-primary:focus-visible {
+  outline: 2px solid var(--lumina-system);
+  outline-offset: 2px;
+}
+
+.response-btn-safe {
+  background: rgba(93, 201, 166, 0.08);
+  border: 1px solid var(--lumina-recovery);
+  color: var(--lumina-recovery);
+}
+.response-btn-safe:hover {
+  background: rgba(93, 201, 166, 0.15);
+  box-shadow: 0 0 20px -8px rgba(93, 201, 166, 0.3);
+}
+.response-btn-safe:focus-visible {
+  outline: 2px solid var(--lumina-recovery);
+  outline-offset: 2px;
+}
+
+.response-btn-danger {
+  background: rgba(220, 68, 68, 0.08);
+  border: 1px solid var(--lumina-danger);
+  color: var(--lumina-danger);
+}
+.response-btn-danger:hover {
+  background: rgba(220, 68, 68, 0.15);
+  box-shadow: 0 0 20px -8px rgba(220, 68, 68, 0.3);
+}
+.response-btn-danger:focus-visible {
+  outline: 2px solid var(--lumina-danger);
+  outline-offset: 2px;
+}
+
+.response-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.response-btn-icon {
+  font-size: 1.1rem;
+  flex-shrink: 0;
+}
+
+.response-btn-label {
+  flex: 1;
+}
+
+.response-btn-desc {
+  font-size: var(--text-xs);
+  font-weight: 400;
+  color: var(--lumina-text-muted);
+  margin-top: 2px;
+}
+
+/* ---- Missing Information ---- */
+.missing-info-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.missing-info-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  font-size: var(--text-sm);
+  color: var(--lumina-text-muted);
+}
+
+.missing-info-icon {
+  color: var(--lumina-system);
+  flex-shrink: 0;
+}
+
+/* ---- Response Submitted ---- */
+.response-submitted {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-5);
+  border-radius: var(--radius-lg);
+  background: rgba(93, 201, 166, 0.06);
+  border: 1px solid var(--lumina-recovery);
+  color: var(--lumina-recovery);
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+.response-submitted-icon {
+  font-size: 1.2rem;
+}
+
+/* ---- No Session Banner ---- */
+.no-session-banner {
+  text-align: center;
+  padding: var(--space-12) var(--space-6);
+}
+
+.no-session-banner h2 {
+  font-size: var(--text-xl);
+  font-weight: 800;
+  color: var(--lumina-text);
+  margin-bottom: var(--space-3);
+}
+
+.no-session-banner p {
+  font-size: var(--text-sm);
+  color: var(--lumina-text-muted);
+  max-width: 20rem;
+  margin: 0 auto var(--space-6);
+  line-height: var(--leading-relaxed);
+}
+
+/* ---- Decision Unavailable ---- */
+.decision-unavailable {
+  text-align: center;
+  padding: var(--space-10) var(--space-6);
+}
+
+.decision-unavailable h2 {
+  font-size: var(--text-lg);
+  font-weight: 700;
+  color: var(--lumina-text);
+  margin-bottom: var(--space-2);
+}
+
+.decision-unavailable p {
+  font-size: var(--text-sm);
+  color: var(--lumina-text-muted);
+  max-width: 20rem;
+  margin: 0 auto var(--space-6);
+  line-height: var(--leading-relaxed);
+}
+
+/* ---- Restricted wording for PAUSE/PROTECT ---- */
+.capability-note {
+  font-size: var(--text-xs);
+  color: var(--lumina-text-muted);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-md);
+  background: rgba(0, 0, 0, 0.12);
+  border: 1px solid var(--lumina-border-subtle);
+  line-height: var(--leading-relaxed);
+}
