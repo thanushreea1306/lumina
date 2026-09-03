@@ -71,6 +71,10 @@ android_app/**/build/
 **/__pycache__/
 **/*.pyc
 
+# Frontend (React)
+frontend/node_modules/
+frontend/dist/
+
 # Misc
 DEVPOST_SUBMISSION.md
 *.log

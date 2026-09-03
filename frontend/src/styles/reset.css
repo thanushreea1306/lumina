@@ -1,0 +1,116 @@
+/* ============================================================
+   LUMINA Base Styles — CSS Reset + Foundation
+   ============================================================ */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  font-size: 16px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+body {
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  font-weight: var(--font-normal);
+  line-height: var(--leading-normal);
+  color: var(--lumina-text);
+  background-color: var(--lumina-bg);
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+#root {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ---- Links ---- */
+a {
+  color: var(--lumina-danger);
+  text-decoration: none;
+}
+a:hover {
+  text-decoration: underline;
+}
+
+/* ---- Focus ---- */
+:focus-visible {
+  outline: 2px solid var(--lumina-system);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+/* ---- Selection ---- */
+::selection {
+  background-color: var(--lumina-danger-soft);
+  color: var(--lumina-text);
+}
+
+/* ---- Scrollbar ---- */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--lumina-border-strong);
+  border-radius: var(--radius-full);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--lumina-text-muted);
+}
+
+/* ---- Images ---- */
+img, svg {
+  display: block;
+  max-width: 100%;
+}
+
+/* ---- Lists ---- */
+ul, ol {
+  list-style: none;
+}
+
+/* ---- Screen reader only ---- */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}
+
+/* ---- Skip link ---- */
+.skip-link {
+  position: absolute;
+  top: -100%;
+  left: var(--space-4);
+  z-index: var(--z-toast);
+  padding: var(--space-3) var(--space-6);
+  background: var(--lumina-surface-elevated);
+  color: var(--lumina-text);
+  font-weight: var(--font-semibold);
+  border-radius: 0 0 var(--radius-md) var(--radius-md);
+  border: 1px solid var(--lumina-border);
+  border-top: none;
+  transition: top var(--duration-normal) var(--ease-out);
+}
+.skip-link:focus {
+  top: 0;
+  text-decoration: none;
+}

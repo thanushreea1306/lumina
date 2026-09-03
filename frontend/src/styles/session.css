@@ -1,0 +1,187 @@
+/* ============================================================
+   LUMINA Session Screen Styles
+   ============================================================ */
+
+/* ---- Observation Grid ---- */
+.session-observations {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--space-3);
+}
+
+@media (min-width: 640px) {
+  .session-observations {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (min-width: 1024px) {
+  .session-observations {
+    grid-template-columns: 1fr 1fr 1fr;
+  }
+}
+
+/* ---- Observation Card ---- */
+.observation-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-4) var(--space-5);
+  background: var(--lumina-surface);
+  border: 1px solid var(--lumina-border);
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  transition: all var(--duration-normal) var(--ease-out);
+  text-align: left;
+  font-family: inherit;
+  color: var(--lumina-text);
+}
+
+.observation-card:hover {
+  background: var(--lumina-surface-hover);
+  border-color: var(--lumina-border-strong);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
+}
+
+.observation-card:focus-visible {
+  outline: 2px solid var(--lumina-system);
+  outline-offset: 2px;
+}
+
+.observation-card[aria-pressed="true"] {
+  border-color: var(--lumina-recovery);
+  background: var(--lumina-recovery-soft);
+}
+
+.observation-card[aria-pressed="true"] .observation-indicator {
+  background: var(--lumina-recovery);
+  border-color: var(--lumina-recovery);
+}
+
+.observation-card[aria-pressed="true"] .observation-indicator::after {
+  content: '✓';
+  color: #fff;
+  font-size: 0.6rem;
+  font-weight: 900;
+}
+
+.observation-card[data-submitting="true"] {
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+/* ---- Observation Indicator (checkbox replacement) ---- */
+.observation-indicator {
+  width: 1.125rem;
+  height: 1.125rem;
+  border: 2px solid var(--lumina-border-strong);
+  border-radius: var(--radius-sm);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all var(--duration-fast) var(--ease-out);
+}
+
+/* ---- Category Header ---- */
+.observation-category {
+  font-size: var(--text-xs);
+  font-weight: 700;
+  letter-spacing: var(--tracking-widest);
+  text-transform: uppercase;
+  padding: var(--space-4) 0 var(--space-2);
+  border-bottom: 1px solid var(--lumina-border-subtle);
+  margin-bottom: var(--space-1);
+}
+
+/* ---- Session Timeline ---- */
+.session-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  position: relative;
+}
+
+.session-timeline::before {
+  content: '';
+  position: absolute;
+  left: 11px;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--lumina-border);
+}
+
+.session-timeline-item {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-4);
+  padding: var(--space-3) 0;
+  position: relative;
+}
+
+.session-timeline-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--lumina-border-strong);
+  flex-shrink: 0;
+  margin-top: 6px;
+  position: relative;
+  z-index: 1;
+  margin-left: 8px;
+  border: 2px solid var(--lumina-surface);
+}
+
+.session-timeline-dot[data-type="SESSION_STARTED"] {
+  background: var(--lumina-recovery);
+}
+.session-timeline-dot[data-type="USER_OBSERVATION"] {
+  background: var(--lumina-investigation);
+}
+.session-timeline-dot[data-type="DECISION"] {
+  background: var(--lumina-warning);
+}
+
+/* ---- Session Status Bar ---- */
+.session-status-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--lumina-border-subtle);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--lumina-text-muted);
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+  overflow-x: auto;
+  white-space: nowrap;
+  flex-wrap: wrap;
+}
+
+/* ---- Action Required Panel ---- */
+.session-action-panel {
+  border-radius: var(--radius-lg);
+  border: 1px solid;
+  padding: var(--space-5) var(--space-6);
+  animation: luminaFadeIn var(--duration-slow) var(--ease-out) both;
+}
+
+.session-action-panel[data-urgency="IMMEDIATE"] {
+  border-color: rgba(224, 28, 43, 0.4);
+  background: linear-gradient(180deg, rgba(224, 28, 43, 0.06), transparent);
+}
+
+.session-action-panel[data-urgency="HIGH"] {
+  border-color: rgba(217, 164, 65, 0.35);
+  background: linear-gradient(180deg, rgba(217, 164, 65, 0.04), transparent);
+}
+
+.session-action-panel[data-urgency="MODERATE"] {
+  border-color: var(--lumina-border);
+  background: var(--lumina-surface);
+}
