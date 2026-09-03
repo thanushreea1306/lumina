@@ -1,0 +1,26 @@
+/* ============================================================
+   LUMINA Incident Copilot Styles
+   ============================================================ */
+
+/* ---- Incident-specific transitions ---- */
+@keyframes luminaIncidentFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.incident-fade-in {
+  animation: luminaIncidentFadeIn var(--duration-slow) var(--ease-out) both;
+}
+
+/* ---- Responsive adjustments ---- */
+@media (max-width: 640px) {
+  .incident-view-grid {
+    gap: var(--space-4);
+  }
+}

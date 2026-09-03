@@ -30,7 +30,7 @@ from app.evidence.models import (
     TimelineEventType,
 )
 
-DB_PATH = os.path.join("data", "evidence.db")
+DB_PATH = os.getenv("LUMINA_DB_PATH", os.path.join("data", "evidence.db"))
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS devices (

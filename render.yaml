@@ -1,0 +1,19 @@
+# render.yaml - LUMINA Backend Deployment Configuration
+# Render.com free tier for FastAPI backend
+
+services:
+  - type: web
+    name: lumina-backend
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11"
+      - key: LUMINA_CORS_ORIGINS
+        sync: false
+      - key: LUMINA_DB_PATH
+        value: "/tmp/data/evidence.db"
+    healthCheckPath: /health
+    autoDeploy: false

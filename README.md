@@ -254,11 +254,22 @@ lumina/
 │   │   ├── ObservationManager.kt # User observation lifecycle
 │   │   └── ...                 # Other components
 │   └── app/src/test/           # 71 JVM unit tests
+├── frontend/                   # React + TypeScript + Vite
+│   ├── src/
+│   │   ├── app/                # Page components (Home, Session, Evidence, etc.)
+│   │   ├── components/         # Reusable UI primitives (Card, Button, StatusBadge, etc.)
+│   │   ├── hooks/              # Custom hooks (useHomeState, useSessionState)
+│   │   ├── lib/                # API client, observations, utilities
+│   │   ├── types/              # TypeScript domain types
+│   │   └── styles/             # Design tokens, CSS modules
+│   ├── package.json
+│   └── vite.config.ts
 ├── tests/                      # 339 backend tests
-├── dashboard/                  # Streamlit dashboard
+├── dashboard/                  # Streamlit dashboard (legacy)
 ├── models/saved/               # ML artifacts (subordinate to safety engine)
 ├── data/                       # Runtime data (not committed)
 ├── requirements.txt
+├── render.yaml                 # Backend deployment config
 └── README.md
 ```
 
@@ -269,7 +280,7 @@ lumina/
 ### Backend
 
 ```
-339 tests passed
+350 tests passed
 ```
 
 Covers: evidence model, safety states, decision context, explainability, API contracts, authentication, idempotency, session lifecycle, device event ingestion, observation flow, E2E integration, HMAC interoperability.
@@ -282,11 +293,20 @@ Covers: evidence model, safety states, decision context, explainability, API con
 
 Covers: call state machine, event adapter, sync manager, observation manager, HMAC signing, nonce generation, auth headers, secret storage.
 
+### Frontend (React)
+
+```
+265 tests passed
+```
+
+Covers: safety states, evidence types, API client, routing, accessibility, component rendering, intervention flows, trusted contact, recovery, privacy, security settings.
+
 ### Build
 
 ```
 Android: BUILD SUCCESSFUL — APK generated
 Backend: All tests passing
+Frontend: Production build successful
 ```
 
 ---
@@ -303,13 +323,30 @@ cd lumina
 python -m venv venv
 source venv/bin/activate   # or venv\Scripts\activate on Windows
 pip install -r requirements.txt
-python run.py              # FastAPI on :8000
+python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
 ```
 
 Run tests:
 
 ```bash
-python -m pytest -q         # 339 tests
+python -m pytest -q         # 350 tests
+```
+
+### Frontend
+
+Requirements: Node.js 18+
+
+```bash
+cd frontend
+npm install
+npm run dev                 # Vite dev server on :5173 (proxies to :8000)
+```
+
+Run tests:
+
+```bash
+npm test                    # 265 tests
+npm run build               # Production build to dist/
 ```
 
 ### Android
@@ -324,14 +361,57 @@ cd android_app
 
 ---
 
+## Deployment
+
+### Frontend (Vercel)
+
+The React frontend is deployed on Vercel (free tier):
+
+- Static SPA with client-side routing
+- Production API base URL configured via `VITE_API_BASE_URL`
+- Vite proxy handles API requests in development
+
+### Backend (Render)
+
+The FastAPI backend is deployed on Render (free tier):
+
+- Python 3.11 runtime
+- SQLite persistence (ephemeral on free tier)
+- Environment-driven CORS configuration
+- Health endpoint at `/health`
+
+### Environment Variables
+
+| Variable | Description | Example |
+|----------|-------------|--------|
+| `LUMINA_DB_PATH` | SQLite database file path | `/tmp/data/evidence.db` |
+| `LUMINA_CORS_ORIGINS` | Allowed CORS origins (comma-separated) | `https://your-frontend.vercel.app` |
+| `VITE_API_BASE_URL` | Backend API URL for frontend | `https://your-backend.onrender.com` |
+
+### Local Development
+
+```bash
+# Backend
+python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
+
+# Frontend (with API proxy to backend)
+cd frontend
+npm install
+npm run dev
+```
+
+---
+
 ## Limitations
 
+- **SQLite on free-tier hosting is ephemeral** — Render's free tier has no persistent disk. All data is lost on restart. For production, use a managed database (e.g., Supabase PostgreSQL).
 - **No physical-device runtime verification yet** — the Android app has been built and unit-tested, but not yet run on a real device or emulator.
 - **No emulator runtime verification yet.**
 - **Credential rotation not yet implemented** — if a device secret is compromised, the device must re-register.
 - **`PhoneStateListener` is deprecated** (API 31+) — functional on current targets but should migrate to `TelephonyCallback`.
-- **No production authentication** — the HMAC system provides device identity but not user accounts.
+- **No production user accounts** — the HMAC system provides device identity but not user accounts.
 - **Single-process backend** — nonce tracking is in-memory; not suitable for multi-worker deployment without shared state.
+- **Trusted Contact delivery** — the legacy alert endpoint is in demo mode; no real SMS delivery is configured.
 
 ---
 

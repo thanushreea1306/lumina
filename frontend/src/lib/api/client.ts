@@ -10,11 +10,7 @@ import type { ApiResponse } from '@/types/api';
 // ---- Configuration ----
 // In development, Vite proxy forwards /api → localhost:8000
 // In production, VITE_API_BASE_URL points to the deployed backend
-const DEFAULT_BASE_URL =
-  import.meta.env.VITE_API_BASE_URL ||
-  (import.meta.env.PROD
-    ? 'https://lumina-backend-sw45.onrender.com'
-    : '/api');
+const DEFAULT_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
 
 // ---- Fetch wrapper ----
 async function request<T>(

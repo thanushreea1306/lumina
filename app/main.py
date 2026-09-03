@@ -16,6 +16,7 @@ from app.services.alert import send_family_alert
 from app.services.panic_trigger import PanicTrigger
 from app.api import detect
 from app.evidence.router import router as evidence_router
+from app.incident.router import router as incident_router
 from app.core.features import CALL_BEHAVIOR_FIELDS, TELEMETRY_FIELDS
 from app.core.risk_engine import RiskEngine
 from app.core.db import get_incidents
@@ -124,6 +125,7 @@ def current_model_status() -> dict:
 # ============ ROUTERS ============
 app.include_router(detect.router, prefix="/api/detect", tags=["Detection"])
 app.include_router(evidence_router, tags=["Evidence"])
+app.include_router(incident_router, tags=["Incident"])
 
 # Per-field coercion defaults, keyed by the canonical feature names defined
 # in app/core/features.py. The call duration field additionally accepts a

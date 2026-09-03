@@ -15,6 +15,8 @@ import { RecoveryPage } from '@/app/RecoveryPage';
 import { PrivacyPage } from '@/app/PrivacyPage';
 import { AccessibilityPage } from '@/app/AccessibilityPage';
 import { SecurityPage } from '@/app/SecurityPage';
+import { IncidentEntryPage } from '@/app/IncidentEntryPage';
+import { IncidentViewPage } from '@/app/IncidentViewPage';
 
 export function App() {
   return (
@@ -127,6 +129,22 @@ export function App() {
           element={
             <AppShell>
               <SettingsPage />
+            </AppShell>
+          }
+        />
+        <Route
+          path="/incident/new"
+          element={
+            <AppShell>
+              <IncidentEntryPage />
+            </AppShell>
+          }
+        />
+        <Route
+          path="/incident"
+          element={
+            <AppShell>
+              <IncidentViewPage />
             </AppShell>
           }
         />
