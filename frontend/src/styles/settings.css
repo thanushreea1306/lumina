@@ -1,0 +1,51 @@
+/* ============================================================
+   LUMINA Settings Styles
+   ============================================================
+   High contrast mode, settings-specific layout helpers.
+   ============================================================ */
+
+/* ---- High Contrast Mode ---- */
+.high-contrast {
+  --lumina-bg: #000000;
+  --lumina-surface: #111111;
+  --lumina-surface-elevated: #1a1a1a;
+  --lumina-border: #444444;
+  --lumina-border-subtle: #333333;
+  --lumina-border-strong: #666666;
+  --lumina-text: #ffffff;
+  --lumina-text-secondary: #cccccc;
+  --lumina-text-muted: #999999;
+  --lumina-danger: #ff2233;
+  --lumina-warning: #ffbb33;
+  --lumina-system: #66ddff;
+  --lumina-recovery: #44dd77;
+  --lumina-investigation: #bb88ff;
+  --lumina-action: #ff9977;
+}
+
+.high-contrast :focus-visible {
+  outline: 3px solid var(--lumina-system);
+  outline-offset: 3px;
+}
+
+.high-contrast button,
+.high-contrast [role="switch"] {
+  border-width: 2px;
+}
+
+/* ---- Larger text overrides ---- */
+html {
+  transition: font-size var(--duration-normal) var(--ease-out);
+}
+
+/* ---- Settings page transitions ---- */
+.settings-section {
+  animation: luminaFadeIn var(--duration-slow) var(--ease-out) both;
+}
+
+/* ---- Responsive adjustments for settings ---- */
+@media (max-width: 640px) {
+  .settings-section {
+    padding: 0 var(--space-1);
+  }
+}

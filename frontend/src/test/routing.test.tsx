@@ -8,6 +8,10 @@ import { SessionPage } from '@/app/SessionPage';
 import { EvidencePage } from '@/app/EvidencePage';
 import { HistoryPage } from '@/app/HistoryPage';
 import { SettingsPage } from '@/app/SettingsPage';
+import { RecoveryPage } from '@/app/RecoveryPage';
+import { PrivacyPage } from '@/app/PrivacyPage';
+import { AccessibilityPage } from '@/app/AccessibilityPage';
+import { SecurityPage } from '@/app/SecurityPage';
 import { TrustedContactPage } from '@/app/TrustedContactPage';
 
 function renderAtRoute(path: string, element: React.ReactNode) {
@@ -40,7 +44,6 @@ describe('Routing - Page renders at correct path', () => {
 
   it('SessionPage renders creation view', () => {
     renderAtRoute('/session', <SessionPage />);
-    // SessionPage now shows creation view when no session is active
     expect(screen.getByText(/begin a safety session/i)).toBeInTheDocument();
   });
 
@@ -51,17 +54,36 @@ describe('Routing - Page renders at correct path', () => {
 
   it('HistoryPage renders', () => {
     renderAtRoute('/history', <HistoryPage />);
-    expect(screen.getByText(/session history/i)).toBeInTheDocument();
+    expect(screen.getByText(/no history available/i)).toBeInTheDocument();
   });
 
   it('SettingsPage renders', () => {
     renderAtRoute('/settings', <SettingsPage />);
-    expect(screen.getByText(/settings/i)).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /settings/i })).toBeInTheDocument();
+  });
+
+  it('RecoveryPage renders', () => {
+    renderAtRoute('/recovery', <RecoveryPage />);
+    expect(screen.getByText(/no active session/i)).toBeInTheDocument();
+  });
+
+  it('PrivacyPage renders', () => {
+    renderAtRoute('/privacy', <PrivacyPage />);
+    expect(screen.getByRole('heading', { name: /privacy center/i })).toBeInTheDocument();
+  });
+
+  it('AccessibilityPage renders', () => {
+    renderAtRoute('/accessibility', <AccessibilityPage />);
+    expect(screen.getByRole('heading', { name: /accessibility/i })).toBeInTheDocument();
+  });
+
+  it('SecurityPage renders', () => {
+    renderAtRoute('/security', <SecurityPage />);
+    expect(screen.getByRole('heading', { name: /security/i })).toBeInTheDocument();
   });
 
   it('TrustedContactPage renders', () => {
     renderAtRoute('/trusted-contact', <TrustedContactPage />);
-    // Use heading role to disambiguate from capability banner text
     expect(screen.getByRole('heading', { name: 'Trusted Contact' })).toBeInTheDocument();
     expect(screen.getByText(/not yet fully configured/i)).toBeInTheDocument();
   });

@@ -11,6 +11,10 @@ import { VerifyPage } from '@/app/VerifyPage';
 import { PausePage } from '@/app/PausePage';
 import { ProtectPage } from '@/app/ProtectPage';
 import { TrustedContactPage } from '@/app/TrustedContactPage';
+import { RecoveryPage } from '@/app/RecoveryPage';
+import { PrivacyPage } from '@/app/PrivacyPage';
+import { AccessibilityPage } from '@/app/AccessibilityPage';
+import { SecurityPage } from '@/app/SecurityPage';
 
 export function App() {
   return (
@@ -83,6 +87,38 @@ export function App() {
           element={
             <AppShell>
               <TrustedContactPage />
+            </AppShell>
+          }
+        />
+        <Route
+          path="/recovery"
+          element={
+            <AppShell>
+              <RecoveryPage />
+            </AppShell>
+          }
+        />
+        <Route
+          path="/privacy"
+          element={
+            <AppShell>
+              <PrivacyPage />
+            </AppShell>
+          }
+        />
+        <Route
+          path="/accessibility"
+          element={
+            <AppShell>
+              <AccessibilityPage />
+            </AppShell>
+          }
+        />
+        <Route
+          path="/security"
+          element={
+            <AppShell>
+              <SecurityPage />
             </AppShell>
           }
         />
