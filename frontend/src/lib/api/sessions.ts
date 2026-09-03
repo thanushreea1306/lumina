@@ -26,7 +26,7 @@ import type { DeviceCredentials } from './device';
 
 // ---- Helper to extract path from URL for signing ----
 function getSessionPath(sessionId: string, suffix?: string): string {
-  const base = `/sessions/${sessionId}`;
+  const base = `/api/sessions/${sessionId}`;
   return suffix ? `${base}/${suffix}` : base;
 }
 
@@ -36,7 +36,7 @@ export async function createSession(
   credentials: DeviceCredentials,
   request?: CreateSessionRequest,
 ): Promise<ApiResponse<CreateSessionResponse>> {
-  const path = '/sessions';
+  const path = '/api/sessions';
   const headers = await generateAuthHeaders(credentials, 'POST', path);
   return apiPost<CreateSessionResponse>(path, request ?? {}, headers);
 }
