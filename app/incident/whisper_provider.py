@@ -174,6 +174,7 @@ class WhisperSTTProvider(TranscriptProvider):
         self,
         input_data: Any,
         incident_id: str,
+        batch_id: Optional[str] = None,
     ) -> TranscriptBatch:
         """Transcribe audio and return timestamped transcript segments.
 
@@ -181,6 +182,11 @@ class WhisperSTTProvider(TranscriptProvider):
             input_data: Audio data as bytes, a file path string, or a
                         file-like object with a read() method.
             incident_id: The incident these segments belong to.
+            batch_id: Optional caller-controlled idempotency id. When provided
+                      it is used verbatim so a retry of the same logical upload
+                      maps to the same batch (allowing the engine's has_batch()
+                      dedup). When None a fresh id is generated and retries are
+                      NOT deduplicated.
 
         Returns:
             TranscriptBatch with timestamped segments.
@@ -228,7 +234,8 @@ class WhisperSTTProvider(TranscriptProvider):
                 segments.append(segment)
                 full_text_parts.append(text)
 
-            batch_id = uuid.uuid4().hex[:16]
+            if batch_id is None:
+                batch_id = uuid.uuid4().hex[:16]
 
             return TranscriptBatch(
                 batch_id=batch_id,

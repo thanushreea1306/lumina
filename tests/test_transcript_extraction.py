@@ -40,6 +40,7 @@ import pytest
 from app.evidence.models import UserObservationType
 from app.incident.engine import IncidentEngine
 from app.incident.models import (
+    EpistemicStatus,
     ExposureCategory,
     ExposureLevel,
     IncidentStatus,
@@ -504,24 +505,104 @@ class TestIncidentIntegration:
         incident = engine.get_incident(incident_id)
         assert incident.status == IncidentStatus.ACTION_REQUIRED
 
-    def test_transcript_user_action_changes_state(self, engine_with_incident):
+    def test_transcript_claim_does_not_change_state_to_recovering(self, engine_with_incident):
+        # SAFETY RULE: a first-person transcript claim ("I shared the OTP") is
+        # NOT explicit user confirmation. It must NOT auto-escalate status to
+        # RECOVERING. Only explicit confirmation does.
         engine, incident_id = engine_with_incident
 
         engine.add_transcript(incident_id, "Give me your OTP.")
         engine.add_transcript(incident_id, "I shared the OTP with them.")
         incident = engine.get_incident(incident_id)
+
+        # Claim extracted but NOT a confirmed user action, so no RECOVERING.
+        assert len(incident.user_actions) == 0
+        assert incident.status == IncidentStatus.ACTION_REQUIRED
+
+        # Explicit user confirmation is the only authority that escalates.
+        engine.record_user_action(
+            incident_id,
+            UserActionType.SHARED_OTP,
+            "User confirmed they shared the OTP",
+        )
+        incident = engine.get_incident(incident_id)
+        assert len(incident.user_actions) == 1
         assert incident.status == IncidentStatus.RECOVERING
 
-    def test_transcript_exposure_escalation(self, engine_with_incident):
+    def test_transcript_claim_does_not_confirm_exposure(self, engine_with_incident):
+        # SAFETY RULE: a transcript claim leaves exposure at POTENTIALLY_EXPOSED.
         engine, incident_id = engine_with_incident
 
         engine.add_transcript(incident_id, "Give me your OTP.")
         incident = engine.get_incident(incident_id)
         assert incident.exposure[ExposureCategory.AUTHENTICATION].level == ExposureLevel.POTENTIALLY_EXPOSED
 
+        # First-person claim: still POTENTIALLY_EXPOSED (unconfirmed).
         engine.add_transcript(incident_id, "I shared the OTP.")
         incident = engine.get_incident(incident_id)
+        assert incident.exposure[ExposureCategory.AUTHENTICATION].level == ExposureLevel.POTENTIALLY_EXPOSED
+
+        # Explicit confirmation escalates to USER_CONFIRMED_EXPOSED.
+        engine.record_user_action(
+            incident_id,
+            UserActionType.SHARED_OTP,
+            "User confirmed they shared the OTP",
+        )
+        incident = engine.get_incident(incident_id)
         assert incident.exposure[ExposureCategory.AUTHENTICATION].level == ExposureLevel.USER_CONFIRMED_EXPOSED
+
+    def test_transcript_claim_recorded_as_unconfirmed_timeline_evidence(self, engine_with_incident):
+        # The extraction capability is preserved: first-person claims are
+        # surfaced as unconfirmed INFERENCE timeline entries, carrying their
+        # provenance (text span / extraction method) and a needs_confirmation flag.
+        engine, incident_id = engine_with_incident
+
+        engine.add_transcript(incident_id, "Give me your OTP.")
+        engine.add_transcript(incident_id, "I shared the OTP with them.")
+        incident = engine.get_incident(incident_id)
+
+        claims = [
+            e for e in incident.timeline
+            if e.metadata.get("source") == "TRANSCRIPT_CLAIM"
+        ]
+        assert len(claims) == 1
+        claim = claims[0]
+        assert claim.epistemic_status == EpistemicStatus.INFERENCE
+        assert claim.metadata["claimed_action_type"] == "SHARED_OTP"
+        assert claim.metadata["confirmed"] is False
+        assert claim.metadata["needs_confirmation"] is True
+        assert claim.metadata["text_span"]  # provenance preserved
+        assert claim.metadata["extraction_method"]
+
+    def test_next_action_changes_after_explicit_confirmation(self, engine_with_incident):
+        # Killer-demo flow: OTP request -> prevention ("do not share") guidance;
+        # a transcript claim does NOT change it; explicit SHARED_OTP confirmation
+        # flips guidance to urgent recovery ("secure the account").
+        engine, incident_id = engine_with_incident
+
+        engine.add_transcript(incident_id, "Give me your OTP right now.")
+        incident = engine.get_incident(incident_id)
+        assert incident.next_action is not None
+        assert "share" in incident.next_action.action.lower()
+        assert incident.next_action.urgency == Priority.IMMEDIATE
+
+        # First-person claim: guidance stays preventive; no recovery yet.
+        engine.add_transcript(incident_id, "I shared the OTP with them.")
+        incident = engine.get_incident(incident_id)
+        assert incident.next_action is not None
+        assert "share" in incident.next_action.action.lower()
+
+        # Explicit confirmation flips to urgent recovery guidance.
+        engine.record_user_action(
+            incident_id,
+            UserActionType.SHARED_OTP,
+            "User confirmed they shared the OTP",
+        )
+        incident = engine.get_incident(incident_id)
+        assert incident.status == IncidentStatus.RECOVERING
+        assert incident.next_action is not None
+        assert "secure" in incident.next_action.action.lower()
+        assert incident.next_action.urgency == Priority.IMMEDIATE
 
 
 # ============================================================

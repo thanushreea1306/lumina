@@ -602,6 +602,12 @@ def recalculate_incident(incident: Incident) -> None:
     old_status = incident.status
     old_priority = incident.priority
 
+    # A closed incident stays CLOSED. Closing is an explicit, owner-initiated
+    # action; automatic state heuristics must never silently reopen or re-derive
+    # a closed incident. Evidence/actions added later do not resurrect it.
+    if old_status == IncidentStatus.CLOSED:
+        status = IncidentStatus.CLOSED
+
     incident.exposure = exposure
     incident.unknowns = unknowns
     incident.status = status

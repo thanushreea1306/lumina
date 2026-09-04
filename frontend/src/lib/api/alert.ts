@@ -41,7 +41,7 @@ export async function sendAlert(
   credentials: DeviceCredentials,
   request: SendAlertRequest,
 ): Promise<ApiResponse<SendAlertResponse>> {
-  const path = '/send-alert';
+  const path = '/api/send-alert';
   const headers = await generateAuthHeaders(credentials, 'POST', path);
   return apiPost<SendAlertResponse>(path, request, headers);
 }

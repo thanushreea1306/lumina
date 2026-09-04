@@ -22,6 +22,8 @@ import type {
   AddTranscriptResponse,
   AddTranscriptBatchRequest,
   AddTranscriptBatchResponse,
+  CloseIncidentRequest,
+  CloseIncidentResponse,
   UploadAudioResponse,
 } from '@/types/incident';
 import type { DeviceCredentials } from './device';
@@ -47,8 +49,12 @@ export async function listIncidents(
   credentials: DeviceCredentials,
   limit = 50,
 ): Promise<ApiResponse<ListIncidentsResponse>> {
-  const path = `/api/incidents?limit=${limit}`;
-  const headers = await generateAuthHeaders(credentials, 'GET', path);
+  // The URL carries the ?limit= query, but the HMAC signature must be
+  // computed over the pathname only (no query), matching the backend which
+  // verifies over str(request.url.path).
+  const pathname = '/api/incidents';
+  const path = `${pathname}?limit=${limit}`;
+  const headers = await generateAuthHeaders(credentials, 'GET', pathname);
   return apiGet<ListIncidentsResponse>(path, headers);
 }
 
@@ -94,6 +100,17 @@ export async function getIncidentNextAction(
   return apiGet<GetIncidentNextActionResponse>(path, headers);
 }
 
+// ---- Close / Archive Incident ----
+export async function closeIncident(
+  credentials: DeviceCredentials,
+  incidentId: string,
+  request?: CloseIncidentRequest,
+): Promise<ApiResponse<CloseIncidentResponse>> {
+  const path = getIncidentPath(incidentId, 'close');
+  const headers = await generateAuthHeaders(credentials, 'POST', path);
+  return apiPost<CloseIncidentResponse>(path, request ?? {}, headers);
+}
+
 // ---- Add Transcript ----
 export async function addIncidentTranscript(
   credentials: DeviceCredentials,
@@ -126,7 +143,8 @@ export async function uploadIncidentAudio(
   const path = getIncidentPath(incidentId, 'audio');
   const headers = await generateAuthHeaders(credentials, 'POST', path);
 
-  const baseUrl = import.meta.env.VITE_API_BASE_URL || '/api';
+  // Base is the backend origin WITHOUT /api (see client.ts); empty in dev.
+  const baseUrl = import.meta.env.VITE_API_BASE_URL || '';
   const url = `${baseUrl}${path}`;
 
   try {

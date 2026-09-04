@@ -9,6 +9,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { IncidentEntryPage } from '@/app/IncidentEntryPage';
 import { IncidentViewPage } from '@/app/IncidentViewPage';
+import { closeIncident, getIncident, addIncidentTranscript } from '@/lib/api/incidents';
 import {
   INCIDENT_STATUS_LABELS,
   INCIDENT_PRIORITY_LABELS,
@@ -125,6 +126,15 @@ vi.mock('@/lib/api/incidents', () => ({
   recordIncidentAction: vi.fn().mockResolvedValue({ ok: true, data: {} }),
   listIncidents: vi.fn().mockResolvedValue({ ok: true, data: { total: 0, incidents: [] } }),
   getIncidentNextAction: vi.fn().mockResolvedValue({ ok: true, data: { next_action: null } }),
+  closeIncident: vi.fn().mockResolvedValue({
+    ok: true,
+    data: {
+      incident_id: 'test-incident-123',
+      status: 'CLOSED',
+      closed: true,
+      timeline_count: 3,
+    },
+  }),
 }));
 
 // ---- Helper ----
@@ -281,5 +291,252 @@ describe('IncidentViewPage - empty state', () => {
   it('shows no active incident when no incident ID stored', () => {
     renderWithRouter(<IncidentViewPage />);
     expect(screen.getByText('No active incident')).toBeDefined();
+  });
+});
+
+describe('IncidentViewPage - End (Close)', () => {
+  beforeEach(() => {
+    sessionStorage.clear();
+    sessionStorage.setItem('lumina_current_incident_id', 'test-incident-123');
+    vi.mocked(closeIncident).mockReset();
+  });
+
+  it('calls the real close endpoint and clears local state on success', async () => {
+    vi.mocked(closeIncident).mockResolvedValue({
+      ok: true,
+      data: {
+        incident_id: 'test-incident-123',
+        status: 'CLOSED',
+        closed: true,
+        timeline_count: 3,
+      },
+    });
+
+    renderWithRouter(<IncidentViewPage />);
+    const endButton = await screen.findByRole('button', { name: 'End' });
+    fireEvent.click(endButton);
+
+    await waitFor(() => {
+      expect(closeIncident).toHaveBeenCalledTimes(1);
+    });
+    // After server success, the stored incident id is cleared.
+    await waitFor(() => {
+      expect(sessionStorage.getItem('lumina_current_incident_id')).toBeNull();
+    });
+  });
+
+  it('keeps the incident id and shows an error when closing fails', async () => {
+    vi.mocked(closeIncident).mockResolvedValue({
+      ok: false,
+      status: 500,
+      error: 'server exploded',
+    });
+
+    renderWithRouter(<IncidentViewPage />);
+    const endButton = await screen.findByRole('button', { name: 'End' });
+    fireEvent.click(endButton);
+
+    await waitFor(() => {
+      expect(screen.getByText(/Could not close incident/)).toBeDefined();
+    });
+    // The incident id is preserved so the user can retry.
+    expect(sessionStorage.getItem('lumina_current_incident_id')).toBe(
+      'test-incident-123',
+    );
+    // The incident view is still shown (not cleared to idle).
+    expect(screen.getByText('Needs attention')).toBeDefined();
+  });
+
+  it('does not clear local state before the server confirms closure', async () => {
+    // A pending (never-resolving) close should not clear the incident id.
+    vi.mocked(closeIncident).mockReturnValue(new Promise(() => {}));
+
+    renderWithRouter(<IncidentViewPage />);
+    const endButton = await screen.findByRole('button', { name: 'End' });
+    fireEvent.click(endButton);
+
+    await waitFor(() => {
+      expect(closeIncident).toHaveBeenCalled();
+    });
+    // Local state still present while the close is pending.
+    expect(sessionStorage.getItem('lumina_current_incident_id')).toBe(
+      'test-incident-123',
+    );
+  });
+});
+
+describe('IncidentViewPage - transcript idempotency', () => {
+  beforeEach(() => {
+    sessionStorage.clear();
+    sessionStorage.setItem('lumina_current_incident_id', 'test-incident-123');
+    addIncidentTranscript.mockClear();
+    // Default mock: always succeed (used by repeated submissions).
+    addIncidentTranscript.mockResolvedValue({
+      ok: true,
+      data: {
+        incident_id: 'test-incident-123',
+        status: 'ACTION_REQUIRED',
+        priority: 'HIGH',
+        transcript_id: 'transcript-123',
+        observations_extracted: 1,
+        actions_extracted: 0,
+        extraction: {
+          transcript_id: 'transcript-123',
+          observations: [],
+          user_actions: [],
+          raw_text: '',
+          extraction_timestamp: '2024-01-01T00:01:00Z',
+        },
+        next_action: null,
+        timeline_count: 2,
+      },
+    });
+  });
+
+  it('reuses the same batch_id when the same text is submitted again', async () => {
+    renderWithRouter(<IncidentViewPage />);
+
+    const textarea = await screen.findByPlaceholderText(/Paste or type what was said/);
+    const submitButton = screen.getByRole('button', { name: 'Submit Transcript' });
+
+    // First submission
+    fireEvent.change(textarea, { target: { value: 'Give me your OTP' } });
+    fireEvent.click(submitButton);
+
+    await waitFor(() => {
+      expect(addIncidentTranscript).toHaveBeenCalledTimes(1);
+    });
+    const firstId = addIncidentTranscript.mock.calls[0][2].batch_id;
+    expect(firstId).toBeTruthy();
+
+    // Second submission of the SAME text (e.g. a network retry / double-tap)
+    fireEvent.change(textarea, { target: { value: 'Give me your OTP' } });
+    fireEvent.click(submitButton);
+
+    await waitFor(() => {
+      expect(addIncidentTranscript).toHaveBeenCalledTimes(2);
+    });
+    const secondId = addIncidentTranscript.mock.calls[1][2].batch_id;
+
+    // The SAME stable id is reused → backend can deduplicate.
+    expect(secondId).toBe(firstId);
+  });
+
+  it('uses a different batch_id for different text', async () => {
+    renderWithRouter(<IncidentViewPage />);
+
+    const textarea = await screen.findByPlaceholderText(/Paste or type what was said/);
+    const submitButton = screen.getByRole('button', { name: 'Submit Transcript' });
+
+    fireEvent.change(textarea, { target: { value: 'Give me your OTP' } });
+    fireEvent.click(submitButton);
+    await waitFor(() => expect(addIncidentTranscript).toHaveBeenCalledTimes(1));
+    const firstId = addIncidentTranscript.mock.calls[0][2].batch_id;
+
+    fireEvent.change(textarea, { target: { value: 'Give me your password' } });
+    fireEvent.click(submitButton);
+    await waitFor(() => expect(addIncidentTranscript).toHaveBeenCalledTimes(2));
+    const secondId = addIncidentTranscript.mock.calls[1][2].batch_id;
+
+    expect(secondId).not.toBe(firstId);
+  });
+
+  it('does not use a timestamp as the idempotency key', async () => {
+    renderWithRouter(<IncidentViewPage />);
+
+    const textarea = await screen.findByPlaceholderText(/Paste or type what was said/);
+    const submitButton = screen.getByRole('button', { name: 'Submit Transcript' });
+
+    fireEvent.change(textarea, { target: { value: 'Give me your OTP' } });
+    fireEvent.click(submitButton);
+    await waitFor(() => expect(addIncidentTranscript).toHaveBeenCalledTimes(1));
+    const firstId = addIncidentTranscript.mock.calls[0][2].batch_id;
+
+    // Same text submitted again → identical id (proves the key is content, not time).
+    fireEvent.change(textarea, { target: { value: 'Give me your OTP' } });
+    fireEvent.click(submitButton);
+    await waitFor(() => expect(addIncidentTranscript).toHaveBeenCalledTimes(2));
+    const secondId = addIncidentTranscript.mock.calls[1][2].batch_id;
+
+    expect(secondId).toBe(firstId);
+  });
+});
+
+describe('IncidentViewPage - CLOSED incident', () => {
+  function closedIncident() {
+    return {
+      incident_id: 'test-incident-closed',
+      created_at: '2024-01-01T00:00:00Z',
+      updated_at: '2024-01-01T00:05:00Z',
+      status: 'CLOSED',
+      priority: 'NONE',
+      timeline: [
+        {
+          entry_id: 'entry-1',
+          entry_type: 'INCIDENT_CREATED',
+          sequence: 0,
+          timestamp: '2024-01-01T00:00:00Z',
+          summary: 'Incident created',
+          epistemic_status: 'FACT',
+          metadata: {},
+        },
+        {
+          entry_id: 'entry-2',
+          entry_type: 'INCIDENT_CLOSED',
+          sequence: 1,
+          timestamp: '2024-01-01T00:05:00Z',
+          summary: 'Incident closed',
+          epistemic_status: 'FACT',
+          metadata: { source: 'OWNER' },
+        },
+      ],
+      user_actions: [],
+      exposure: {},
+      unknowns: [],
+      next_action: null,
+      session_ids: [],
+      metadata: {},
+    };
+  }
+
+  beforeEach(() => {
+    sessionStorage.clear();
+    sessionStorage.setItem('lumina_current_incident_id', 'test-incident-closed');
+    vi.mocked(getIncident).mockReset();
+    vi.mocked(getIncident).mockResolvedValue({ ok: true, data: closedIncident() } as never);
+    vi.mocked(closeIncident).mockReset();
+    vi.mocked(closeIncident).mockResolvedValue({
+      ok: true,
+      data: {
+        incident_id: 'test-incident-closed',
+        status: 'CLOSED',
+        closed: true,
+        timeline_count: 3,
+      },
+    });
+  });
+
+  it('hides the End button for a CLOSED incident', async () => {
+    renderWithRouter(<IncidentViewPage />);
+    await waitFor(() => {
+      expect(screen.getByText('Closed')).toBeDefined();
+    });
+    expect(screen.queryByRole('button', { name: 'End' })).toBeNull();
+  });
+
+  it('shows the closed archival banner', async () => {
+    renderWithRouter(<IncidentViewPage />);
+    await waitFor(() => {
+      expect(screen.getByText(/closed and archived/i)).toBeDefined();
+    });
+  });
+
+  it('disables transcript submission for a CLOSED incident', async () => {
+    renderWithRouter(<IncidentViewPage />);
+    const textarea = await screen.findByPlaceholderText(/Paste or type what was said/);
+    fireEvent.change(textarea, { target: { value: 'some evidence text' } });
+
+    const submitButton = screen.getByRole('button', { name: 'Submit Transcript' }) as HTMLButtonElement;
+    expect(submitButton.disabled).toBe(true);
   });
 });

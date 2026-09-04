@@ -8,9 +8,20 @@
 import type { ApiResponse } from '@/types/api';
 
 // ---- Configuration ----
-// In development, Vite proxy forwards /api → localhost:8000
-// In production, VITE_API_BASE_URL points to the deployed backend
-const DEFAULT_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
+// Canonical API contract:
+//   VITE_API_BASE_URL contains the backend ORIGIN WITHOUT the /api prefix
+//   (e.g. https://lumina-backend-sw45.onrender.com). Every API module path
+//   includes the leading /api prefix (e.g. /api/incidents/...), and the
+//   resolved URL is base + path = origin + /api/...
+//
+//   In development VITE_API_BASE_URL is unset, so the base is empty and the
+//   resulting same-origin /api/... path is forwarded by the Vite proxy to
+//   the backend (no rewrite, so the /api prefix is preserved).
+//
+//   IMPORTANT: base must NOT include the /api suffix. Adding it here (with
+//   paths that also carry /api) produced /api/api/... and broke HMAC, since
+//   the signature is computed over the final request pathname.
+const DEFAULT_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
 
 // ---- Fetch wrapper ----
 async function request<T>(

@@ -101,7 +101,7 @@ export async function generateAuthHeaders(
 export async function registerDevice(): Promise<
   ApiResponse<DeviceCredentials>
 > {
-  const result = await apiPost<RegisterDeviceResponse>('/devices/register', {});
+  const result = await apiPost<RegisterDeviceResponse>('/api/devices/register', {});
 
   if (!result.ok) {
     return result;

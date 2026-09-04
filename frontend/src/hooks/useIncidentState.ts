@@ -13,6 +13,7 @@ import {
   getIncident,
   addIncidentTranscript,
   recordIncidentAction,
+  closeIncident,
 } from '@/lib/api/incidents';
 import type { DeviceCredentials } from '@/lib/api/device';
 import type {
@@ -41,10 +42,44 @@ export interface IncidentState {
   error: string | null;
   errorCode: number | null;
   lastExtraction: ExtractionResult | null;
+  closing: boolean;
+  closeError: string | null;
 }
 
 // ---- Incident ID persistence (sessionStorage) ----
 const INCIDENT_STORAGE_KEY = 'lumina_current_incident_id';
+
+// ---- Stable per-transcript idempotency key ----
+// Maps a normalized transcript text to a stable batch_id for the browser
+// session. Re-submitting the SAME text (e.g. a double-click or a network
+// retry) reuses the SAME batch_id, so the backend deduplicates instead of
+// creating duplicate transcripts/evidence. The key is content-derived — NOT a
+// timestamp — so retries of the same logical submission are idempotent.
+const transcriptBatchIds = new Map<string, string>();
+
+function batchIdForText(text: string): string {
+  const key = text.trim().toLowerCase();
+  const existing = transcriptBatchIds.get(key);
+  if (existing) return existing;
+  // Content-derived, collision-resistant id: hash the text and suffix with a
+  // short random token so semantically identical submissions share one id.
+  const raw = `${Date.now()}|${typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+    ? crypto.randomUUID()
+    : Math.random().toString(36).slice(2)}`;
+  const hash = simpleHash(key);
+  const id = `tx-${hash}-${raw.slice(-8)}`;
+  transcriptBatchIds.set(key, id);
+  return id;
+}
+
+function simpleHash(str: string): string {
+  let h = 0;
+  for (let i = 0; i < str.length; i++) {
+    h = (Math.imul(31, h) + str.charCodeAt(i)) | 0;
+  }
+  // Positive hex to avoid '-'
+  return (h >>> 0).toString(16);
+}
 
 function getStoredIncidentId(): string | null {
   try {
@@ -95,6 +130,8 @@ export function useIncidentState(pollIntervalMs = 30_000) {
     error: null,
     errorCode: null,
     lastExtraction: null,
+    closing: false,
+    closeError: null,
   });
 
   const mountedRef = useRef(true);
@@ -122,6 +159,8 @@ export function useIncidentState(pollIntervalMs = 30_000) {
             error: null,
             errorCode: null,
             lastExtraction: null,
+            closing: false,
+            closeError: null,
           });
           return;
         }
@@ -173,6 +212,8 @@ export function useIncidentState(pollIntervalMs = 30_000) {
           error: `Device registration failed: ${credResult.error}`,
           errorCode: credResult.status,
           lastExtraction: null,
+          closing: false,
+          closeError: null,
         });
         return;
       }
@@ -189,6 +230,8 @@ export function useIncidentState(pollIntervalMs = 30_000) {
           error: `Incident creation failed: ${result.error}`,
           errorCode: result.status,
           lastExtraction: null,
+          closing: false,
+          closeError: null,
         });
         return;
       }
@@ -229,6 +272,8 @@ export function useIncidentState(pollIntervalMs = 30_000) {
           error: `Device registration failed: ${credResult.error}`,
           errorCode: credResult.status,
           lastExtraction: null,
+          closing: false,
+          closeError: null,
         });
         return;
       }
@@ -268,7 +313,7 @@ export function useIncidentState(pollIntervalMs = 30_000) {
       const result = await addIncidentTranscript(
         state.credentials,
         incidentId,
-        { text, source },
+        { text, source, batch_id: batchIdForText(text) },
       );
 
       if (!mountedRef.current) return;
@@ -341,17 +386,53 @@ export function useIncidentState(pollIntervalMs = 30_000) {
   }, [state.credentials, fetchIncidentData]);
 
   // ---- End incident ----
-  const endIncident = useCallback(() => {
-    clearStoredIncidentId();
-    setState({
-      status: 'idle',
-      credentials: state.credentials,
-      incident: null,
-      error: null,
-      errorCode: null,
-      lastExtraction: null,
-    });
-  }, [state.credentials]);
+  // Server-side close: the incident is archived via the real close endpoint.
+  // Local state (and the stored incident id) are only cleared AFTER the server
+  // confirms the closure succeeded. On failure the id is kept so the user can
+  // retry, and the error is surfaced without losing the incident.
+  const endIncident = useCallback(async () => {
+    const incidentId = getStoredIncidentId();
+    if (!incidentId || !state.credentials) return;
+    if (state.closing) return;
+
+    setState((prev) => ({ ...prev, closing: true, closeError: null }));
+
+    try {
+      const result = await closeIncident(state.credentials, incidentId, {});
+      if (!mountedRef.current) return;
+
+      if (!result.ok) {
+        // Keep the incident id and evidence; surface the error so the close
+        // can be retried. Do NOT clear local state on failure.
+        setState((prev) => ({
+          ...prev,
+          closing: false,
+          closeError: `Could not close incident: ${result.error}`,
+        }));
+        return;
+      }
+
+      clearStoredIncidentId();
+      setState({
+        status: 'idle',
+        credentials: state.credentials,
+        incident: null,
+        error: null,
+        errorCode: null,
+        lastExtraction: null,
+        closing: false,
+        closeError: null,
+      });
+    } catch (err) {
+      if (!mountedRef.current) return;
+      const message = err instanceof Error ? err.message : 'Unexpected error';
+      setState((prev) => ({
+        ...prev,
+        closing: false,
+        closeError: `Could not close incident: ${message}`,
+      }));
+    }
+  }, [state.credentials, state.closing]);
 
   // ---- Clear last extraction ----
   const clearLastExtraction = useCallback(() => {

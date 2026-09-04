@@ -72,6 +72,20 @@ const OBSERVATION_LABELS: Record<string, string> = {
   INDEPENDENT_VERIFICATION_BLOCKED: 'Independent verification was blocked',
 };
 
+// Labels for confirmed/confirmable user actions. These describe an action
+// the user may have taken; confirmation is always an explicit user choice.
+const ACTION_TYPE_LABELS: Record<string, string> = {
+  SHARED_OTP: 'I shared an OTP or verification code',
+  SHARED_PASSWORD: 'I shared a password',
+  SHARED_PERSONAL_INFORMATION: 'I shared personal information',
+  SHARED_DOCUMENT: 'I shared an identity document',
+  SENT_MONEY: 'I sent money or made a transfer',
+  CLICKED_LINK: 'I clicked a link',
+  INSTALLED_APPLICATION: 'I installed an application',
+  GRANTED_REMOTE_ACCESS: 'I granted remote access',
+  LOGGED_IN: 'I logged in to an account',
+};
+
 const STATUS_COLORS: Record<IncidentStatus, string> = {
   ACTIVE: 'var(--lumina-system)',
   MONITORING: 'var(--lumina-warning)',
@@ -113,6 +127,8 @@ export function IncidentViewPage() {
     confirmAction,
     refresh,
     endIncident,
+    closing,
+    closeError,
   } = useIncidentState();
 
   const [transcriptText, setTranscriptText] = useState('');
@@ -239,6 +255,21 @@ export function IncidentViewPage() {
   );
   const unknowns = incident.unknowns;
 
+  // Unconfirmed first-person action claims extracted from transcripts.
+  // These are INFERENCE candidates only — they become real user actions only
+  // after the user explicitly confirms below.
+  const claimedActions = incident.timeline
+    .filter(
+      (e) =>
+        e.entry_type === 'EVIDENCE_ADDED' &&
+        e.metadata?.source === 'TRANSCRIPT_CLAIM',
+    )
+    .map((e) => ({
+      actionType: String(e.metadata?.claimed_action_type ?? ''),
+      description: String(e.metadata?.claimed_description ?? ''),
+    }));
+
+
   // ---- Get observations from last extraction (immediate display) ----
   const extractionObservations = lastExtraction?.observations ?? [];
 
@@ -289,11 +320,51 @@ export function IncidentViewPage() {
             <Button variant="ghost" size="sm" onClick={refresh}>
               Refresh
             </Button>
-            <Button variant="ghost" size="sm" onClick={endIncident}>
-              End
-            </Button>
+            {incident.status !== 'CLOSED' && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => void endIncident()}
+                disabled={closing}
+              >
+                {closing ? 'Closing…' : 'End'}
+              </Button>
+            )}
           </div>
         </div>
+
+        {closeError && (
+          <div
+            role="alert"
+            style={{
+              marginTop: 'var(--space-3)',
+              fontSize: 'var(--text-sm)',
+              color: 'var(--lumina-danger)',
+              lineHeight: 'var(--leading-relaxed)',
+            }}
+          >
+            {closeError}
+          </div>
+        )}
+
+        {incident.status === 'CLOSED' && (
+          <div
+            role="status"
+            style={{
+              marginTop: 'var(--space-3)',
+              padding: 'var(--space-3)',
+              fontSize: 'var(--text-sm)',
+              color: 'var(--lumina-text-secondary)',
+              lineHeight: 'var(--leading-relaxed)',
+              background: 'rgba(0, 0, 0, 0.15)',
+              borderRadius: 'var(--radius-md)',
+              border: '1px solid var(--lumina-border-subtle)',
+            }}
+          >
+            This incident is closed and archived. It remains readable for your
+            records, and no further evidence is being collected.
+          </div>
+        )}
       </Card>
 
       {/* ---- NEXT SAFEST ACTION (HERO) ---- */}
@@ -636,13 +707,43 @@ export function IncidentViewPage() {
       )}
 
       {/* ---- USER ACTION CONFIRMATION ---- */}
-      {observations.length > 0 && userActions.length === 0 && (
+      {(observations.length > 0 || claimedActions.length > 0) && userActions.length === 0 && (
         <Card>
           <SectionHeader
             number={5}
             title="Did You Already Act?"
             subtitle="Only confirm if you actually performed the action"
           />
+          {claimedActions.length > 0 && (
+            <p
+              style={{
+                fontSize: 'var(--text-sm)',
+                color: 'var(--lumina-text-secondary)',
+                lineHeight: 'var(--leading-relaxed)',
+                marginBottom: 'var(--space-4)',
+              }}
+            >
+              LUMINA noticed phrases in the transcript that suggest an action may have
+              already happened. This is an unconfirmed signal — please confirm below
+              only if you actually did it.
+            </p>
+          )}
+          {claimedActions.length > 0 && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)', marginBottom: 'var(--space-4)' }}>
+              {claimedActions.map((claim, i) => (
+                <Button
+                  key={`${claim.actionType}-${i}`}
+                  variant="danger"
+                  size="sm"
+                  onClick={() =>
+                    confirmAction(claim.actionType, `User confirmed: ${claim.description}`)
+                  }
+                >
+                  {ACTION_TYPE_LABELS[claim.actionType] ?? `Yes, ${claim.description}`}
+                </Button>
+              ))}
+            </div>
+          )}
           <p
             style={{
               fontSize: 'var(--text-sm)',
@@ -898,10 +999,22 @@ export function IncidentViewPage() {
           <Button
             variant="primary"
             onClick={handleSubmitTranscript}
-            disabled={!transcriptText.trim() || isSubmitting}
+            disabled={!transcriptText.trim() || isSubmitting || incident.status === 'CLOSED'}
           >
             {isSubmitting ? 'Submitting…' : 'Submit Transcript'}
           </Button>
+
+          {incident.status === 'CLOSED' && (
+            <p
+              style={{
+                fontSize: 'var(--text-sm)',
+                color: 'var(--lumina-text-muted)',
+                lineHeight: 'var(--leading-relaxed)',
+              }}
+            >
+              This incident is closed. Start a new incident to add more evidence.
+            </p>
+          )}
         </div>
       </Card>
     </div>
@@ -918,6 +1031,7 @@ function TimelineItem({ entry, isLast }: { entry: TimelineEntry; isLast: boolean
     USER_ACTION_RECORDED: 'User action recorded',
     STATE_CHANGED: 'Status changed',
     EXPOSURE_UPDATED: 'Exposure updated',
+    INCIDENT_CLOSED: 'Incident closed',
   };
   const label = typeLabels[entry.entry_type] ?? entry.entry_type;
 

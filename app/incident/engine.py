@@ -38,6 +38,7 @@ from app.incident.models import (
 )
 from app.incident.state import recalculate_incident
 from app.incident.store import IncidentStore
+from app.persistence.base import TransactionCtx
 from app.incident.transcript import (
     Transcript,
     TranscriptSource,
@@ -83,9 +84,10 @@ class IncidentEngine:
             epistemic_status=EpistemicStatus.FACT,
         )
 
-        # Persist
-        self.store.create_incident(incident)
-        self._save_timeline_entries(incident, start=0)
+        # Persist atomically in a single transaction.
+        with self.store.transaction() as conn:
+            self.store.create_incident(incident, conn=conn)
+            self._save_timeline_entries(incident, start=0, conn=conn)
 
         return incident
 
@@ -102,9 +104,10 @@ class IncidentEngine:
         After adding, the incident state is recalculated.
         """
         incident = self._get_incident(incident_id)
+        start = len(incident.timeline)
 
         # Add timeline entry
-        entry = incident.add_timeline_entry(
+        incident.add_timeline_entry(
             entry_type=TimelineEntryType.EVIDENCE_ADDED,
             summary=f"User reported: {observation_type.value}",
             epistemic_status=EpistemicStatus.FACT,
@@ -114,11 +117,13 @@ class IncidentEngine:
                 "source": "USER",
             },
         )
-        self.store.append_timeline_entry(incident_id, entry)
 
-        # Recalculate state
-        recalculate_incident(incident)
-        self._save_incident_state(incident)
+        # Recalculate state (may append STATE_CHANGED entries) and persist the
+        # entire logical mutation atomically in a single transaction.
+        with self.store.transaction() as conn:
+            recalculate_incident(incident)
+            self._save_timeline_entries(incident, start=start, conn=conn)
+            self._save_incident_state(incident, conn=conn)
 
         return incident
 
@@ -134,6 +139,7 @@ class IncidentEngine:
         NEVER automatically created from a request observation.
         """
         incident = self._get_incident(incident_id)
+        start = len(incident.timeline)
 
         sequence = len(incident.user_actions)
         action = UserAction(
@@ -143,10 +149,9 @@ class IncidentEngine:
             sequence=sequence,
         )
         incident.user_actions.append(action)
-        self.store.add_user_action(incident_id, action)
 
         # Add timeline entry
-        entry = incident.add_timeline_entry(
+        incident.add_timeline_entry(
             entry_type=TimelineEntryType.USER_ACTION_RECORDED,
             summary=f"User confirmed: {description}",
             epistemic_status=EpistemicStatus.FACT,
@@ -155,11 +160,57 @@ class IncidentEngine:
                 "action_id": action.action_id,
             },
         )
-        self.store.append_timeline_entry(incident_id, entry)
 
-        # Recalculate state
-        recalculate_incident(incident)
-        self._save_incident_state(incident)
+        # Recalculate state (may append STATE_CHANGED entries) and persist the
+        # whole mutation atomically.
+        with self.store.transaction() as conn:
+            self.store.add_user_action(incident_id, action, conn=conn)
+            recalculate_incident(incident)
+            self._save_timeline_entries(incident, start=start, conn=conn)
+            self._save_incident_state(incident, conn=conn)
+
+        return incident
+
+    def close_incident(
+        self,
+        incident_id: str,
+        reason: Optional[str] = None,
+    ) -> Incident:
+        """Server-side incident closure (archive).
+
+        Sets the incident status to CLOSED, appends an append-only
+        INCIDENT_CLOSED timeline entry, and refreshes updated_at. Closing is
+        explicit and authenticated; automatic heuristics never close an
+        incident. Closing never deletes evidence, timeline, exposure, or
+        user actions — a closed incident remains readable for history.
+
+        A closed incident stays CLOSED: later state recalculation preserves
+        the closed status (reopening is deliberately not supported).
+        """
+        incident = self._get_incident(incident_id)
+
+        if incident.status == IncidentStatus.CLOSED:
+            return incident
+
+        incident.status = IncidentStatus.CLOSED
+        summary = "Incident closed"
+        metadata: Dict = {"source": "OWNER"}
+        if reason and reason.strip():
+            # A short, optional, non-personal closure note from the owner.
+            metadata["reason"] = reason.strip()
+
+        entry = incident.add_timeline_entry(
+            entry_type=TimelineEntryType.INCIDENT_CLOSED,
+            summary=summary,
+            epistemic_status=EpistemicStatus.FACT,
+            metadata=metadata,
+        )
+        incident.updated_at = entry.timestamp
+
+        # Persist status and the append-only closure entry atomically.
+        with self.store.transaction() as conn:
+            self.store.update_incident(incident, conn=conn)
+            self.store.append_timeline_entry(incident_id, entry, conn=conn)
 
         return incident
 
@@ -191,6 +242,7 @@ class IncidentEngine:
         the existing result is returned without reprocessing (idempotency).
         """
         incident = self._get_incident(incident_id)
+        start = len(incident.timeline)
 
         # Idempotency check
         if batch_id and self.store.has_batch(batch_id):
@@ -210,66 +262,66 @@ class IncidentEngine:
             text=text,
             batch_id=batch_id,
         )
-        self.store.save_transcript(transcript)
 
-        # 2. Extract evidence
+        # 2. Extract evidence (pure, in-memory)
         extractor = TextEvidenceExtractor()
         result = extractor.extract(transcript)
 
-        # 3. Persist extraction results
-        self.store.save_extraction_result(incident_id, result)
+        # 3-6. Persist the ENTIRE logical mutation (transcript, segments,
+        # extractions, timeline, incident state) atomically in ONE transaction.
+        # If any write fails, nothing is committed — no partial transcript /
+        # extraction / timeline / state is left behind.
+        with self.store.transaction() as conn:
+            self.store.save_transcript(transcript, conn=conn)
+            self.store.save_extraction_result(incident_id, result, conn=conn)
 
-        # 4. Add extracted observations as timeline events
-        for obs in result.observations:
-            entry = incident.add_timeline_entry(
-                entry_type=TimelineEntryType.EVIDENCE_ADDED,
-                summary=f"Transcript evidence: {obs.observation_type.value}",
-                epistemic_status=EpistemicStatus.FACT,
-                metadata={
-                    "observation_type": obs.observation_type.value,
-                    "source": "TRANSCRIPT",
-                    "transcript_id": transcript.transcript_id,
-                    "text_span": obs.text_span,
-                    "extraction_method": obs.extraction_method,
-                    "epistemic_note": obs.epistemic_note,
-                    "confidence_in_extraction": obs.confidence_in_extraction,
-                },
-            )
-            self.store.append_timeline_entry(incident_id, entry)
+            # 4. Add extracted observations as timeline events
+            for obs in result.observations:
+                incident.add_timeline_entry(
+                    entry_type=TimelineEntryType.EVIDENCE_ADDED,
+                    summary=f"Transcript evidence: {obs.observation_type.value}",
+                    epistemic_status=EpistemicStatus.FACT,
+                    metadata={
+                        "observation_type": obs.observation_type.value,
+                        "source": "TRANSCRIPT",
+                        "transcript_id": transcript.transcript_id,
+                        "text_span": obs.text_span,
+                        "extraction_method": obs.extraction_method,
+                        "epistemic_note": obs.epistemic_note,
+                        "confidence_in_extraction": obs.confidence_in_extraction,
+                    },
+                )
 
-        # 5. Add extracted user actions
-        for action in result.user_actions:
-            try:
-                action_type = UserActionType(action.action_type)
-            except ValueError:
-                continue
+            # 5. Record extracted first-person claims as UNCONFIRMED evidence.
+            #
+            # SAFETY RULE: transcript claim != explicit user confirmation.
+            # A first-person phrase ("I shared the OTP") is a candidate claim, NOT
+            # proof the user performed the action. It must NEVER automatically
+            # create a confirmed UserAction (which would force
+            # USER_CONFIRMED_EXPOSED and RECOVERING). Only the explicit
+            # confirmation endpoint (record_user_action) may create a confirmed
+            # UserAction.
+            for action in result.user_actions:
+                incident.add_timeline_entry(
+                    entry_type=TimelineEntryType.EVIDENCE_ADDED,
+                    summary=f"User may have acted: {action.description} (needs confirmation)",
+                    epistemic_status=EpistemicStatus.INFERENCE,
+                    metadata={
+                        "source": "TRANSCRIPT_CLAIM",
+                        "claimed_action_type": action.action_type,
+                        "claimed_description": action.description,
+                        "confirmed": False,
+                        "needs_confirmation": True,
+                        "transcript_id": transcript.transcript_id,
+                        "text_span": action.text_span,
+                        "extraction_method": action.extraction_method,
+                    },
+                )
 
-            user_action = UserAction(
-                action_type=action_type,
-                description=action.description,
-                timestamp=datetime.now(timezone.utc).isoformat(),
-                sequence=len(incident.user_actions),
-            )
-            incident.user_actions.append(user_action)
-            self.store.add_user_action(incident_id, user_action)
-
-            entry = incident.add_timeline_entry(
-                entry_type=TimelineEntryType.USER_ACTION_RECORDED,
-                summary=f"User confirmed from transcript: {action.description}",
-                epistemic_status=EpistemicStatus.FACT,
-                metadata={
-                    "action_type": action.action_type,
-                    "source": "TRANSCRIPT",
-                    "transcript_id": transcript.transcript_id,
-                    "text_span": action.text_span,
-                    "extraction_method": action.extraction_method,
-                },
-            )
-            self.store.append_timeline_entry(incident_id, entry)
-
-        # 6. Recalculate incident state
-        recalculate_incident(incident)
-        self._save_incident_state(incident)
+            # 6. Recalculate incident state
+            recalculate_incident(incident)
+            self._save_timeline_entries(incident, start=start, conn=conn)
+            self._save_incident_state(incident, conn=conn)
 
         return incident, result
 
@@ -296,6 +348,7 @@ class IncidentEngine:
           6. Recalculate incident state
         """
         incident = self._get_incident(incident_id)
+        start = len(incident.timeline)
 
         # 1. Idempotency check
         if batch.batch_id and self.store.has_batch(batch.batch_id):
@@ -320,72 +373,66 @@ class IncidentEngine:
             segments=list(batch.segments),
             batch_id=batch.batch_id,
         )
-        self.store.save_transcript(transcript)
 
-        # Also save segments individually for retrieval
-        if batch.segments:
-            self.store.save_segments_batch(
-                incident_id, transcript.transcript_id, batch.segments
-            )
-
-        # 3. Extract evidence using speaker metadata
+        # 3. Extract evidence using speaker metadata (pure, in-memory)
         extractor = TextEvidenceExtractor()
         result = extractor.extract(transcript)
 
-        # 4. Persist extraction results
-        self.store.save_extraction_result(incident_id, result)
+        # 4-7. Persist the ENTIRE logical batch mutation atomically in ONE
+        # transaction so a failure never leaves partial batch state.
+        with self.store.transaction() as conn:
+            self.store.save_transcript(transcript, conn=conn)
+            # Also save segments individually for retrieval
+            if batch.segments:
+                self.store.save_segments_batch(
+                    incident_id, transcript.transcript_id, batch.segments, conn=conn
+                )
+            # Persist extraction results
+            self.store.save_extraction_result(incident_id, result, conn=conn)
 
-        # 5. Add timeline events for extracted observations
-        for obs in result.observations:
-            entry = incident.add_timeline_entry(
-                entry_type=TimelineEntryType.EVIDENCE_ADDED,
-                summary=f"Transcript evidence: {obs.observation_type.value}",
-                epistemic_status=EpistemicStatus.FACT,
-                metadata={
-                    "observation_type": obs.observation_type.value,
-                    "source": "TRANSCRIPT",
-                    "transcript_id": transcript.transcript_id,
-                    "text_span": obs.text_span,
-                    "extraction_method": obs.extraction_method,
-                    "epistemic_note": obs.epistemic_note,
-                    "confidence_in_extraction": obs.confidence_in_extraction,
-                },
-            )
-            self.store.append_timeline_entry(incident_id, entry)
+            # 5. Add timeline events for extracted observations
+            for obs in result.observations:
+                incident.add_timeline_entry(
+                    entry_type=TimelineEntryType.EVIDENCE_ADDED,
+                    summary=f"Transcript evidence: {obs.observation_type.value}",
+                    epistemic_status=EpistemicStatus.FACT,
+                    metadata={
+                        "observation_type": obs.observation_type.value,
+                        "source": "TRANSCRIPT",
+                        "transcript_id": transcript.transcript_id,
+                        "text_span": obs.text_span,
+                        "extraction_method": obs.extraction_method,
+                        "epistemic_note": obs.epistemic_note,
+                        "confidence_in_extraction": obs.confidence_in_extraction,
+                    },
+                )
 
-        # 6. Add timeline events for extracted user actions
-        for action in result.user_actions:
-            try:
-                action_type = UserActionType(action.action_type)
-            except ValueError:
-                continue
+            # 6. Record extracted first-person claims as UNCONFIRMED evidence.
+            #
+            # SAFETY RULE: transcript claim != explicit user confirmation.
+            # See add_transcript for the rationale. Claims are persisted as
+            # INFERENCE timeline entries and never create confirmed UserActions.
+            for action in result.user_actions:
+                incident.add_timeline_entry(
+                    entry_type=TimelineEntryType.EVIDENCE_ADDED,
+                    summary=f"User may have acted: {action.description} (needs confirmation)",
+                    epistemic_status=EpistemicStatus.INFERENCE,
+                    metadata={
+                        "source": "TRANSCRIPT_CLAIM",
+                        "claimed_action_type": action.action_type,
+                        "claimed_description": action.description,
+                        "confirmed": False,
+                        "needs_confirmation": True,
+                        "transcript_id": transcript.transcript_id,
+                        "text_span": action.text_span,
+                        "extraction_method": action.extraction_method,
+                    },
+                )
 
-            user_action = UserAction(
-                action_type=action_type,
-                description=action.description,
-                timestamp=datetime.now(timezone.utc).isoformat(),
-                sequence=len(incident.user_actions),
-            )
-            incident.user_actions.append(user_action)
-            self.store.add_user_action(incident_id, user_action)
-
-            entry = incident.add_timeline_entry(
-                entry_type=TimelineEntryType.USER_ACTION_RECORDED,
-                summary=f"User confirmed from transcript: {action.description}",
-                epistemic_status=EpistemicStatus.FACT,
-                metadata={
-                    "action_type": action.action_type,
-                    "source": "TRANSCRIPT",
-                    "transcript_id": transcript.transcript_id,
-                    "text_span": action.text_span,
-                    "extraction_method": action.extraction_method,
-                },
-            )
-            self.store.append_timeline_entry(incident_id, entry)
-
-        # 7. Recalculate incident state
-        recalculate_incident(incident)
-        self._save_incident_state(incident)
+            # 7. Recalculate incident state
+            recalculate_incident(incident)
+            self._save_timeline_entries(incident, start=start, conn=conn)
+            self._save_incident_state(incident, conn=conn)
 
         return incident, result
 
@@ -410,12 +457,18 @@ class IncidentEngine:
             raise ValueError(f"Incident not found: {incident_id}")
         return incident
 
-    def _save_timeline_entries(self, incident: Incident, start: int = 0) -> None:
-        """Save new timeline entries to the store."""
+    def _save_timeline_entries(
+        self, incident: Incident, start: int = 0,
+        conn: Optional[TransactionCtx] = None,
+    ) -> None:
+        """Save new timeline entries to the store (optionally in a transaction)."""
         for entry in incident.timeline[start:]:
-            self.store.append_timeline_entry(incident.incident_id, entry)
+            self.store.append_timeline_entry(incident.incident_id, entry, conn=conn)
 
-    def _save_incident_state(self, incident: Incident) -> None:
+    def _save_incident_state(
+        self, incident: Incident, conn: Optional[TransactionCtx] = None,
+    ) -> None:
         """Save updated incident state and exposure to the store."""
-        self.store.update_incident(incident)
-        self.store.upsert_exposure_batch(incident.incident_id, incident.exposure)
+        self.store.update_incident(incident, conn=conn)
+        self.store.upsert_exposure_batch(incident.incident_id, incident.exposure, conn=conn)
+

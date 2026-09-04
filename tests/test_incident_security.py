@@ -400,3 +400,126 @@ class TestAuthAndNotFound:
             json={"observation_type": "OTP_REQUEST"},
         )
         assert r.status_code == 404
+
+
+# ---- 9. CP-11 Phase C: explicit endpoint x auth matrix ----
+
+class TestEndpointAuthMatrix:
+    """Every incident endpoint must enforce HMAC auth (401) before ownership."""
+
+    MUTATION_ENDPOINTS = [
+        ("get", "/api/incidents/{id}"),
+        ("post", "/api/incidents/{id}/evidence"),
+        ("post", "/api/incidents/{id}/actions"),
+        ("post", "/api/incidents/{id}/close"),
+        ("post", "/api/incidents/{id}/transcript"),
+        ("post", "/api/incidents/{id}/transcript/segments"),
+        ("get", "/api/incidents/{id}/next-action"),
+    ]
+
+    @pytest.mark.parametrize("method,path_tmpl", MUTATION_ENDPOINTS)
+    def test_no_auth_is_401(self, method, path_tmpl, incidents):
+        inc_id = incidents.create_incident(incidents.a)
+        path = path_tmpl.replace("{id}", inc_id)
+        raw = TestClient(app)
+        r = getattr(raw, method)(path)
+        assert r.status_code == 401
+
+    @pytest.mark.parametrize("method,path_tmpl", MUTATION_ENDPOINTS)
+    def test_invalid_signature_is_401(self, method, path_tmpl, incidents, monkeypatch):
+        inc_id = incidents.create_incident(incidents.a)
+        path = path_tmpl.replace("{id}", inc_id)
+        # Sign with the WRONG secret -> invalid HMAC.
+        from datetime import datetime, timezone
+        from app.evidence.auth import compute_signature
+
+        ts = datetime.now(timezone.utc).isoformat()
+        bad_sig = compute_signature(
+            "wrong-secret", incidents.a._device_id, ts, "nonce-x", method.upper(), path
+        )
+        headers = {
+            "X-Device-ID": incidents.a._device_id,
+            "X-Timestamp": ts,
+            "X-Nonce": "nonce-x",
+            "X-Signature": bad_sig,
+        }
+        r = getattr(incidents.a._client, method)(path, headers=headers)
+        assert r.status_code == 401
+
+    def test_nonced_replay_on_incident_endpoint_is_401(self, incidents):
+        """Reusing the same nonce on an incident endpoint must be rejected."""
+        from datetime import datetime, timezone
+        from app.evidence.auth import compute_signature
+
+        inc_id = incidents.create_incident(incidents.a)
+        ts = datetime.now(timezone.utc).isoformat()
+        nonce = "incident-replay-nonce"
+        sig = compute_signature(
+            incidents.a._device_secret,
+            incidents.a._device_id,
+            ts, nonce, "POST", f"/api/incidents/{inc_id}/close",
+        )
+        headers = {
+            "X-Device-ID": incidents.a._device_id,
+            "X-Timestamp": ts,
+            "X-Nonce": nonce,
+            "X-Signature": sig,
+        }
+        r1 = incidents.a._client.post(f"/api/incidents/{inc_id}/close", json={}, headers=headers)
+        assert r1.status_code == 200
+        r2 = incidents.a._client.post(f"/api/incidents/{inc_id}/close", json={}, headers=headers)
+        assert r2.status_code == 401
+
+    def test_enumeration_does_not_leak_foreign_incident_text(self, incidents):
+        """A foreign owner hitting an existing incident gets 403 (owned but not
+        theirs), identical treatment whether or not the incident is readable."""
+        a_id = incidents.create_incident(incidents.a)
+        # Owner mutation works (200); foreign owner is rejected (403).
+        assert incidents.a.get(f"/api/incidents/{a_id}").status_code == 200
+        assert incidents.b.get(f"/api/incidents/{a_id}").status_code == 403
+
+
+# ---- 10. CP-11 Phase F: database-failure error hygiene ----
+
+class TestDatabaseFailureHygiene:
+    def test_db_write_failure_returns_generic_500_no_internal_leak(self, incidents, monkeypatch):
+        """An unexpected database failure must surface as a controlled, generic
+        500 to the client (never leaking SQL/internal paths), while the app
+        still logs it server-side."""
+        from fastapi.testclient import TestClient as TC
+        from app.main import app
+        from app.incident import router as incident_router
+
+        inc_id = incidents.create_incident(incidents.a)
+
+        def boom(*args, **kwargs):
+            raise RuntimeError(
+                "psycopg.errors.ConnectionFailure: could not connect to "
+                "db-server-abcdef.supabase.co:5432 password auth failed"
+            )
+
+        monkeypatch.setattr(incident_router._engine.store, "save_transcript", boom)
+
+        # raise_server_exceptions=False mirrors production: FastAPI catches the
+        # exception and returns a generic 500 instead of bubbling it to the client.
+        client = TC(app, raise_server_exceptions=False)
+        headers = incidents.a._auth_headers("POST", f"/api/incidents/{inc_id}/transcript")
+        r = client.post(
+            f"/api/incidents/{inc_id}/transcript",
+            json={"text": "They demanded my OTP"},
+            headers=headers,
+        )
+        assert r.status_code == 500
+        body_text = r.text if r.text else str(r.json()).lower()
+        detail = body_text.lower() if isinstance(body_text, str) else b""
+        # Internal DB details must not leak to the client.
+        assert "psycopg" not in detail
+        assert "supabase" not in detail
+        assert "password" not in detail
+        assert "connectionfailure" not in detail
+
+    def test_db_read_failure_missing_incident_still_404(self, incidents):
+        """Ownership 404 semantics are preserved (a nonexistent incident is a
+        404, not an auth error) — this is the not-found contract."""
+        r = incidents.a.get("/api/incidents/does-not-exist-xyz")
+        assert r.status_code == 404

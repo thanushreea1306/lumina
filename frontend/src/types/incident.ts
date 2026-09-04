@@ -74,7 +74,8 @@ export type TimelineEntryType =
   | 'USER_ACTION_RECORDED'
   | 'STATE_CHANGED'
   | 'EXPOSURE_UPDATED'
-  | 'INCIDENT_CREATED';
+  | 'INCIDENT_CREATED'
+  | 'INCIDENT_CLOSED';
 
 export interface TimelineEntry {
   entry_id: string;
@@ -258,6 +259,19 @@ export interface AddTranscriptBatchResponse {
   actions_extracted: number;
   extraction: ExtractionResult;
   next_action: RecommendedAction | null;
+  timeline_count: number;
+}
+
+// ---- Close / Archive Incident ----
+
+export interface CloseIncidentRequest {
+  reason?: string;
+}
+
+export interface CloseIncidentResponse {
+  incident_id: string;
+  status: IncidentStatus;
+  closed: boolean;
   timeline_count: number;
 }
 

@@ -157,12 +157,18 @@ class TranscriptProvider(ABC):
         self,
         input_data: Any,
         incident_id: str,
+        batch_id: Optional[str] = None,
     ) -> TranscriptBatch:
         """Convert input data into transcript segments.
 
         Args:
             input_data: Provider-specific input (text string, audio bytes, etc.)
             incident_id: The incident these segments belong to.
+            batch_id: Optional caller-controlled idempotency batch id. When
+                provided the provider MUST use it as the batch id so that a
+                retry of the same logical upload maps to the same batch and the
+                engine's has_batch() deduplication can collapse it. When absent
+                the provider generates a fresh id (no deduplication).
 
         Returns:
             TranscriptBatch containing one or more segments.

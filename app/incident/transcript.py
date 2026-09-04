@@ -14,9 +14,16 @@ IMPORTANT:
 
 Context and negation:
   - "Never share your OTP" -> NOT an OTP request (advice/warning)
-  - "I sent the OTP" -> user-confirmed action (if first-person)
+  - "I sent the OTP" -> CLAIMED user action (first-person), UNCONFIRMED
   - "Give me the OTP" -> OTP request
   - "The bank asked for my OTP" -> report of someone requesting OTP
+
+SAFETY RULE: transcript claim != explicit user confirmation.
+A first-person phrase ("I shared the OTP") produces a structured candidate
+(ExtractedAction / CLAIMED_USER_ACTION) that is an INFERENCE, NOT proof the
+user acted. It is surfaced for the user to explicitly confirm. The extractor
+does NOT itself create a confirmed UserAction; that is solely the job of the
+explicit confirmation path (record_user_action).
 
 Conservative extraction:
   - False positives are worse than missing weak evidence
@@ -118,6 +125,14 @@ class ExtractedObservation:
 
 @dataclass(frozen=True)
 class ExtractedAction:
+    """A first-person action CLAIM detected in the transcript.
+
+    This is a structured CANDIDATE (CLAIMED_USER_ACTION), NOT a confirmed
+    UserAction. It is an inference drawn from text such as "I shared the OTP".
+    It must be explicitly confirmed by the user before it becomes a real
+    UserAction (epistemic_status=FACT) and escalates exposure to
+    USER_CONFIRMED_EXPOSED / incident status RECOVERING.
+    """
     action_type: str
     description: str
     text_span: str

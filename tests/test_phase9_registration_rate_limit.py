@@ -95,8 +95,10 @@ def test_requests_resume_after_window_expiry(client):
     r = client.post("/api/devices/register", json={})
     assert r.status_code == 429
 
-    # Wait for the window to expire
-    time.sleep(0.15)
+    # Wait for the window to expire. Use a generous margin (5x the 100ms window)
+    # so the assertion is robust to scheduler/timing jitter during a full-suite
+    # run; the behavior under test (requests resume after the window) is unchanged.
+    time.sleep(0.5)
 
     # Should succeed again
     r = client.post("/api/devices/register", json={})

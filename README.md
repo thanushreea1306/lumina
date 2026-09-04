@@ -157,12 +157,15 @@ The Android app captures real call lifecycle events and allows users to report o
 
 ## Backend
 
-The backend is a FastAPI application with SQLite persistence and a deterministic safety engine.
+The backend is a FastAPI application with a database-agnostic persistence layer
+(SQLite for local dev, PostgreSQL/Supabase for durable production) and a
+deterministic safety engine.
 
 ### Architecture
 
 - **FastAPI** — async Python web framework.
-- **SQLite** — append-only evidence persistence.
+- **SQLite & PostgreSQL/Supabase** — swappable persistence backends (one
+  repository abstraction). Append-only evidence + incident persistence.
 - **Deterministic safety engine** — no randomness, no ML in the decision path.
 - **HMAC-SHA256 authentication** — device registration + request signing.
 - **Session ownership** — each session is bound to a registered device.
@@ -181,6 +184,23 @@ The backend is a FastAPI application with SQLite persistence and a deterministic
 | `POST` | `/api/sessions/{id}/outcome` | Record outcome (auth required). |
 
 All protected endpoints require valid HMAC-SHA256 authentication headers (`X-Device-ID`, `X-Timestamp`, `X-Nonce`, `X-Signature`).
+
+### Incident Copilot (Digital Incident Copilot)
+
+The incident copilot adds owner-scoped incidents with endpoint paths under
+`/api/incidents/...` (create, get, list, evidence, actions, transcript,
+transcript segments, next-action, audio). All require device authentication,
+and access is scoped to the incident owner.
+
+**Confirmation rule (safety semantics):** a first-person *transcript claim*
+(e.g. "I shared the OTP") is extracted as **unconfirmed** evidence
+(timeline `source="TRANSCRIPT_CLAIM"`, epistemic `INFERENCE`). It must NOT
+auto-create a confirmed user action. Exposure stays `POTENTIALLY_EXPOSED`
+until the user explicitly confirms via
+`POST /api/incidents/{id}/actions`, which is the only path that creates a
+confirmed `UserAction` (epistemic `FACT`), escalates the category to
+`USER_CONFIRMED_EXPOSED`, and moves the incident to `RECOVERING` with
+urgent recovery guidance. No numeric scam/risk score is introduced.
 
 ---
 
@@ -201,8 +221,11 @@ All protected endpoints require valid HMAC-SHA256 authentication headers (`X-Dev
 ### Not Yet Implemented
 
 - Credential rotation (currently requires re-registration).
-- Rate limiting on the registration endpoint.
 - Production TLS certificate pinning.
+
+> **Rate limiting** on the device-registration endpoint **is implemented**
+> (per-client/IP cooldown with DDoS abuse protection) and covered by
+> `tests/test_phase9_registration_rate_limit.py`.
 
 ---
 
@@ -210,7 +233,12 @@ All protected endpoints require valid HMAC-SHA256 authentication headers (`X-Dev
 
 LUMINA is designed with privacy by default:
 
-- **No microphone access** — no audio recording or transcription.
+- **No microphone access** — no continuous background microphone recording.
+- **Incident audio transcription (opt-in)** — an owner may upload a short audio
+  clip to `POST /api/incidents/{id}/audio` for speech-to-text evidence. The raw
+  audio is written to a temporary file, transcribed locally, then **immediately
+  deleted** — raw audio is never persisted. No audio is recorded unless the user
+  explicitly uploads it.
 - **No SMS monitoring** — no message content is read.
 - **No contact harvesting** — the contact list is never accessed.
 - **No location tracking** — GPS is not used.
@@ -239,7 +267,7 @@ lumina/
 │   │   ├── pipeline.py         # Safety evaluation pipeline
 │   │   ├── actions.py          # Protective action definitions
 │   │   ├── auth.py             # HMAC-SHA256 authentication
-│   │   ├── db.py               # SQLite persistence
+│   │   ├── db.py               # Persistence facade (SQLite / Postgres)
 │   │   └── router.py           # FastAPI endpoints
 │   └── services/               # Alert, report generation
 ├── android_app/
@@ -264,7 +292,7 @@ lumina/
 │   │   └── styles/             # Design tokens, CSS modules
 │   ├── package.json
 │   └── vite.config.ts
-├── tests/                      # 339 backend tests
+├── tests/                      # Backend test suite
 ├── dashboard/                  # Streamlit dashboard (legacy)
 ├── models/saved/               # ML artifacts (subordinate to safety engine)
 ├── data/                       # Runtime data (not committed)
@@ -280,10 +308,10 @@ lumina/
 ### Backend
 
 ```
-350 tests passed
+659 passed / 1 skipped (full suite, PostgreSQL enabled)
 ```
 
-Covers: evidence model, safety states, decision context, explainability, API contracts, authentication, idempotency, session lifecycle, device event ingestion, observation flow, E2E integration, HMAC interoperability.
+Covers: evidence model, safety states, decision context, explainability, API contracts, authentication, idempotency, session lifecycle, device event ingestion, observation flow, E2E integration, HMAC interoperability, incident-continuity, persistence backends (SQLite + Postgres), migration, transaction rollback, audio idempotency, endpoint security matrix.
 
 ### Android
 
@@ -296,7 +324,7 @@ Covers: call state machine, event adapter, sync manager, observation manager, HM
 ### Frontend (React)
 
 ```
-265 tests passed
+297 tests passed
 ```
 
 Covers: safety states, evidence types, API client, routing, accessibility, component rendering, intervention flows, trusted contact, recovery, privacy, security settings.
@@ -329,7 +357,7 @@ python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
 Run tests:
 
 ```bash
-python -m pytest -q         # 350 tests
+python -m pytest -q         # 659 passed / 1 skipped (PostgreSQL enabled)
 ```
 
 ### Frontend
@@ -345,7 +373,7 @@ npm run dev                 # Vite dev server on :5173 (proxies to :8000)
 Run tests:
 
 ```bash
-npm test                    # 265 tests
+npm test                    # 297 tests
 npm run build               # Production build to dist/
 ```
 
@@ -376,15 +404,57 @@ The React frontend is deployed on Vercel (free tier):
 The FastAPI backend is deployed on Render (free tier):
 
 - Python 3.11 runtime
-- SQLite persistence (ephemeral on free tier)
+- **PostgreSQL/Supabase persistence** (durable) with a SQLite local-dev backend
+  — see "Database Durability" below
 - Environment-driven CORS configuration
 - Health endpoint at `/health`
+
+### Database Durability
+
+LUMINA now supports **two interchangeable persistence backends** so durability
+can be stated honestly rather than over-claimed:
+
+| Context | Backend | Config | Survives restart/redeploy? |
+|---------|---------|--------|-----------------------------|
+| Local development | SQLite | `LUMINA_DB_BACKEND=sqlite`, `LUMINA_DB_PATH=data/evidence.db` | Yes (file on local disk) |
+| Ephemeral demo | SQLite on Render free `/tmp` | SQLite with `LUMINA_DB_PATH=/tmp/...` | **No** — not durable |
+| **Durable production** | **PostgreSQL / Supabase** | `LUMINA_DB_BACKEND=postgres`, `DATABASE_URL=...` | **Yes** |
+
+**Why not SQLite on Render free tier?** Render *free* web services cannot attach
+a persistent disk (only paid services can) and their free Postgres expires after
+30 days. So the genuinely durable, free production path is a **Supabase
+free-tier PostgreSQL** database. The incident store, device auth, evidence,
+transcript, and timeline persistence all run against Postgres in production
+through one database-agnostic repository abstraction; the SQLite backend is
+kept for local development and tests.
+
+**Supabase free-tier caveat (documented, not hidden):** free Supabase projects
+are automatically *paused* after ~7 days with no database activity. Paused
+projects keep their data but the backend is offline until someone resumes the
+project in the Supabase dashboard. This is an availability limitation of the
+free tier, not a per-request persistence gap. If `DATABASE_URL` is not
+configured but `LUMINA_DB_BACKEND=postgres` is set, the application **refuses to
+start** rather than silently falling back to SQLite.
+
+**Migrating existing data:** to move an existing SQLite database (local/dev or a
+prior ephemeral deployment) into Supabase, run the idempotent, restart-safe
+import:
+
+```bash
+python -m app.persistence.migrate data/evidence.db "$DATABASE_URL"
+```
+
+It preserves incidents, evidence, transcripts, timeline, exposure, CLOSED
+status, device ownership and stable IDs, never duplicates rows, and rolls back
+atomically on failure (see `tests/test_persistence_migrate.py`).
 
 ### Environment Variables
 
 | Variable | Description | Example |
 |----------|-------------|--------|
-| `LUMINA_DB_PATH` | SQLite database file path | `/tmp/data/evidence.db` |
+| `LUMINA_DB_BACKEND` | `sqlite` (default, local dev) or `postgres` (durable prod) | `postgres` |
+| `LUMINA_DB_PATH` | SQLite file path (used only with `LUMINA_DB_BACKEND=sqlite`) | `data/evidence.db` |
+| `DATABASE_URL` | PostgreSQL/Supabase connection string (used only with `LUMINA_DB_BACKEND=postgres`); never commit | `postgresql://...` |
 | `LUMINA_CORS_ORIGINS` | Allowed CORS origins (comma-separated) | `https://your-frontend.vercel.app` |
 | `VITE_API_BASE_URL` | Backend API URL for frontend | `https://your-backend.onrender.com` |
 
@@ -404,7 +474,7 @@ npm run dev
 
 ## Limitations
 
-- **SQLite on free-tier hosting is ephemeral** — Render's free tier has no persistent disk. All data is lost on restart. For production, use a managed database (e.g., Supabase PostgreSQL).
+- **Production durability uses Supabase/Postgres** — local SQLite is durable only on a local disk; SQLite on Render's *free* tier is ephemeral (no persistent disk available on free). Durable production uses a Supabase PostgreSQL database (`LUMINA_DB_BACKEND=postgres`, `DATABASE_URL`). Supabase *free-tier projects auto-pause after ~7 days of inactivity*; data is preserved but the backend is offline until resumed.
 - **No physical-device runtime verification yet** — the Android app has been built and unit-tested, but not yet run on a real device or emulator.
 - **No emulator runtime verification yet.**
 - **Credential rotation not yet implemented** — if a device secret is compromised, the device must re-register.
@@ -412,6 +482,16 @@ npm run dev
 - **No production user accounts** — the HMAC system provides device identity but not user accounts.
 - **Single-process backend** — nonce tracking is in-memory; not suitable for multi-worker deployment without shared state.
 - **Trusted Contact delivery** — the legacy alert endpoint is in demo mode; no real SMS delivery is configured.
+- **No incident/evidence/transcript/account deletion or data-export APIs** — the
+  incident store is append-only and intentionally never deletes rows (forensic
+  history). A user-facing "delete incident" / data-export feature is **not yet
+  implemented**; it is deferred to a future phase and must not silently destroy
+  forensic records. LUMINA does not claim "full privacy compliance."
+- **Live Supabase verification is not yet performed** — PostgreSQL behavior is
+  verified against a local PostgreSQL mirror (and both persistence backends are
+  covered by the test suite); a live Supabase project has not been exercised
+  from CI. The Supabase free-tier 7-day inactivity pause is a documented
+  availability limitation.
 
 ---
 

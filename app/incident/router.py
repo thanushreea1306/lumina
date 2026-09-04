@@ -7,6 +7,7 @@ Routes:
     GET  /api/incidents/{incident_id}                get incident (auth required)
     POST /api/incidents/{incident_id}/evidence       add observation (auth required)
     POST /api/incidents/{incident_id}/actions        record user action (auth required)
+    POST /api/incidents/{incident_id}/close          close/archive incident (auth required)
     GET  /api/incidents/{incident_id}/next-action    get next action (auth required)
     POST /api/incidents/{incident_id}/transcript     add text transcript (auth required)
     POST /api/incidents/{incident_id}/transcript/segments  add segment batch (auth required)
@@ -16,10 +17,11 @@ All routes use the existing HMAC authentication infrastructure.
 """
 from __future__ import annotations
 
+import hashlib
 import logging
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Header, HTTPException, Request, UploadFile
 from pydantic import BaseModel, Field
 
 from app.evidence.auth import authenticate_request
@@ -90,6 +92,19 @@ def _require_owner(incident_id: str, device_id: str) -> None:
         )
 
 
+def _derive_audio_batch_id(device_id: str, incident_id: str, idempotency_key: str) -> str:
+    """Deterministic audio batch id scoped to owner + incident + idempotency key.
+
+    The idempotency key alone is not namespaced, so it is combined with the
+    authenticated owner device id and the incident id to build a unique,
+    retry-stable batch id. This scopes the deduplication to a single logical
+    operation (same owner + same incident + same key) and prevents one owner
+    from colliding with (or hiding under) another owner's idempotency state.
+    """
+    raw = f"{device_id}|{incident_id}|{idempotency_key}"
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:32]
+
+
 def _normalize_public_speaker(speaker: Optional[str]) -> str:
     """Normalize an untrusted client-supplied speaker label to UNKNOWN.
 
@@ -119,6 +134,10 @@ class AddEvidenceRequest(BaseModel):
 class RecordActionRequest(BaseModel):
     action_type: str
     description: str
+
+
+class CloseIncidentRequest(BaseModel):
+    reason: Optional[str] = Field(default=None, max_length=500)
 
 
 class TranscriptRequest(BaseModel):
@@ -252,6 +271,35 @@ def record_action(
     }
 
 
+@router.post("/api/incidents/{incident_id}/close")
+def close_incident(
+    incident_id: str,
+    req: CloseIncidentRequest,
+    device_id: str = Depends(require_auth),
+) -> Dict[str, Any]:
+    """Close (archive) an incident.
+
+    Server-side, authenticated, owner-scoped. Sets status to CLOSED, appends
+    an append-only INCIDENT_CLOSED timeline entry, and refreshes updated_at.
+    Closing is explicit and is never triggered by automatic heuristics. It
+    never deletes evidence, timeline, exposure, or user actions — a closed
+    incident remains readable for history. A closed incident stays closed.
+    """
+    _require_owner(incident_id, device_id)
+
+    try:
+        incident = _engine.close_incident(incident_id, req.reason or None)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+    return {
+        "incident_id": incident.incident_id,
+        "status": incident.status.value,
+        "closed": incident.status.value == "CLOSED",
+        "timeline_count": len(incident.timeline),
+    }
+
+
 @router.post("/api/incidents/{incident_id}/transcript")
 def add_transcript(
     incident_id: str,
@@ -263,6 +311,13 @@ def add_transcript(
     Supports:
       - Simple text transcript (backward compatible)
       - Batch ID for idempotency
+
+    SAFETY RULE: transcript claim != explicit user confirmation.
+    First-person action phrases ("I shared the OTP") are extracted as
+    UNCONFIRMED claims (timeline source="TRANSCRIPT_CLAIM", epistemic
+    INFERENCE). They never auto-create a confirmed UserAction. Exposure stays
+    POTENTIALLY_EXPOSED until the user explicitly confirms via
+    POST /api/incidents/{id}/actions.
     """
     _require_owner(incident_id, device_id)
 
@@ -400,6 +455,7 @@ async def upload_audio(
     incident_id: str,
     audio: UploadFile = File(...),
     device_id: str = Depends(require_auth),
+    x_idempotency_key: Optional[str] = Header(None, alias="X-Idempotency-Key"),
 ) -> Dict[str, Any]:
     """Upload an audio file for speech-to-text transcription.
 
@@ -413,6 +469,12 @@ async def upload_audio(
 
     The audio file is written to a temporary file for processing,
     then immediately deleted. Raw audio is never persisted.
+
+    Optional idempotency: set `X-Idempotency-Key` to make a retry return the
+    already-processed result instead of creating a duplicate transcript batch.
+    The key is scoped to (authenticated owner, incident) and is checked BEFORE
+    the expensive transcription so a retry does not re-run Whisper. A missing
+    key preserves the previous non-deduped behavior (each upload is a new batch).
 
     Supported formats: WAV, MP3, FLAC, OGG, M4A, WebM, WMA.
     Maximum file size: 50 MB.
@@ -456,7 +518,16 @@ async def upload_audio(
             detail=f"Audio file too large: {len(audio_bytes)} bytes (maximum: {MAX_AUDIO_BYTES})",
         )
 
-    # 4. Transcribe via WhisperSTTProvider
+    # 4. Idempotency (optional): derive a scoped batch id from the authenticated
+    # owner + incident + caller key, and check BEFORE the expensive transcription
+    # so a retry does not re-run Whisper model inference.
+    batch_id: Optional[str] = None
+    already_processed = False
+    if x_idempotency_key:
+        batch_id = _derive_audio_batch_id(device_id, incident_id, x_idempotency_key)
+        already_processed = _engine.store.has_batch(batch_id)
+
+    # 5. Transcribe via WhisperSTTProvider (skipped entirely on an idempotent retry)
     from app.incident.transcript_provider import get_provider
 
     provider = get_provider("whisper_stt")
@@ -466,27 +537,48 @@ async def upload_audio(
             detail="Speech-to-text provider is not available",
         )
 
-    try:
-        batch: TranscriptBatch = await provider.provide_segments(
-            audio_bytes, incident_id
+    if already_processed:
+        # Replay: do not transcribe again, do not insert again. Feed an empty
+        # batch carrying the same batch_id through the engine, which will hit the
+        # has_batch() guard and return the existing incident unchanged.
+        batch: TranscriptBatch = TranscriptBatch(
+            batch_id=batch_id,
+            incident_id=incident_id,
+            segments=[],
+            full_text="",
+            source="STT_PROVIDER",
         )
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc))
-    except Exception as exc:
-        logger.exception("Transcription failed")
-        raise HTTPException(
-            status_code=500,
-            detail="Speech-to-text transcription failed. Please try again.",
+        logger.info(
+            "audio upload idempotent retry, batch already processed incident=%s",
+            incident_id,
         )
+    else:
+        try:
+            if batch_id is not None:
+                batch = await provider.provide_segments(
+                    audio_bytes, incident_id, batch_id=batch_id
+                )
+            else:
+                batch = await provider.provide_segments(audio_bytes, incident_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc))
+        except Exception as exc:
+            logger.exception("Transcription failed")
+            raise HTTPException(
+                status_code=500,
+                detail="Speech-to-text transcription failed. Please try again.",
+            )
 
-    # 5. Feed batch into existing incident engine
+    idempotent_replay = already_processed
+
+    # 6. Feed batch into existing incident engine
     try:
         incident, extraction = _engine.add_transcript_batch(incident_id, batch)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
 
-    # 6. Return structured response
-    return {
+    # 7. Return structured response
+    response = {
         "incident_id": incident.incident_id,
         "status": incident.status.value,
         "priority": incident.priority.value,
@@ -504,4 +596,6 @@ async def upload_audio(
             "language": batch.metadata.get("language", "unknown"),
             "duration_seconds": batch.metadata.get("duration_seconds"),
         },
+        "idempotent_replay": idempotent_replay,
     }
+    return response
