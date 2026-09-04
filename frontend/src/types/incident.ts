@@ -175,12 +175,17 @@ export interface ListIncidentsResponse {
 
 export type TranscriptSource = 'USER_TYPED' | 'USER_DICTATED' | 'STT_PROVIDER' | 'MESSAGE_FORWARD';
 
+export type SpeakerAttributionMethod = 'EXTRACTED' | 'PROVIDED' | 'STT' | 'UNKNOWN';
+export type SpeakerEpistemicStatus = 'ESTABLISHED' | 'INFERRED' | 'UNKNOWN';
+
 export interface TranscriptSegment {
   segment_id: string;
   text: string;
   start_time?: number;
   end_time?: number;
   speaker?: 'CALLER' | 'USER' | 'UNKNOWN';
+  speaker_attribution_method?: SpeakerAttributionMethod;
+  speaker_epistemic_status?: SpeakerEpistemicStatus;
   source_provider: string;
   created_at: string;
   metadata?: Record<string, unknown>;
@@ -297,4 +302,213 @@ export interface UploadAudioResponse {
   next_action: RecommendedAction | null;
   timeline_count: number;
   transcription: AudioTranscriptionInfo;
+}
+
+// ---- Escalation Types (CP-13) ----
+
+export type EscalationStage = 'SETUP' | 'PRESSURE' | 'EXTRACTION';
+
+export type PatternStatus = 'PROGRESSING' | 'COMPLETE' | 'STATIC';
+
+export interface EscalationEvent {
+  timeline_entry_id: string;
+  sequence: number;
+  timestamp: string;
+  observation_type: string;
+  text_span: string;
+}
+
+export interface EscalationPattern {
+  pattern_id: string;
+  pattern_name: string;
+  stages_matched: string[];
+  stage: EscalationStage;
+  status: PatternStatus;
+  evidence_events: EscalationEvent[];
+  explanation: string;
+  first_detected_at: string;
+  last_updated_at: string;
+  epistemic_status: string;
+}
+
+export interface RepeatedRequest {
+  request_type: string;
+  count: number;
+  event_count: number;
+  explanation: string;
+  epistemic_status: string;
+}
+
+export interface EscalationResult {
+  patterns: EscalationPattern[];
+  repeated_requests: RepeatedRequest[];
+  overall_stage: EscalationStage;
+  has_escalation: boolean;
+  evidence_basis: string[];
+  epistemic_status: string;
+}
+
+// ---- Streaming Types (CP-15) ----
+
+export type SessionStatus =
+  | 'IDLE'
+  | 'CAPTURING'
+  | 'PROCESSING'
+  | 'PAUSED'
+  | 'COMPLETE'
+  | 'ERROR'
+  | 'ABORTED';
+
+export interface StartStreamResponse {
+  session_id: string;
+  incident_id: string;
+  status: SessionStatus;
+  message: string;
+}
+
+export interface StreamChunkResponse {
+  session_id: string;
+  chunk_sequence: number;
+  accepted: boolean;
+  reason?: string;
+  segments_produced?: number;
+  new_observations?: number;
+  new_actions?: number;
+  total_segments?: number;
+  total_observations?: number;
+}
+
+export interface FinishStreamResponse {
+  session_id: string;
+  incident_id: string;
+  status: SessionStatus;
+  total_chunks: number;
+  total_segments: number;
+  total_observations: number;
+  total_duration_seconds: number;
+}
+
+export interface AbortStreamResponse {
+  session_id: string;
+  status: string;
+  total_segments?: number;
+}
+
+export interface StreamingState {
+  status: SessionStatus;
+  sessionId: string | null;
+  isRecording: boolean;
+  totalChunks: number;
+  totalSegments: number;
+  totalObservations: number;
+  error: string | null;
+  lastChunkAt: number | null;
+}
+
+// ---- Help Request Types (CP-16) ----
+
+export type HelpUrgency = 'IMMEDIATE' | 'HIGH' | 'MEDIUM' | 'LOW';
+
+export interface HelpStorySection {
+  heading: string;
+  content: string;
+  epistemic_status: string;
+}
+
+export interface HelpStory {
+  incident_id: string;
+  generated_at: string;
+  urgency: HelpUrgency;
+  one_line_summary: string;
+  sections: HelpStorySection[];
+  privacy_note: string;
+}
+
+export interface HelpRequestResponse {
+  incident_id: string;
+  help_story: HelpStory;
+  help_story_text: string;
+  already_requested: boolean;
+  trusted_contact_notified: boolean;
+  delivery_status: string;
+}
+
+// ---- Audio Source Types (CP-16) ----
+
+export type AudioSourceType =
+  | 'USER_PROVIDED_RECORDING'
+  | 'MICROPHONE'
+  | 'USER_DICTATED'
+  | 'MESSAGE_FORWARD'
+  | 'SYSTEM_CALL_AUDIO'
+  | 'VOIP_CALL_AUDIO';
+
+export type CapabilityStatus = 'AVAILABLE' | 'PARTIALLY_AVAILABLE' | 'NOT_AVAILABLE' | 'NOT_TESTED';
+
+export type AudioSide = 'LOCAL_ONLY' | 'REMOTE_ONLY' | 'BOTH_SIDES' | 'UNKNOWN';
+
+export interface AudioSourceCapability {
+  source_type: AudioSourceType;
+  platform: string;
+  status: CapabilityStatus;
+  audio_side: AudioSide;
+  requires_permission: string;
+  android_version_constraint?: string;
+  notes: string;
+}
+
+// ---- Trusted Contact Types (CP-17) ----
+
+export type DeliveryChannel = 'SMS' | 'EMAIL' | 'NONE';
+
+export type HelpRequestLifecycleStatus =
+  | 'NOT_CONFIGURED'
+  | 'AUTHORIZED'
+  | 'REQUESTED'
+  | 'QUEUED'
+  | 'SENDING'
+  | 'SENT'
+  | 'DELIVERED'
+  | 'FAILED'
+  | 'UNKNOWN';
+
+export interface TrustedContactConfig {
+  contact_id: string;
+  display_name: string;
+  delivery_channel: DeliveryChannel;
+  destination_masked?: string;
+  enabled: boolean;
+  automatic_help_enabled: boolean;
+  configured_at: string;
+  updated_at: string;
+}
+
+export interface ConfigureTrustedContactRequest {
+  display_name: string;
+  delivery_channel: DeliveryChannel;
+  destination: string;
+  automatic_help_enabled?: boolean;
+}
+
+export interface HelpPolicyConfig {
+  automatic_detection_enabled: boolean;
+  automatic_help_request_enabled: boolean;
+  auto_help_threshold: string;
+}
+
+export interface TrustedContactResponse {
+  configured: boolean;
+  contact: TrustedContactConfig | null;
+}
+
+export interface HelpRequestResponse {
+  incident_id: string;
+  help_story: HelpStory;
+  help_story_text: string;
+  already_requested: boolean;
+  request_id?: string;
+  request_status?: string;
+  delivery_status: string;
+  trusted_contact_configured: boolean;
+  delivery_channel?: string;
 }

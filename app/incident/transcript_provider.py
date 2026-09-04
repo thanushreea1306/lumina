@@ -48,6 +48,13 @@ class TranscriptSegment:
         end_time: Optional end timestamp. None when unavailable.
         speaker: Optional speaker label (CALLER, USER, UNKNOWN).
                  None when speaker metadata is unavailable.
+        speaker_attribution_method: How the speaker was determined.
+                 One of: "EXTRACTED" (from text pattern analysis),
+                 "PROVIDED" (by client/user), "STT" (by model),
+                 or "UNKNOWN" (could not determine).
+        speaker_epistemic_status: How certain we are about the speaker.
+                 One of: "ESTABLISHED" (explicitly known),
+                 "INFERRED" (deduced from context), "UNKNOWN" (uncertain).
         source_provider: Which provider produced this segment.
         created_at: When this segment was received by LUMINA.
         metadata: Provider-specific metadata (e.g., confidence scores
@@ -58,6 +65,8 @@ class TranscriptSegment:
     start_time: Optional[float] = None
     end_time: Optional[float] = None
     speaker: Optional[str] = None  # "CALLER", "USER", "UNKNOWN", or None
+    speaker_attribution_method: str = "UNKNOWN"  # "EXTRACTED", "PROVIDED", "STT", "UNKNOWN"
+    speaker_epistemic_status: str = "UNKNOWN"    # "ESTABLISHED", "INFERRED", "UNKNOWN"
     source_provider: str = "USER_TYPED"
     created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     metadata: Dict[str, Any] = field(default_factory=dict)
@@ -75,6 +84,10 @@ class TranscriptSegment:
             result["end_time"] = self.end_time
         if self.speaker is not None:
             result["speaker"] = self.speaker
+        if self.speaker_attribution_method != "UNKNOWN":
+            result["speaker_attribution_method"] = self.speaker_attribution_method
+        if self.speaker_epistemic_status != "UNKNOWN":
+            result["speaker_epistemic_status"] = self.speaker_epistemic_status
         if self.metadata:
             result["metadata"] = self.metadata
         return result
@@ -87,6 +100,8 @@ class TranscriptSegment:
             start_time=data.get("start_time"),
             end_time=data.get("end_time"),
             speaker=data.get("speaker"),
+            speaker_attribution_method=data.get("speaker_attribution_method", "UNKNOWN"),
+            speaker_epistemic_status=data.get("speaker_epistemic_status", "UNKNOWN"),
             source_provider=data.get("source_provider", "USER_TYPED"),
             created_at=data.get("created_at", datetime.now(timezone.utc).isoformat()),
             metadata=data.get("metadata", {}),

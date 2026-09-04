@@ -215,3 +215,76 @@ class PersistenceBackend:
 
     def get_extractions(self, incident_id: str) -> List[Dict]:
         raise NotImplementedError
+
+    # ---- trusted contacts ----
+
+    def save_trusted_contact(
+        self,
+        contact_id: str,
+        owner_device_id: str,
+        display_name: str,
+        delivery_channel: str,
+        destination: str,
+        enabled: bool,
+        automatic_help_enabled: bool,
+        configured_at: str,
+        updated_at: str,
+        created_at: str,
+        txn: Optional[TransactionCtx] = None,
+    ) -> None:
+        raise NotImplementedError
+
+    def get_trusted_contact(self, owner_device_id: str) -> Optional[Dict]:
+        raise NotImplementedError
+
+    def get_trusted_contact_by_id(self, contact_id: str) -> Optional[Dict]:
+        raise NotImplementedError
+
+    # ---- help requests ----
+
+    def save_help_request(
+        self,
+        request_id: str,
+        incident_id: str,
+        owner_device_id: str,
+        contact_id: Optional[str],
+        status: str,
+        delivery_channel: str,
+        reason: Optional[str],
+        provider_request_id: Optional[str],
+        delivered_at: Optional[str],
+        failed_at: Optional[str],
+        failure_reason: Optional[str],
+        created_at: str,
+        updated_at: str,
+        txn: Optional[TransactionCtx] = None,
+    ) -> None:
+        raise NotImplementedError
+
+    def get_help_request_for_incident(self, incident_id: str) -> Optional[Dict]:
+        raise NotImplementedError
+
+    def update_help_request_status(
+        self,
+        request_id: str,
+        status: str,
+        failure_reason: Optional[str] = None,
+        txn: Optional[TransactionCtx] = None,
+    ) -> Optional[Dict]:
+        raise NotImplementedError
+
+    # ---- help policies ----
+
+    def save_help_policy(
+        self,
+        owner_device_id: str,
+        automatic_detection_enabled: bool,
+        automatic_help_request_enabled: bool,
+        auto_help_threshold: str,
+        updated_at: str,
+        txn: Optional[TransactionCtx] = None,
+    ) -> None:
+        raise NotImplementedError
+
+    def get_help_policy(self, owner_device_id: str) -> Optional[Dict]:
+        raise NotImplementedError

@@ -198,6 +198,45 @@ CREATE TABLE IF NOT EXISTS incident_exposure (
     updated_at TEXT NOT NULL,
     UNIQUE (incident_id, category)
 );
+
+CREATE TABLE IF NOT EXISTS trusted_contacts (
+    contact_id TEXT PRIMARY KEY,
+    owner_device_id TEXT NOT NULL,
+    display_name TEXT NOT NULL,
+    delivery_channel TEXT NOT NULL DEFAULT 'NONE',
+    destination TEXT NOT NULL DEFAULT '',
+    enabled INTEGER NOT NULL DEFAULT 1,
+    automatic_help_enabled INTEGER NOT NULL DEFAULT 0,
+    configured_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    UNIQUE (owner_device_id)
+);
+
+CREATE TABLE IF NOT EXISTS help_requests (
+    request_id TEXT PRIMARY KEY,
+    incident_id TEXT NOT NULL,
+    owner_device_id TEXT NOT NULL,
+    contact_id TEXT,
+    status TEXT NOT NULL DEFAULT 'REQUESTED',
+    delivery_channel TEXT NOT NULL DEFAULT 'NONE',
+    reason TEXT,
+    provider_request_id TEXT,
+    delivered_at TEXT,
+    failed_at TEXT,
+    failure_reason TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE (incident_id)
+);
+
+CREATE TABLE IF NOT EXISTS help_policies (
+    owner_device_id TEXT PRIMARY KEY,
+    automatic_detection_enabled INTEGER NOT NULL DEFAULT 0,
+    automatic_help_request_enabled INTEGER NOT NULL DEFAULT 0,
+    auto_help_threshold TEXT NOT NULL DEFAULT 'EXTRACTION',
+    updated_at TEXT NOT NULL
+);
 """
 
 
@@ -814,3 +853,194 @@ class SQLiteBackend(PersistenceBackend):
         ).fetchall()
         conn.close()
         return [dict(r) for r in rows]
+
+    # ---- trusted contacts ----
+
+    def save_trusted_contact(
+        self,
+        contact_id: str,
+        owner_device_id: str,
+        display_name: str,
+        delivery_channel: str,
+        destination: str,
+        enabled: bool,
+        automatic_help_enabled: bool,
+        configured_at: str,
+        updated_at: str,
+        created_at: str,
+        txn: Optional[TransactionCtx] = None,
+    ) -> None:
+        def _do(conn: sqlite3.Connection) -> None:
+            conn.execute(
+                "INSERT OR REPLACE INTO trusted_contacts "
+                "(contact_id, owner_device_id, display_name, delivery_channel, "
+                "destination, enabled, automatic_help_enabled, configured_at, "
+                "updated_at, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    contact_id, owner_device_id, display_name, delivery_channel,
+                    destination, int(enabled), int(automatic_help_enabled),
+                    configured_at, updated_at, created_at,
+                ),
+            )
+        if txn is not None:
+            _do(txn.connection)
+        else:
+            conn = self._connect()
+            try:
+                _do(conn)
+                conn.commit()
+            finally:
+                conn.close()
+
+    def get_trusted_contact(self, owner_device_id: str) -> Optional[Dict]:
+        conn = self._connect()
+        row = conn.execute(
+            "SELECT * FROM trusted_contacts WHERE owner_device_id = ?",
+            (owner_device_id,),
+        ).fetchone()
+        conn.close()
+        return dict(row) if row else None
+
+    def get_trusted_contact_by_id(self, contact_id: str) -> Optional[Dict]:
+        conn = self._connect()
+        row = conn.execute(
+            "SELECT * FROM trusted_contacts WHERE contact_id = ?",
+            (contact_id,),
+        ).fetchone()
+        conn.close()
+        return dict(row) if row else None
+
+    # ---- help requests ----
+
+    def save_help_request(
+        self,
+        request_id: str,
+        incident_id: str,
+        owner_device_id: str,
+        contact_id: Optional[str],
+        status: str,
+        delivery_channel: str,
+        reason: Optional[str],
+        provider_request_id: Optional[str],
+        delivered_at: Optional[str],
+        failed_at: Optional[str],
+        failure_reason: Optional[str],
+        created_at: str,
+        updated_at: str,
+        txn: Optional[TransactionCtx] = None,
+    ) -> None:
+        def _do(conn: sqlite3.Connection) -> None:
+            conn.execute(
+                "INSERT OR REPLACE INTO help_requests "
+                "(request_id, incident_id, owner_device_id, contact_id, "
+                "status, delivery_channel, reason, provider_request_id, "
+                "delivered_at, failed_at, failure_reason, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    request_id, incident_id, owner_device_id, contact_id,
+                    status, delivery_channel, reason, provider_request_id,
+                    delivered_at, failed_at, failure_reason, created_at, updated_at,
+                ),
+            )
+        if txn is not None:
+            _do(txn.connection)
+        else:
+            conn = self._connect()
+            try:
+                _do(conn)
+                conn.commit()
+            finally:
+                conn.close()
+
+    def get_help_request_for_incident(self, incident_id: str) -> Optional[Dict]:
+        conn = self._connect()
+        row = conn.execute(
+            "SELECT * FROM help_requests WHERE incident_id = ?",
+            (incident_id,),
+        ).fetchone()
+        conn.close()
+        return dict(row) if row else None
+
+    def update_help_request_status(
+        self,
+        request_id: str,
+        status: str,
+        failure_reason: Optional[str] = None,
+        txn: Optional[TransactionCtx] = None,
+    ) -> Optional[Dict]:
+        def _do(conn: sqlite3.Connection) -> Optional[Dict]:
+            from datetime import datetime, timezone
+            now = datetime.now(timezone.utc).isoformat()
+            updates = ["status = ?", "updated_at = ?"]
+            params: list = [status, now]
+            if status == "DELIVERED":
+                updates.append("delivered_at = ?")
+                params.append(now)
+            if status == "FAILED":
+                updates.append("failed_at = ?")
+                params.append(now)
+                if failure_reason:
+                    updates.append("failure_reason = ?")
+                    params.append(failure_reason)
+            params.append(request_id)
+            conn.execute(
+                f"UPDATE help_requests SET {', '.join(updates)} WHERE request_id = ?",
+                params,
+            )
+            row = conn.execute(
+                "SELECT * FROM help_requests WHERE request_id = ?",
+                (request_id,),
+            ).fetchone()
+            return dict(row) if row else None
+        if txn is not None:
+            return _do(txn.connection)
+        conn = self._connect()
+        try:
+            result = _do(conn)
+            conn.commit()
+            return result
+        finally:
+            conn.close()
+
+    # ---- help policies ----
+
+    def save_help_policy(
+        self,
+        owner_device_id: str,
+        automatic_detection_enabled: bool,
+        automatic_help_request_enabled: bool,
+        auto_help_threshold: str,
+        updated_at: str,
+        txn: Optional[TransactionCtx] = None,
+    ) -> None:
+        def _do(conn: sqlite3.Connection) -> None:
+            conn.execute(
+                "INSERT OR REPLACE INTO help_policies "
+                "(owner_device_id, automatic_detection_enabled, "
+                "automatic_help_request_enabled, auto_help_threshold, updated_at) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (
+                    owner_device_id, int(automatic_detection_enabled),
+                    int(automatic_help_request_enabled), auto_help_threshold,
+                    updated_at,
+                ),
+            )
+        if txn is not None:
+            _do(txn.connection)
+        else:
+            conn = self._connect()
+            try:
+                _do(conn)
+                conn.commit()
+            finally:
+                conn.close()
+
+    def get_help_policy(self, owner_device_id: str) -> Optional[Dict]:
+        conn = self._connect()
+        row = conn.execute(
+            "SELECT * FROM help_policies WHERE owner_device_id = ?",
+            (owner_device_id,),
+        ).fetchone()
+        conn.close()
+        return dict(row) if row else None

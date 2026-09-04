@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import os
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, File, Header, HTTPException, Request, UploadFile
@@ -28,10 +29,27 @@ from app.evidence.auth import authenticate_request
 from app.evidence.db import EvidenceStore
 from app.evidence.models import UserObservationType
 from app.incident.engine import IncidentEngine
-from app.incident.models import UserActionType
+from app.incident.models import EpistemicStatus, UserActionType
 from app.incident.transcript import TranscriptSource
 from app.incident.transcript_provider import TranscriptBatch, TranscriptSegment
 from app.incident.whisper_provider import MAX_AUDIO_BYTES, SUPPORTED_EXTENSIONS
+from app.incident.trusted_contact import (
+    DeliveryChannel,
+    HelpPolicy,
+    HelpRequest,
+    HelpRequestStatus,
+    TrustedContact,
+    get_help_policy,
+    get_help_request_for_incident,
+    get_trusted_contact,
+    save_help_policy,
+    save_help_request,
+    update_help_request_status,
+)
+from app.incident.delivery import (
+    DeliveryResultStatus,
+    attempt_delivery,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -599,3 +617,671 @@ async def upload_audio(
         "idempotent_replay": idempotent_replay,
     }
     return response
+
+
+# ---- Streaming Session Endpoints (CP-15) ----
+
+
+class StartStreamRequest(BaseModel):
+    incident_id: str
+
+
+class StreamChunkData(BaseModel):
+    sequence: int
+    media_type: str = "audio/webm"
+    duration_seconds: Optional[float] = None
+    client_timestamp: Optional[str] = None
+    # Audio data is sent as multipart, not JSON
+
+
+class FinishStreamRequest(BaseModel):
+    pass
+
+
+@router.post("/api/incidents/{incident_id}/stream/start")
+def start_stream(
+    incident_id: str,
+    device_id: str = Depends(require_auth),
+) -> Dict[str, Any]:
+    """Start a streaming audio session.
+
+    Returns a session_id for subsequent chunk uploads.
+    The session enforces resource limits (max duration, max chunks, idle timeout).
+    """
+    _require_owner(incident_id, device_id)
+
+    from app.incident.streaming import (
+        get_streaming_provider,
+        get_streaming_registry,
+    )
+
+    provider = get_streaming_provider()
+    if provider is None or not provider.is_available:
+        raise HTTPException(
+            status_code=503,
+            detail="Streaming STT provider is not available",
+        )
+
+    registry = get_streaming_registry()
+    session = registry.create_session(incident_id, provider)
+    if session is None:
+        raise HTTPException(
+            status_code=429,
+            detail="Too many concurrent streaming sessions",
+        )
+
+    session_id = provider.start_session(incident_id, session.session_id)
+    session.status = session.status.CAPTURING
+
+    return {
+        "session_id": session_id,
+        "incident_id": incident_id,
+        "status": session.status.value,
+        "message": "Streaming session started. Send audio chunks to /stream/chunk.",
+    }
+
+
+@router.post("/api/incidents/{incident_id}/stream/chunk")
+async def upload_stream_chunk(
+    incident_id: str,
+    audio: UploadFile = File(...),
+    sequence: int = 0,
+    media_type: str = "audio/webm",
+    duration_seconds: Optional[float] = None,
+    session_id: Optional[str] = Header(None, alias="X-Stream-Session-ID"),
+    device_id: str = Depends(require_auth),
+) -> Dict[str, Any]:
+    """Upload an audio chunk to an active streaming session.
+
+    Each chunk is transcribed incrementally and the incident state
+    is updated after each chunk arrives.
+
+    Idempotency: chunks with duplicate sequence numbers are rejected.
+    """
+    _require_owner(incident_id, device_id)
+
+    if not session_id:
+        raise HTTPException(status_code=422, detail="X-Stream-Session-ID header is required")
+
+    from app.incident.streaming import (
+        AudioChunk,
+        get_streaming_registry,
+    )
+
+    registry = get_streaming_registry()
+    session = registry.get_session(session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Streaming session not found or expired")
+
+    if session.incident_id != incident_id:
+        raise HTTPException(status_code=403, detail="Session does not belong to this incident")
+
+    # Read audio bytes
+    audio_bytes = await audio.read()
+    if len(audio_bytes) == 0:
+        raise HTTPException(status_code=422, detail="Audio chunk is empty")
+
+    # Build chunk
+    chunk = AudioChunk(
+        session_id=session_id,
+        sequence=sequence,
+        data=audio_bytes,
+        media_type=media_type,
+        duration_seconds=duration_seconds,
+    )
+
+    # Validate and register chunk
+    if not session.accept_chunk(chunk):
+        if not session.is_active:
+            raise HTTPException(status_code=409, detail=f"Session is not active (status: {session.status.value})")
+        # Duplicate sequence — return success without reprocessing
+        return {
+            "session_id": session_id,
+            "chunk_sequence": sequence,
+            "accepted": False,
+            "reason": "duplicate or invalid sequence",
+        }
+
+    # Transcribe chunk
+    session.status = session.status.PROCESSING
+    try:
+        provider = session.provider
+        segments = await provider.transcribe_chunk(session_id, chunk)
+    except Exception as exc:
+        session.status = session.status.ERROR
+        raise HTTPException(status_code=500, detail=f"Chunk transcription failed: {exc}")
+
+    # Extract observations from new segments
+    new_observations = 0
+    new_actions = 0
+    if segments:
+        # Build a minimal transcript for extraction
+        from app.incident.transcript import Transcript, TextEvidenceExtractor, TranscriptSource
+        full_text = " ".join(s.text for s in segments)
+        transcript = Transcript(
+            incident_id=incident_id,
+            source=TranscriptSource.STT_PROVIDER,
+            text=full_text,
+            segments=segments,
+        )
+        extractor = TextEvidenceExtractor()
+        result = extractor.extract(transcript)
+        new_observations = len(result.observations)
+        new_actions = len(result.user_actions)
+
+        # Feed into incident engine for state update
+        batch = TranscriptBatch(
+            incident_id=incident_id,
+            segments=segments,
+            full_text=full_text,
+            source="STT_PROVIDER",
+            metadata={"streaming_session": session_id, "chunk_sequence": sequence},
+        )
+        try:
+            _engine.add_transcript_batch(incident_id, batch)
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc))
+
+    session.add_segments(segments, new_observations, new_actions)
+    session.status = session.status.CAPTURING
+
+    return {
+        "session_id": session_id,
+        "chunk_sequence": sequence,
+        "accepted": True,
+        "segments_produced": len(segments),
+        "new_observations": new_observations,
+        "new_actions": new_actions,
+        "total_segments": session.total_segments,
+        "total_observations": session.total_observations,
+    }
+
+
+@router.post("/api/incidents/{incident_id}/stream/finish")
+def finish_stream(
+    incident_id: str,
+    session_id: Optional[str] = Header(None, alias="X-Stream-Session-ID"),
+    device_id: str = Depends(require_auth),
+) -> Dict[str, Any]:
+    """Finish a streaming session.
+
+    Marks the session as COMPLETE and returns final statistics.
+    """
+    _require_owner(incident_id, device_id)
+
+    if not session_id:
+        raise HTTPException(status_code=422, detail="X-Stream-Session-ID header is required")
+
+    from app.incident.streaming import get_streaming_registry
+
+    registry = get_streaming_registry()
+    session = registry.get_session(session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Streaming session not found or expired")
+
+    if session.incident_id != incident_id:
+        raise HTTPException(status_code=403, detail="Session does not belong to this incident")
+
+    from datetime import datetime, timezone
+    session.finished_at = datetime.now(timezone.utc).isoformat()
+    session.status = session.status.COMPLETE
+
+    result = {
+        "session_id": session_id,
+        "incident_id": incident_id,
+        "status": session.status.value,
+        "total_chunks": session._chunks_processed,
+        "total_segments": session.total_segments,
+        "total_observations": session.total_observations,
+        "total_duration_seconds": session._total_duration,
+    }
+
+    # Clean up session
+    registry.remove_session(session_id)
+
+    return result
+
+
+@router.post("/api/incidents/{incident_id}/stream/abort")
+def abort_stream(
+    incident_id: str,
+    session_id: Optional[str] = Header(None, alias="X-Stream-Session-ID"),
+    device_id: str = Depends(require_auth),
+) -> Dict[str, Any]:
+    """Abort a streaming session and clean up resources."""
+    _require_owner(incident_id, device_id)
+
+    if not session_id:
+        raise HTTPException(status_code=422, detail="X-Stream-Session-ID header is required")
+
+    from app.incident.streaming import get_streaming_registry
+
+    registry = get_streaming_registry()
+    session = registry.get_session(session_id)
+    if session is None:
+        return {"session_id": session_id, "status": "ABORTED", "message": "Session already removed"}
+
+    session.status = session.status.ABORTED
+    try:
+        session.provider.abort_session(session_id)
+    except Exception:
+        pass
+    registry.remove_session(session_id)
+
+    return {
+        "session_id": session_id,
+        "status": "ABORTED",
+        "total_segments": session.total_segments,
+    }
+
+
+# ---- Trusted Contact Configuration Endpoints (CP-17) ----
+
+
+class ConfigureTrustedContactRequest(BaseModel):
+    display_name: str = Field(..., min_length=1, max_length=100)
+    delivery_channel: str = Field(..., pattern=r"^(SMS|EMAIL|NONE)$")
+    destination: str = Field(..., min_length=1, max_length=200)
+    automatic_help_enabled: bool = False
+
+
+class UpdateHelpPolicyRequest(BaseModel):
+    automatic_detection_enabled: bool = False
+    automatic_help_request_enabled: bool = False
+    auto_help_threshold: str = Field(default="EXTRACTION", pattern=r"^(SETUP|PRESSURE|EXTRACTION)$")
+
+
+@router.post("/api/trusted-contact")
+def configure_trusted_contact(
+    req: ConfigureTrustedContactRequest,
+    device_id: str = Depends(require_auth),
+) -> Dict[str, Any]:
+    """Configure a trusted contact for emergency assistance.
+
+    Owner-bound. Only one contact per owner (upsert).
+    Destination is stored but not logged.
+    """
+    try:
+        channel = DeliveryChannel(req.delivery_channel)
+    except ValueError:
+        raise HTTPException(status_code=422, detail=f"Invalid delivery channel: {req.delivery_channel}")
+
+    contact = TrustedContact(
+        owner_device_id=device_id,
+        display_name=req.display_name,
+        delivery_channel=channel,
+        destination=req.destination,
+        automatic_help_enabled=req.automatic_help_enabled,
+    )
+    save_trusted_contact(contact)
+
+    logger.info(
+        "trusted contact configured: owner=%s channel=%s enabled=%s",
+        device_id, channel.value, contact.enabled,
+    )
+
+    return {
+        "contact": contact.to_owner_dict(),
+        "message": "Trusted contact configured successfully",
+    }
+
+
+@router.get("/api/trusted-contact")
+def get_my_trusted_contact(
+    device_id: str = Depends(require_auth),
+) -> Dict[str, Any]:
+    """Get the current trusted contact configuration.
+
+    Returns the contact with destination masked for safety.
+    """
+    contact = get_trusted_contact(device_id)
+    if contact is None:
+        return {
+            "configured": False,
+            "contact": None,
+        }
+    return {
+        "configured": True,
+        "contact": contact.to_dict(redact_destination=True),
+    }
+
+
+@router.post("/api/help-policy")
+def update_help_policy(
+    req: UpdateHelpPolicyRequest,
+    device_id: str = Depends(require_auth),
+) -> Dict[str, Any]:
+    """Update automatic help assistance policy.
+
+    Both automatic_detection_enabled and automatic_help_request_enabled
+    require explicit prior configuration. Default is conservative (OFF).
+    """
+    policy = HelpPolicy(
+        owner_device_id=device_id,
+        automatic_detection_enabled=req.automatic_detection_enabled,
+        automatic_help_request_enabled=req.automatic_help_request_enabled,
+        auto_help_threshold=req.auto_help_threshold,
+    )
+    save_help_policy(policy)
+
+    logger.info(
+        "help policy updated: owner=%s auto_detect=%s auto_help=%s threshold=%s",
+        device_id, policy.automatic_detection_enabled,
+        policy.automatic_help_request_enabled, policy.auto_help_threshold,
+    )
+
+    return {
+        "policy": policy.to_dict(),
+        "message": "Help policy updated",
+    }
+
+
+@router.get("/api/help-policy")
+def get_help_policy_endpoint(
+    device_id: str = Depends(require_auth),
+) -> Dict[str, Any]:
+    """Get the current help policy."""
+    policy = get_help_policy(device_id)
+    return {"policy": policy.to_dict()}
+
+
+# ---- Help Request Endpoint (CP-17) ----
+
+
+class HelpRequestRequest(BaseModel):
+    reason: Optional[str] = Field(default=None, max_length=500)
+    send_to_trusted_contact: bool = True
+
+
+@router.post("/api/incidents/{incident_id}/help-request")
+def request_help(
+    incident_id: str,
+    req: HelpRequestRequest,
+    device_id: str = Depends(require_auth),
+) -> Dict[str, Any]:
+    """Victim presses I'M TRAPPED — GET HELP.
+
+    CP-17 behavior:
+    1. Authenticate and verify ownership
+    2. Idempotency: reuse existing request if already made
+    3. Record HELP_REQUESTED as append-only evidence
+    4. Generate Help Story from current incident evidence
+    5. Check trusted-contact configuration
+    6. If configured: attempt delivery through provider
+    7. Return honest delivery status
+    8. If not configured: honestly say so
+
+    This path works INDEPENDENTLY from automatic detection.
+    The victim never has to wait for LUMINA's detector.
+    """
+    _require_owner(incident_id, device_id)
+
+    incident = _engine.get_incident(incident_id)
+    if incident is None:
+        raise HTTPException(status_code=404, detail=f"Incident not found: {incident_id}")
+
+    # Idempotency: check if a help request was already made
+    existing_request = get_help_request_for_incident(incident_id)
+    if existing_request is not None:
+        # Return the existing request's state (idempotent)
+        from app.incident.help_story import generate_help_story
+        from app.incident.escalation import detect_escalation
+        escalation = detect_escalation(incident)
+        help_story = generate_help_story(incident, escalation)
+
+        return {
+            "incident_id": incident_id,
+            "help_story": help_story.to_dict(),
+            "help_story_text": help_story.to_readable_text(),
+            "already_requested": True,
+            "request_status": existing_request.status.value,
+            "delivery_status": existing_request.status.value,
+            "trusted_contact_configured": existing_request.contact_id is not None,
+            "delivery_channel": existing_request.delivery_channel.value,
+        }
+
+    # Create new help request
+    help_request = HelpRequest(
+        incident_id=incident_id,
+        owner_device_id=device_id,
+        status=HelpRequestStatus.REQUESTED,
+        reason=req.reason or "Victim pressed I'M TRAPPED — GET HELP",
+    )
+
+    # Check trusted-contact configuration
+    trusted_contact = get_trusted_contact(device_id)
+    if trusted_contact is not None and trusted_contact.is_configured():
+        help_request.contact_id = trusted_contact.contact_id
+        help_request.delivery_channel = trusted_contact.delivery_channel
+    else:
+        help_request.delivery_channel = DeliveryChannel.NONE
+
+    # Record the help request as a user action (FACT)
+    incident = _engine.record_user_action(
+        incident_id,
+        UserActionType.UNKNOWN_ACTION,
+        help_request.reason,
+    )
+
+    # Add a specific HELP_REQUESTED timeline entry
+    incident.add_timeline_entry(
+        entry_type=TimelineEntryType.USER_ACTION_RECORDED,
+        summary="Help requested by victim",
+        epistemic_status=EpistemicStatus.FACT,
+        metadata={
+            "action_type": "HELP_REQUESTED",
+            "reason": help_request.reason,
+            "request_id": help_request.request_id,
+            "delivery_channel": help_request.delivery_channel.value,
+            "trusted_contact_configured": trusted_contact is not None and trusted_contact.is_configured(),
+        },
+    )
+    with _engine.store.transaction() as conn:
+        for entry in incident.timeline[-1:]:
+            _engine.store.append_timeline_entry(incident_id, entry, conn=conn)
+        _engine._save_incident_state(incident, conn=conn)
+
+    # Generate Help Story
+    from app.incident.help_story import generate_help_story
+    from app.incident.escalation import detect_escalation
+
+    escalation = detect_escalation(incident)
+    help_story = generate_help_story(incident, escalation)
+
+    # Attempt delivery if trusted contact is configured
+    delivery_status = HelpRequestStatus.NOT_CONFIGURED
+    if (trusted_contact is not None
+            and trusted_contact.is_configured()
+            and req.send_to_trusted_contact):
+        help_request.status = HelpRequestStatus.QUEUED
+        save_help_request(help_request)
+
+        # Attempt delivery
+        delivery_result = attempt_delivery(
+            help_story_text=help_story.to_readable_text(),
+            help_story_data=help_story.to_dict(),
+            request_id=help_request.request_id,
+            delivery_channel=trusted_contact.delivery_channel.value,
+            destination=trusted_contact.destination,
+        )
+
+        # Update status based on honest delivery result
+        if delivery_result.status == DeliveryResultStatus.SENT:
+            update_help_request_status(help_request.request_id, HelpRequestStatus.SENT)
+            delivery_status = HelpRequestStatus.SENT
+        elif delivery_result.status == DeliveryResultStatus.DELIVERED:
+            update_help_request_status(help_request.request_id, HelpRequestStatus.DELIVERED)
+            delivery_status = HelpRequestStatus.DELIVERED
+        elif delivery_result.status == DeliveryResultStatus.FAILED:
+            update_help_request_status(
+                help_request.request_id, HelpRequestStatus.FAILED,
+                failure_reason=delivery_result.message,
+            )
+            delivery_status = HelpRequestStatus.FAILED
+        else:
+            update_help_request_status(help_request.request_id, HelpRequestStatus.UNKNOWN)
+            delivery_status = HelpRequestStatus.UNKNOWN
+    else:
+        save_help_request(help_request)
+        delivery_status = HelpRequestStatus.NOT_CONFIGURED
+
+    return {
+        "incident_id": incident_id,
+        "help_story": help_story.to_dict(),
+        "help_story_text": help_story.to_readable_text(),
+        "already_requested": False,
+        "request_id": help_request.request_id,
+        "request_status": help_request.status.value,
+        "delivery_status": delivery_status.value,
+        "trusted_contact_configured": trusted_contact is not None and trusted_contact.is_configured(),
+        "delivery_channel": help_request.delivery_channel.value,
+    }
+
+
+# ---- Delivery Webhook Endpoint (CP-19) ----
+#
+# Provider-specific webhook for delivery status confirmation.
+# This endpoint does NOT use normal LUMINA client HMAC authentication
+# because the provider (e.g., Brevo) needs to call it directly.
+# Instead, it verifies the provider's signature/authentication.
+
+@router.post("/api/delivery/webhook/{provider}")
+def delivery_webhook(
+    provider: str,
+    request: Request,
+) -> Dict[str, Any]:
+    """Receive delivery status webhook from a trusted-contact provider.
+
+    This endpoint authenticates the provider callback (not the LUMINA client).
+    For Brevo: verifies X-Brevo-Signature header.
+    For other providers: similar provider-specific verification.
+
+    Requirements:
+    - Verify provider signature/authentication
+    - Reject forged callbacks
+    - Reject malformed callbacks
+    - Idempotent callback processing
+    - Map provider event → LUMINA state
+    - Never allow arbitrary clients to set DELIVERED
+    """
+    # Read the raw body for signature verification
+    import asyncio
+    body = asyncio.get_event_loop().run_until_complete(request.body())
+
+    # Provider-specific verification
+    if provider == "brevo":
+        verified = _verify_brevo_webhook(request, body)
+    else:
+        logger.warning("Unknown delivery webhook provider: %s", provider)
+        raise HTTPException(status_code=400, detail="Unknown provider")
+
+    if not verified:
+        logger.warning("Webhook verification failed for provider=%s", provider)
+        raise HTTPException(status_code=401, detail="Webhook verification failed")
+
+    # Parse the webhook payload
+    try:
+        import json
+        payload = json.loads(body)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON payload")
+
+    # Map provider event to LUMINA state
+    # Brevo webhook format: {"event": "delivered"|"bounced"|"error", "message-id": "...", ...}
+    event = payload.get("event", "")
+    message_id = payload.get("message-id", "")
+
+    if not message_id:
+        raise HTTPException(status_code=400, detail="Missing message-id")
+
+    # Look up the help request by provider_request_id
+    from app.incident.trusted_contact import (
+        HelpRequestStatus,
+        update_help_request_status,
+    )
+
+    # Find the help request with this provider_request_id
+    backend = _engine.store.backend if hasattr(_engine.store, 'backend') else None
+    if backend is None:
+        from app.persistence.factory import get_backend
+        backend = get_backend()
+
+    # Search for the help request by provider_request_id
+    # (This is a simple scan; production would use an index)
+    conn = backend._connect() if hasattr(backend, '_connect') else None
+    if conn is None:
+        raise HTTPException(status_code=500, detail="Database unavailable")
+
+    try:
+        row = conn.execute(
+            "SELECT request_id FROM help_requests WHERE provider_request_id = ?",
+            (message_id,),
+        ).fetchone() if hasattr(conn, 'execute') else None
+        if row is None and hasattr(conn, 'cursor'):
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT request_id FROM help_requests WHERE provider_request_id = %s",
+                    (message_id,),
+                )
+                row = cur.fetchone()
+    finally:
+        conn.close()
+
+    if row is None:
+        logger.warning("Webhook for unknown message-id: %s", provider)
+        return {"status": "ignored", "reason": "unknown message-id"}
+
+    request_id = row["request_id"] if isinstance(row, dict) else row[0]
+
+    # Map event to status
+    status_map = {
+        "delivered": HelpRequestStatus.DELIVERED,
+        "sent": HelpRequestStatus.SENT,
+        "opened": HelpRequestStatus.DELIVERED,  # Opened implies delivered
+        "bounce": HelpRequestStatus.FAILED,
+        "error": HelpRequestStatus.FAILED,
+        "deferred": HelpRequestStatus.QUEUED,
+    }
+
+    new_status = status_map.get(event)
+    if new_status is None:
+        logger.info("Unhandled webhook event: %s for request %s", event, request_id)
+        return {"status": "ignored", "reason": f"unhandled event: {event}"}
+
+    failure_reason = None
+    if new_status == HelpRequestStatus.FAILED:
+        failure_reason = payload.get("reason", payload.get("description", "Provider reported failure"))
+
+    update_help_request_status(request_id, new_status, failure_reason)
+
+    logger.info(
+        "Webhook processed: provider=%s event=%s request=%s status=%s",
+        provider, event, request_id, new_status.value,
+    )
+
+    return {"status": "processed", "request_id": request_id, "new_status": new_status.value}
+
+
+def _verify_brevo_webhook(request: Request, body: bytes) -> bool:
+    """Verify Brevo webhook signature.
+
+    Brevo signs webhooks using HMAC-SHA256 with the webhook key.
+    The signature is in the X-Brevo-Signature header.
+    """
+    import hashlib
+    import hmac
+
+    webhook_key = os.environ.get("LUMINA_BREVO_WEBHOOK_KEY", "")
+    if not webhook_key:
+        logger.warning("Brevo webhook key not configured — rejecting webhook")
+        return False
+
+    signature = request.headers.get("X-Brevo-Signature", "")
+    if not signature:
+        return False
+
+    expected = hmac.new(
+        webhook_key.encode(), body, hashlib.sha256
+    ).hexdigest()
+
+    return hmac.compare_digest(expected, signature)

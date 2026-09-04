@@ -14,6 +14,7 @@ IMPORTANT:
 """
 from __future__ import annotations
 
+import asyncio
 import os
 import tempfile
 import uuid
@@ -178,6 +179,10 @@ class WhisperSTTProvider(TranscriptProvider):
     ) -> TranscriptBatch:
         """Transcribe audio and return timestamped transcript segments.
 
+        Uses asyncio.to_thread() to run CPU-bound Whisper inference in a
+        thread pool, keeping the FastAPI event loop responsive for other
+        requests during transcription.
+
         Args:
             input_data: Audio data as bytes, a file path string, or a
                         file-like object with a read() method.
@@ -195,6 +200,19 @@ class WhisperSTTProvider(TranscriptProvider):
             ValueError: If input is empty, invalid, or unsupported.
             RuntimeError: If model initialization or transcription fails.
         """
+        # Run the entire synchronous transcription pipeline in a thread
+        # to avoid blocking the event loop.
+        return await asyncio.to_thread(
+            self._transcribe_sync, input_data, incident_id, batch_id,
+        )
+
+    def _transcribe_sync(
+        self,
+        input_data: Any,
+        incident_id: str,
+        batch_id: Optional[str],
+    ) -> TranscriptBatch:
+        """Synchronous transcription (runs in thread via asyncio.to_thread)."""
         self._ensure_model()
         assert self._model is not None
         assert self._resolved_device is not None
@@ -220,6 +238,8 @@ class WhisperSTTProvider(TranscriptProvider):
                     text=text,
                     start_time=round(seg.start, 3),
                     end_time=round(seg.end, 3),
+                    speaker_attribution_method="STT",
+                    speaker_epistemic_status="UNKNOWN",
                     source_provider=self.provider_id,
                     metadata={
                         "language": language_info.language,

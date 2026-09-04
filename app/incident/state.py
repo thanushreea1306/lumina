@@ -45,6 +45,7 @@ from app.incident.models import (
     UserAction,
     UserActionType,
 )
+from app.incident.escalation import EscalationResult, detect_escalation
 
 
 # ---- Observation classification for state calculation ----
@@ -312,6 +313,7 @@ def calculate_priority(
     user_actions: List[UserAction],
     exposure: Dict[ExposureCategory, ExposureState],
     status: IncidentStatus,
+    escalation: Optional[EscalationResult] = None,
 ) -> Priority:
     """Calculate priority deterministically.
 
@@ -320,7 +322,13 @@ def calculate_priority(
     MEDIUM: any request or confirmed action
     LOW: observations without requests
     NONE: no observations
+
+    When escalation data is provided, EXTRACTION-stage patterns may
+    elevate priority for prevention scenarios. Escalation never overrides
+    stronger existing safety rules (confirmed exposure, recovery).
     """
+    from app.incident.escalation import EscalationStage
+
     classification = _classify_observations(observations)
 
     performed = any(
@@ -347,9 +355,21 @@ def calculate_priority(
         return Priority.HIGH
 
     if classification["has_any_request"]:
+        # Escalation enhancement: if EXTRACTION-stage pattern detected
+        # and no user action yet, elevate to HIGH
+        if (escalation and escalation.has_escalation
+                and escalation.overall_stage == EscalationStage.EXTRACTION
+                and not performed):
+            return Priority.HIGH
         return Priority.MEDIUM
 
     if classification["has_any_observation"]:
+        # Escalation enhancement: if PRESSURE-stage pattern detected,
+        # elevate from LOW to MEDIUM
+        if (escalation and escalation.has_escalation
+                and escalation.overall_stage in (
+                    EscalationStage.PRESSURE, EscalationStage.EXTRACTION)):
+            return Priority.MEDIUM
         return Priority.LOW
 
     return Priority.NONE
@@ -363,6 +383,7 @@ def calculate_next_action(
     exposure: Dict[ExposureCategory, ExposureState],
     status: IncidentStatus,
     priority: Priority,
+    escalation: Optional[EscalationResult] = None,
 ) -> Optional[RecommendedAction]:
     """Calculate the single most important next action.
 
@@ -376,13 +397,46 @@ def calculate_next_action(
     7. If coercion → verify identity independently
     8. If urgency → pause and verify
     9. If just observation → stay alert
+
+    When escalation data is available, it enriches the evidence_basis
+    and reason fields to provide additional context about conversation
+    progression. The escalation layer never replaces the deterministic
+    action authority.
     """
+    from app.incident.escalation import EscalationStage
+
     classification = _classify_observations(observations)
 
     performed = [
         a for a in user_actions
         if a.action_type not in (UserActionType.DECLINED_REQUEST, UserActionType.UNKNOWN_ACTION)
     ]
+
+    # Helper to enrich a RecommendedAction with escalation context
+    def _enrich_with_escalation(action: RecommendedAction) -> RecommendedAction:
+        if not escalation or not escalation.has_escalation:
+            return action
+        if escalation.overall_stage not in (
+            EscalationStage.PRESSURE, EscalationStage.EXTRACTION
+        ):
+            return action
+        # Only enrich if the existing action is prevention (not recovery)
+        if performed:
+            return action
+        # Deduplicate evidence basis entries while preserving order
+        seen: set[str] = set()
+        enriched_basis: list[str] = []
+        for entry in list(action.evidence_basis) + escalation.evidence_basis:
+            if entry not in seen:
+                enriched_basis.append(entry)
+                seen.add(entry)
+        return RecommendedAction(
+            action=action.action,
+            reason=action.reason,
+            evidence_basis=enriched_basis,
+            urgency=action.urgency,
+            official_channel_guidance=action.official_channel_guidance,
+        )
 
     # ---- RECOVERY guidance ----
     if performed:
@@ -458,14 +512,14 @@ def calculate_next_action(
     # Coercion + financial → STOP
     if classification["has_coercion"] and classification["has_financial_request"]:
         evidence_basis = _build_evidence_basis(observations, "coercion + financial request")
-        return RecommendedAction(
+        return _enrich_with_escalation(RecommendedAction(
             action="STOP. Do not send any money. Verify the caller independently.",
             reason="Authority/threat combined with a money request is a high-risk pattern",
             evidence_basis=evidence_basis,
             urgency=Priority.IMMEDIATE,
             official_channel_guidance="Use a publicly available number to contact the claimed authority. "
                 "Do not use any number or contact details provided by the caller.",
-        )
+        ))
 
     # High-value request → DO NOT share
     if classification["has_high_value_request"]:
@@ -476,76 +530,76 @@ def calculate_next_action(
         if UserObservationType.PASSWORD_REQUEST in observations:
             requested_types.append("password")
         request_str = " or ".join(requested_types)
-        return RecommendedAction(
+        return _enrich_with_escalation(RecommendedAction(
             action=f"Do not share the {request_str}. Pause and verify independently.",
             reason=f"Someone is requesting your {request_str}",
             evidence_basis=evidence_basis,
             urgency=Priority.IMMEDIATE,
             official_channel_guidance="Legitimate organizations never ask for OTPs or passwords by phone.",
-        )
+        ))
 
     # Financial request → DO NOT send
     if classification["has_financial_request"]:
         evidence_basis = _build_evidence_basis(observations, "financial request")
-        return RecommendedAction(
+        return _enrich_with_escalation(RecommendedAction(
             action="Do not send any money or make any transfers",
             reason="A financial transfer has been requested",
             evidence_basis=evidence_basis,
             urgency=Priority.HIGH,
             official_channel_guidance="Verify the request through an independent channel before any transfer.",
-        )
+        ))
 
     # Access request → DO NOT install/grant
     if classification["has_access_request"]:
         evidence_basis = _build_evidence_basis(observations, "access request")
-        return RecommendedAction(
+        return _enrich_with_escalation(RecommendedAction(
             action="Do not install any software or grant remote access",
             reason="Remote access or app installation has been requested",
             evidence_basis=evidence_basis,
             urgency=Priority.HIGH,
             official_channel_guidance="Legitimate organizations do not ask you to install remote access software.",
-        )
+        ))
 
     # Identity request → DO NOT share
     if classification["has_identity_request"]:
         evidence_basis = _build_evidence_basis(observations, "identity document request")
-        return RecommendedAction(
+        return _enrich_with_escalation(RecommendedAction(
             action="Do not share identity documents or personal information",
             reason="Identity documents or personal information have been requested",
             evidence_basis=evidence_basis,
             urgency=Priority.MEDIUM,
-        )
+        ))
 
     # Coercion only → verify independently
     if classification["has_coercion"]:
         evidence_basis = _build_evidence_basis(observations, "coercion")
-        return RecommendedAction(
+        return _enrich_with_escalation(RecommendedAction(
             action="Verify the caller's identity independently before proceeding",
             reason="The caller claimed authority or made threats",
             evidence_basis=evidence_basis,
             urgency=Priority.MEDIUM,
             official_channel_guidance="Look up the official contact number yourself. Do not trust the caller's provided details.",
-        )
+        ))
 
     # Pressure/urgency → pause
     if classification["has_pressure"]:
         evidence_basis = _build_evidence_basis(observations, "pressure")
-        return RecommendedAction(
+        return _enrich_with_escalation(RecommendedAction(
             action="Pause. You have time to verify before acting.",
             reason="You are being pressured or rushed",
             evidence_basis=evidence_basis,
             urgency=Priority.MEDIUM,
-        )
+        ))
 
     # Just observations → stay alert
     if classification["has_any_observation"]:
         evidence_basis = _build_evidence_basis(observations, "observations")
-        return RecommendedAction(
+        return _enrich_with_escalation(RecommendedAction(
             action="Stay alert. Note what is being requested before acting.",
             reason="You reported observations about this interaction",
             evidence_basis=evidence_basis,
             urgency=Priority.LOW,
-        )
+        ))
 
     return None
 
@@ -590,13 +644,28 @@ def recalculate_incident(incident: Incident) -> None:
     the same state every time.
 
     Mutates the incident in place. Call after adding evidence or actions.
+
+    Escalation detection is performed after observation extraction and
+    stored in incident.metadata["escalation"]. It is an INFERENCE layer
+    and never overrides confirmed user actions or exposure.
     """
     observations = _extract_observations(incident)
+
+    # Detect conversation escalation patterns (INFERENCE only)
+    escalation = detect_escalation(incident)
+    incident.metadata["escalation"] = escalation.to_dict()
+
     exposure = calculate_exposure(observations, incident.user_actions)
     unknowns = calculate_unknowns(observations, incident.user_actions)
     status = calculate_status(observations, incident.user_actions, exposure)
-    priority = calculate_priority(observations, incident.user_actions, exposure, status)
-    next_action = calculate_next_action(observations, incident.user_actions, exposure, status, priority)
+    priority = calculate_priority(
+        observations, incident.user_actions, exposure, status,
+        escalation=escalation,
+    )
+    next_action = calculate_next_action(
+        observations, incident.user_actions, exposure, status, priority,
+        escalation=escalation,
+    )
 
     # Detect state changes for timeline
     old_status = incident.status

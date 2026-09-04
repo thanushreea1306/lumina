@@ -8,7 +8,9 @@
 
 import { useState, useCallback } from 'react';
 import { useIncidentState, INCIDENT_STATUS_LABELS, INCIDENT_PRIORITY_LABELS } from '@/hooks/useIncidentState';
+import { useStreamingSession } from '@/hooks/useStreamingSession';
 import { uploadIncidentAudio } from '@/lib/api/incidents';
+import { requestHelp } from '@/lib/api/help';
 import { ensureDeviceIdentity } from '@/lib/api/device';
 import { Card } from '@/components/Card';
 import { Button } from '@/components/Button';
@@ -25,6 +27,7 @@ import type {
   TranscriptSource,
   TranscriptSegment,
   UploadAudioResponse,
+  EscalationResult,
 } from '@/types/incident';
 
 // ---- Human-readable labels ----
@@ -86,6 +89,18 @@ const ACTION_TYPE_LABELS: Record<string, string> = {
   LOGGED_IN: 'I logged in to an account',
 };
 
+const ESCALATION_STAGE_LABELS: Record<string, string> = {
+  SETUP: 'Setup',
+  PRESSURE: 'Pressure',
+  EXTRACTION: 'Extraction',
+};
+
+const ESCALATION_STAGE_COLORS: Record<string, string> = {
+  SETUP: 'var(--lumina-system)',
+  PRESSURE: 'var(--lumina-warning)',
+  EXTRACTION: 'var(--lumina-danger)',
+};
+
 const STATUS_COLORS: Record<IncidentStatus, string> = {
   ACTIVE: 'var(--lumina-system)',
   MONITORING: 'var(--lumina-warning)',
@@ -142,6 +157,30 @@ export function IncidentViewPage() {
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploadResult, setUploadResult] = useState<UploadAudioResponse | null>(null);
   const [uploadedSegments, setUploadedSegments] = useState<TranscriptSegment[]>([]);
+
+  // ---- Streaming session state (CP-15) ----
+  const streaming = useStreamingSession(incident?.incident_id ?? '');
+
+  // ---- Help request state (CP-17) ----
+  const [helpRequesting, setHelpRequesting] = useState(false);
+  const [helpStory, setHelpStory] = useState<import('@/types/incident').HelpStory | null>(null);
+  const [helpError, setHelpError] = useState<string | null>(null);
+  const [helpDeliveryStatus, setHelpDeliveryStatus] = useState<string | null>(null);
+
+  const handleHelpRequest = useCallback(async () => {
+    if (!incident || helpRequesting) return;
+    setHelpRequesting(true);
+    setHelpError(null);
+    try {
+      const result = await requestHelp(incident.incident_id);
+      setHelpStory(result.help_story);
+      setHelpDeliveryStatus(result.delivery_status);
+    } catch (err) {
+      setHelpError(err instanceof Error ? err.message : 'Help request failed');
+    } finally {
+      setHelpRequesting(false);
+    }
+  }, [incident, helpRequesting]);
 
   const handleSubmitTranscript = useCallback(async () => {
     if (!transcriptText.trim()) return;
@@ -268,6 +307,9 @@ export function IncidentViewPage() {
       actionType: String(e.metadata?.claimed_action_type ?? ''),
       description: String(e.metadata?.claimed_description ?? ''),
     }));
+
+  // Escalation data from incident metadata (computed by escalation engine)
+  const escalation = (incident.metadata?.escalation as EscalationResult | undefined) ?? null;
 
 
   // ---- Get observations from last extraction (immediate display) ----
@@ -429,10 +471,202 @@ export function IncidentViewPage() {
         </Card>
       )}
 
+      {/* ---- I'M TRAPPED — GET HELP ---- */}
+      {incident && incident.status !== 'CLOSED' && (
+        <Card elevated style={{ borderLeft: '3px solid var(--lumina-danger)' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <div style={{ fontSize: 'var(--text-sm)', fontWeight: 700, color: 'var(--lumina-danger)' }}>
+                  Need immediate help?
+                </div>
+                <div style={{ fontSize: 'var(--text-xs)', color: 'var(--lumina-text-muted)', marginTop: '2px' }}>
+                  Press this at any time — LUMINA will generate a help story for your trusted contact.
+                </div>
+              </div>
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={handleHelpRequest}
+                disabled={helpRequesting}
+                style={{
+                  background: 'var(--lumina-danger)',
+                  color: 'white',
+                  fontWeight: 700,
+                  flexShrink: 0,
+                }}
+              >
+                {helpRequesting ? 'Sending…' : "I'M TRAPPED — GET HELP"}
+              </Button>
+            </div>
+            {helpError && (
+              <div role="alert" style={{ fontSize: 'var(--text-sm)', color: 'var(--lumina-danger)' }}>
+                {helpError}
+              </div>
+            )}
+            {helpDeliveryStatus && !helpError && (
+              <div style={{
+                fontSize: 'var(--text-xs)',
+                padding: 'var(--space-2)',
+                borderRadius: 'var(--radius-sm)',
+                color: helpDeliveryStatus === 'SENT' || helpDeliveryStatus === 'DELIVERED'
+                  ? 'var(--lumina-system)'
+                  : helpDeliveryStatus === 'NOT_CONFIGURED'
+                    ? 'var(--lumina-warning)'
+                    : 'var(--lumina-text-muted)',
+                background: 'rgba(0, 0, 0, 0.1)',
+              }}>
+                {helpDeliveryStatus === 'NOT_CONFIGURED' && 'Trusted contact not configured. Help story shown below — share it manually if needed.'}
+                {helpDeliveryStatus === 'SENT' && 'Help request sent to trusted contact.'}
+                {helpDeliveryStatus === 'DELIVERED' && 'Help request delivered to trusted contact.'}
+                {helpDeliveryStatus === 'FAILED' && 'Help request delivery failed. Help story shown below.'}
+                {helpDeliveryStatus === 'UNKNOWN' && 'Help request recorded. Delivery status uncertain.'}
+                {helpDeliveryStatus === 'QUEUED' && 'Help request queued for delivery...'}
+              </div>
+            )}
+            {helpStory && (
+              <div style={{
+                padding: 'var(--space-3)',
+                background: 'rgba(0, 0, 0, 0.15)',
+                borderRadius: 'var(--radius-md)',
+                border: '1px solid var(--lumina-border-subtle)',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 'var(--space-2)',
+              }}>
+                <div style={{ fontSize: 'var(--text-xs)', fontWeight: 700, letterSpacing: 'var(--tracking-wider)', textTransform: 'uppercase', color: 'var(--lumina-text-muted)' }}>
+                  Help Story — {helpStory.urgency}
+                </div>
+                <div style={{ fontSize: 'var(--text-sm)', color: 'var(--lumina-text)', fontWeight: 600 }}>
+                  {helpStory.one_line_summary}
+                </div>
+                {helpStory.sections.map((section, i) => (
+                  <div key={i}>
+                    <div style={{ fontSize: 'var(--text-xs)', fontWeight: 700, color: 'var(--lumina-text-secondary)', marginTop: 'var(--space-2)' }}>
+                      {section.heading}
+                    </div>
+                    <div style={{ fontSize: 'var(--text-xs)', color: 'var(--lumina-text-muted)', lineHeight: 'var(--leading-relaxed)', whiteSpace: 'pre-line' }}>
+                      {section.content}
+                    </div>
+                  </div>
+                ))}
+                <div style={{ fontSize: 'var(--text-xs)', color: 'var(--lumina-text-muted)', fontStyle: 'italic', marginTop: 'var(--space-2)' }}>
+                  {helpStory.privacy_note}
+                </div>
+              </div>
+            )}
+          </div>
+        </Card>
+      )}
+
+      {/* ---- CONVERSATION ESCALATION ---- */}
+      {escalation && escalation.has_escalation && (
+        <Card elevated style={{ borderLeft: '3px solid var(--lumina-warning)' }}>
+          <SectionHeader
+            number={1.5}
+            title="Conversation Escalation"
+            subtitle="Pattern analysis only — this is not proof of fraud"
+          />
+          <p style={{
+            fontSize: 'var(--text-xs)',
+            color: 'var(--lumina-text-muted)',
+            lineHeight: 'var(--leading-relaxed)',
+            marginBottom: 'var(--space-3)',
+            fontStyle: 'italic',
+          }}>
+            LUMINA identifies interaction patterns from available evidence; it does not determine intent.
+          </p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+            {escalation.patterns.map((pattern) => (
+              <div key={pattern.pattern_id}>
+                <div style={{
+                  fontSize: 'var(--text-sm)',
+                  fontWeight: 700,
+                  color: 'var(--lumina-text)',
+                  marginBottom: 'var(--space-2)',
+                }}>
+                  {pattern.pattern_name}
+                  <span style={{
+                    marginLeft: 'var(--space-2)',
+                    fontSize: 'var(--text-xs)',
+                    fontWeight: 600,
+                    color: ESCALATION_STAGE_COLORS[pattern.stage] ?? 'var(--lumina-text-muted)',
+                    padding: '1px 6px',
+                    borderRadius: 'var(--radius-sm)',
+                    background: 'rgba(0,0,0,0.15)',
+                  }}>
+                    {ESCALATION_STAGE_LABELS[pattern.stage] ?? pattern.stage}
+                  </span>
+                  {pattern.status === 'COMPLETE' && (
+                    <span style={{
+                      marginLeft: 'var(--space-2)',
+                      fontSize: 'var(--text-xs)',
+                      color: 'var(--lumina-danger)',
+                    }}>
+                      ●
+                    </span>
+                  )}
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+                  {pattern.stages_matched.map((stage, i) => (
+                    <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 'var(--space-3)' }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: '16px' }}>
+                        <div style={{
+                          width: '8px', height: '8px', borderRadius: '50%',
+                          background: ESCALATION_STAGE_COLORS[
+                            // Map observation type to its stage
+                            ['AUTHORITY_CLAIM'].includes(stage) ? 'SETUP'
+                            : ['THREAT_OF_ARREST', 'THREAT_OF_LEGAL_ACTION', 'URGENCY', 'SECRECY_REQUEST', 'INDEPENDENT_VERIFICATION_BLOCKED', 'CALL_BACK_INSTRUCTION'].includes(stage) ? 'PRESSURE'
+                            : 'EXTRACTION'
+                          ] ?? 'var(--lumina-text-muted)',
+                          flexShrink: 0, marginTop: '5px',
+                        }} />
+                        {i < pattern.stages_matched.length - 1 && (
+                          <div style={{ width: '1px', height: '16px', background: 'var(--lumina-border-subtle)' }} />
+                        )}
+                      </div>
+                      <span style={{ fontSize: 'var(--text-sm)', color: 'var(--lumina-text-secondary)', lineHeight: 'var(--leading-normal)' }}>
+                        {OBSERVATION_LABELS[stage] ?? stage}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+                <p style={{
+                  fontSize: 'var(--text-xs)',
+                  color: 'var(--lumina-text-muted)',
+                  lineHeight: 'var(--leading-relaxed)',
+                  marginTop: 'var(--space-2)',
+                  fontStyle: 'italic',
+                }}>
+                  {pattern.explanation}
+                </p>
+              </div>
+            ))}
+            {escalation.repeated_requests.length > 0 && (
+              <div style={{
+                padding: 'var(--space-3)',
+                background: 'rgba(0,0,0,0.15)',
+                borderRadius: 'var(--radius-md)',
+                border: '1px solid var(--lumina-border-subtle)',
+              }}>
+                <div style={{ fontSize: 'var(--text-xs)', fontWeight: 700, letterSpacing: 'var(--tracking-wider)', textTransform: 'uppercase', color: 'var(--lumina-text-muted)', marginBottom: 'var(--space-2)' }}>
+                  Repeated Requests
+                </div>
+                {escalation.repeated_requests.map((r) => (
+                  <div key={r.request_type} style={{ fontSize: 'var(--text-sm)', color: 'var(--lumina-text-secondary)', marginBottom: '2px' }}>
+                    {r.explanation}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </Card>
+      )}
+
       {/* ---- WHAT LUMINA KNOWS (Evidence) ---- */}
       <Card>
         <SectionHeader
-          number={2}
+          number={escalation && escalation.has_escalation ? 3 : 2}
           title="What LUMINA Identified"
           subtitle="Evidence extracted from your transcripts"
         />
@@ -796,27 +1030,38 @@ export function IncidentViewPage() {
         </Card>
       )}
 
-      {/* ---- UPLOAD AUDIO ---- */}
+      {/* ---- ANALYZE CONVERSATION ---- */}
       <Card>
         <SectionHeader
           number={7}
-          title="Upload Audio"
-          subtitle="Provide a recording and LUMINA transcribes it locally into structured incident evidence"
+          title="Analyze Conversation"
+          subtitle="Upload a recording and LUMINA will transcribe and analyze it for interaction patterns"
         />
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
           <p style={{ fontSize: 'var(--text-sm)', color: 'var(--lumina-text-secondary)', lineHeight: 'var(--leading-relaxed)' }}>
             LUMINA does not automatically record your calls. Select an audio file you legitimately
-            recorded (WAV, MP3, FLAC, OGG, M4A, WebM). The audio is transcribed on your device and
-            is not retained after processing.
+            recorded (WAV, MP3, FLAC, OGG, M4A, WebM). The audio is transcribed locally,
+            analyzed for interaction patterns, and not retained after processing.
           </p>
 
-          <input
-            id="audio-file-input"
-            type="file"
-            accept=".wav,.mp3,.flac,.ogg,.m4a,.webm,audio/wav,audio/mpeg,audio/flac,audio/ogg,audio/mp4,audio/webm"
-            onChange={handleFileChange}
-            style={{ fontSize: 'var(--text-sm)', color: 'var(--lumina-text-secondary)' }}
-          />
+          <div style={{ display: 'flex', gap: 'var(--space-3)', alignItems: 'center', flexWrap: 'wrap' }}>
+            <input
+              id="audio-file-input"
+              type="file"
+              accept=".wav,.mp3,.flac,.ogg,.m4a,.webm,audio/wav,audio/mpeg,audio/flac,audio/ogg,audio/mp4,audio/webm"
+              onChange={handleFileChange}
+              style={{ fontSize: 'var(--text-sm)', color: 'var(--lumina-text-secondary)' }}
+            />
+            {!streaming.state.isRecording && streaming.state.status !== 'PROCESSING' && streaming.state.status !== 'COMPLETE' && (
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={streaming.startRecording}
+              >
+                Record Microphone
+              </Button>
+            )}
+          </div>
 
           {selectedAudioFile && (
             <div style={{ fontSize: 'var(--text-sm)', color: 'var(--lumina-text)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -827,7 +1072,7 @@ export function IncidentViewPage() {
                 onClick={handleUploadAudio}
                 disabled={isUploading}
               >
-                {isUploading ? 'Transcribing audio locally…' : 'Upload & Transcribe'}
+                {isUploading ? 'Analyzing conversation…' : 'Analyze Conversation'}
               </Button>
             </div>
           )}
@@ -838,10 +1083,70 @@ export function IncidentViewPage() {
             </div>
           )}
 
+          {/* Streaming session status */}
+          {(streaming.state.isRecording || streaming.state.status === 'PROCESSING' || streaming.state.status === 'COMPLETE') && (
+            <div style={{
+              padding: 'var(--space-3)',
+              background: 'rgba(0, 0, 0, 0.15)',
+              borderRadius: 'var(--radius-md)',
+              border: '1px solid var(--lumina-border-subtle)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 'var(--space-2)',
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--lumina-text)' }}>
+                  {streaming.state.status === 'CAPTURING' && 'Recording microphone audio…'}
+                  {streaming.state.status === 'PROCESSING' && 'Processing audio chunk…'}
+                  {streaming.state.status === 'COMPLETE' && 'Recording complete'}
+                  {streaming.state.status === 'ERROR' && 'Recording error'}
+                </span>
+                {streaming.state.isRecording && (
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={streaming.stopRecording}
+                  >
+                    Stop & Analyze
+                  </Button>
+                )}
+                {(streaming.state.isRecording || streaming.state.status === 'PROCESSING') && (
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={streaming.abortRecording}
+                  >
+                    Cancel
+                  </Button>
+                )}
+              </div>
+              {streaming.state.status === 'CAPTURING' && (
+                <div style={{ display: 'flex', gap: 'var(--space-3)', fontSize: 'var(--text-xs)', color: 'var(--lumina-text-muted)' }}>
+                  <span>Chunks: {streaming.state.totalChunks}</span>
+                  <span>Segments: {streaming.state.totalSegments}</span>
+                  <span>Observations: {streaming.state.totalObservations}</span>
+                </div>
+              )}
+              {streaming.state.status === 'COMPLETE' && (
+                <div style={{ fontSize: 'var(--text-xs)', color: 'var(--lumina-system)' }}>
+                  {streaming.state.totalSegments} transcript segment(s) produced from {streaming.state.totalChunks} chunk(s).
+                  {streaming.state.totalObservations > 0 && (
+                    <> {streaming.state.totalObservations} observation(s) identified.</>
+                  )}
+                </div>
+              )}
+              {streaming.state.error && (
+                <div role="alert" style={{ fontSize: 'var(--text-xs)', color: 'var(--lumina-danger)' }}>
+                  {streaming.state.error}
+                </div>
+              )}
+            </div>
+          )}
+
           {uploadResult && !uploadError && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
               <div role="status" style={{ fontSize: 'var(--text-sm)', color: 'var(--lumina-system)' }}>
-                Transcript added to incident.
+                Conversation analyzed. Transcript and observations added to incident.
               </div>
               {uploadResult.transcription && (
                 <div style={{ fontSize: 'var(--text-xs)', color: 'var(--lumina-text-muted)', fontFamily: 'var(--font-mono)' }}>
@@ -856,7 +1161,7 @@ export function IncidentViewPage() {
               {uploadedSegments.length > 0 && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
                   <div style={{ fontSize: 'var(--text-xs)', fontWeight: 700, letterSpacing: 'var(--tracking-wider)', textTransform: 'uppercase', color: 'var(--lumina-text-muted)' }}>
-                    Transcribed segments
+                    What LUMINA heard
                   </div>
                   {uploadedSegments.map((seg) => (
                     <div
@@ -890,6 +1195,18 @@ export function IncidentViewPage() {
                           {seg.speaker}
                         </span>
                       )}
+                      {seg.speaker_attribution_method && seg.speaker_attribution_method !== 'UNKNOWN' && (
+                        <span style={{
+                          fontSize: 'var(--text-xs)',
+                          color: 'var(--lumina-text-muted)',
+                          flexShrink: 0,
+                          paddingTop: '0.1rem',
+                        }}>
+                          {seg.speaker_attribution_method === 'STT' ? '(model)' :
+                           seg.speaker_attribution_method === 'PROVIDED' ? '(provided)' :
+                           seg.speaker_attribution_method === 'EXTRACTED' ? '(inferred)' : ''}
+                        </span>
+                      )}
                       <span style={{ fontSize: 'var(--text-sm)', color: 'var(--lumina-text)', lineHeight: 'var(--leading-relaxed)' }}>
                         {seg.text}
                       </span>
@@ -901,7 +1218,10 @@ export function IncidentViewPage() {
               {/* Extracted observations */}
               {uploadResult.observations_extracted > 0 && (
                 <div style={{ fontSize: 'var(--text-sm)', color: 'var(--lumina-warning)' }}>
-                  {uploadResult.observations_extracted} evidence item(s) extracted from this recording.
+                  {uploadResult.observations_extracted} observation(s) identified from this conversation.
+                  {escalation && escalation.has_escalation && (
+                    <> Escalation patterns are shown in the Conversation Escalation section above.</>
+                  )}
                 </div>
               )}
             </div>
