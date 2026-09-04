@@ -19,7 +19,6 @@ from app.evidence.router import router as evidence_router
 from app.incident.router import router as incident_router
 from app.core.features import CALL_BEHAVIOR_FIELDS, TELEMETRY_FIELDS
 from app.core.risk_engine import RiskEngine
-from app.core.db import get_incidents
 
 app = FastAPI(
     title="LUMINA",
@@ -281,18 +280,9 @@ Actions: Call them on another line. Visit if possible. Dial 1930 if confirmed.""
         raise HTTPException(status_code=500, detail=str(e))
 
 # ============ HISTORY / INCIDENTS ============
-@app.get("/api/incidents")
-async def incidents(limit: int = 50):
-    """Return recent incident history from SQLite."""
-    try:
-        records = get_incidents(limit)
-    except Exception as e:
-        logger.exception("Error in /api/incidents: %s", e)
-        raise HTTPException(status_code=500, detail=str(e))
-    return {
-        "total": len(records),
-        "incidents": records
-    }
+# The authoritative authenticated and owner-scoped incident history endpoint
+# is served by the Incident router (app/incident/router.py).
+# (Duplicate unauthenticated /api/incidents route removed in CP-06.)
 
 # ============ OTHER ENDPOINTS ============
 @app.post("/api/generate-report")

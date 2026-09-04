@@ -24,7 +24,6 @@ import type {
   TimelineEntry,
   TranscriptSource,
   TranscriptSegment,
-  ExtractedObservation,
   UploadAudioResponse,
 } from '@/types/incident';
 
@@ -850,8 +849,14 @@ export function IncidentViewPage() {
               <option value="USER_TYPED">User typed</option>
               <option value="USER_DICTATED">User dictated</option>
               <option value="MESSAGE_FORWARD">Message forwarded</option>
-              <option value="STT_PROVIDER" disabled>Speech-to-text (not available)</option>
+              <option value="STT_PROVIDER" disabled>
+                Speech-to-text (add via audio upload below)
+              </option>
             </select>
+            <div style={{ fontSize: 'var(--text-xs)', color: 'var(--lumina-text-muted)', marginTop: 'var(--space-2)' }}>
+              Local transcription runs on your device. Transcribed segments report speaker as
+              UNKNOWN — LUMINA does not perform speaker diarization.
+            </div>
           </div>
 
           <div>

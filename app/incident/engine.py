@@ -64,12 +64,15 @@ class IncidentEngine:
         self,
         session_id: Optional[str] = None,
         metadata: Optional[Dict] = None,
+        owner_device_id: Optional[str] = None,
     ) -> Incident:
         """Create a new incident.
 
         Optionally links to an existing session for backward compatibility.
+        owner_device_id is derived from the authenticated request identity and
+        persisted with the incident (never trusted from client input).
         """
-        incident = Incident(metadata=metadata or {})
+        incident = Incident(metadata=metadata or {}, owner_device_id=owner_device_id)
         if session_id:
             incident.session_ids.append(session_id)
 
@@ -393,9 +396,11 @@ class IncidentEngine:
             return None
         return incident.next_action
 
-    def list_incidents(self, limit: int = 50) -> List[Dict]:
-        """List recent incidents."""
-        return self.store.list_incidents(limit)
+    def list_incidents(
+        self, limit: int = 50, owner_device_id: Optional[str] = None
+    ) -> List[Dict]:
+        """List recent incidents, optionally scoped to an owner device."""
+        return self.store.list_incidents(limit, owner_device_id=owner_device_id)
 
     # ---- Internal helpers ----
 

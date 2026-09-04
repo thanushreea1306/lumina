@@ -82,6 +82,7 @@ CREATE TABLE IF NOT EXISTS transcript_segments (
 _INCIDENT_SCHEMA = """
 CREATE TABLE IF NOT EXISTS incidents (
     incident_id TEXT PRIMARY KEY,
+    owner_device_id TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'ACTIVE',
@@ -151,6 +152,15 @@ class IncidentStore:
         with conn:
             conn.executescript(_INCIDENT_SCHEMA)
             conn.executescript(_TRANSCRIPT_SCHEMA)
+            # Safe migration: add owner_device_id to legacy pre-CP-06 databases.
+            cols = {
+                r["name"]
+                for r in conn.execute("PRAGMA table_info(incidents)").fetchall()
+            }
+            if "owner_device_id" not in cols:
+                conn.execute(
+                    "ALTER TABLE incidents ADD COLUMN owner_device_id TEXT"
+                )
         conn.close()
 
     # ---- Write: incident ----
@@ -160,11 +170,12 @@ class IncidentStore:
         with conn:
             conn.execute(
                 "INSERT OR IGNORE INTO incidents "
-                "(incident_id, created_at, updated_at, status, priority, "
+                "(incident_id, owner_device_id, created_at, updated_at, status, priority, "
                 "next_action_json, unknowns_json, session_ids_json, metadata_json) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     incident.incident_id,
+                    incident.owner_device_id,
                     incident.created_at,
                     incident.updated_at,
                     incident.status.value,
@@ -182,10 +193,11 @@ class IncidentStore:
         with conn:
             conn.execute(
                 "UPDATE incidents SET "
-                "updated_at = ?, status = ?, priority = ?, "
+                "owner_device_id = ?, updated_at = ?, status = ?, priority = ?, "
                 "next_action_json = ?, unknowns_json = ?, session_ids_json = ?, metadata_json = ? "
                 "WHERE incident_id = ?",
                 (
+                    incident.owner_device_id,
                     incident.updated_at,
                     incident.status.value,
                     incident.priority.value,
@@ -294,6 +306,7 @@ class IncidentStore:
 
         incident = Incident(
             incident_id=row["incident_id"],
+            owner_device_id=row["owner_device_id"],
             created_at=row["created_at"],
             updated_at=row["updated_at"],
             status=IncidentStatus(row["status"]),
@@ -359,13 +372,23 @@ class IncidentStore:
         conn.close()
         return incident
 
-    def list_incidents(self, limit: int = 50) -> List[Dict]:
+    def list_incidents(
+        self, limit: int = 50, owner_device_id: Optional[str] = None
+    ) -> List[Dict]:
         conn = self._connect()
-        rows = conn.execute(
-            "SELECT incident_id, created_at, updated_at, status, priority "
-            "FROM incidents ORDER BY updated_at DESC LIMIT ?",
-            (max(1, min(int(limit), 500)),),
-        ).fetchall()
+        if owner_device_id is not None:
+            rows = conn.execute(
+                "SELECT incident_id, created_at, updated_at, status, priority "
+                "FROM incidents WHERE owner_device_id = ? "
+                "ORDER BY updated_at DESC LIMIT ?",
+                (owner_device_id, max(1, min(int(limit), 500))),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT incident_id, created_at, updated_at, status, priority "
+                "FROM incidents ORDER BY updated_at DESC LIMIT ?",
+                (max(1, min(int(limit), 500)),),
+            ).fetchall()
         conn.close()
         return [dict(r) for r in rows]
 

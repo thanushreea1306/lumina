@@ -73,6 +73,37 @@ async def require_auth(request: Request) -> str:
     return _verify_auth(request)
 
 
+def _require_owner(incident_id: str, device_id: str) -> None:
+    """Enforce that the authenticated device owns the incident.
+
+    Raises:
+        404: incident does not exist
+        403: incident exists but belongs to another device (or has no owner)
+    """
+    incident = _engine.get_incident(incident_id)
+    if incident is None:
+        raise HTTPException(status_code=404, detail=f"Incident not found: {incident_id}")
+    if incident.owner_device_id != device_id:
+        raise HTTPException(
+            status_code=403,
+            detail="You are not authorized to access this incident",
+        )
+
+
+def _normalize_public_speaker(speaker: Optional[str]) -> str:
+    """Normalize an untrusted client-supplied speaker label to UNKNOWN.
+
+    Speaker identity is security-sensitive: user-action extraction can depend
+    on it (a segment marked USER can satisfy `requires_user_context` rules and
+    yield a confirmed user action). Only a trusted provider path is authorized
+    to assert speaker identity. Whisper transcription does not perform
+    diarization, so all public/client-supplied speaker labels are normalized to
+    UNKNOWN. This prevents a client from forcing a "USER" claim merely by
+    sending speaker="USER".
+    """
+    return "UNKNOWN"
+
+
 # ---- Pydantic models ----
 
 class CreateIncidentRequest(BaseModel):
@@ -123,6 +154,7 @@ def create_incident(
     incident = _engine.create_incident(
         session_id=req.session_id,
         metadata=req.metadata,
+        owner_device_id=device_id,
     )
     return {
         "incident_id": incident.incident_id,
@@ -137,8 +169,8 @@ def list_incidents(
     limit: int = 50,
     device_id: str = Depends(require_auth),
 ) -> Dict[str, Any]:
-    """List recent incidents."""
-    incidents = _engine.list_incidents(limit)
+    """List recent incidents scoped to the authenticated owner."""
+    incidents = _engine.list_incidents(limit, owner_device_id=device_id)
     return {
         "total": len(incidents),
         "incidents": incidents,
@@ -151,6 +183,7 @@ def get_incident(
     device_id: str = Depends(require_auth),
 ) -> Dict[str, Any]:
     """Get full incident state."""
+    _require_owner(incident_id, device_id)
     incident = _engine.get_incident(incident_id)
     if incident is None:
         raise HTTPException(status_code=404, detail=f"Incident not found: {incident_id}")
@@ -164,6 +197,8 @@ def add_evidence(
     device_id: str = Depends(require_auth),
 ) -> Dict[str, Any]:
     """Add an observation to an incident."""
+    _require_owner(incident_id, device_id)
+
     try:
         obs_type = UserObservationType(req.observation_type)
     except ValueError:
@@ -193,6 +228,8 @@ def record_action(
     device_id: str = Depends(require_auth),
 ) -> Dict[str, Any]:
     """Record a user-confirmed action."""
+    _require_owner(incident_id, device_id)
+
     try:
         action_type = UserActionType(req.action_type)
     except ValueError:
@@ -227,6 +264,8 @@ def add_transcript(
       - Simple text transcript (backward compatible)
       - Batch ID for idempotency
     """
+    _require_owner(incident_id, device_id)
+
     if not req.text.strip():
         raise HTTPException(status_code=422, detail="Transcript text cannot be empty")
 
@@ -270,6 +309,8 @@ def add_transcript_segments(
       - Segment IDs for idempotency
       - Batch ID for batch-level idempotency
     """
+    _require_owner(incident_id, device_id)
+
     if not req.segments:
         raise HTTPException(status_code=422, detail="At least one segment is required")
 
@@ -278,14 +319,16 @@ def add_transcript_segments(
     for seg_data in req.segments:
         if not seg_data.text.strip():
             continue
-        segment = TranscriptSegment(
-            segment_id=seg_data.segment_id or None,
-            text=seg_data.text.strip(),
-            start_time=seg_data.start_time,
-            end_time=seg_data.end_time,
-            speaker=seg_data.speaker,
-            metadata=seg_data.metadata or {},
-        )
+        seg_kwargs = {
+            "text": seg_data.text.strip(),
+            "start_time": seg_data.start_time,
+            "end_time": seg_data.end_time,
+            "speaker": _normalize_public_speaker(seg_data.speaker),
+            "metadata": seg_data.metadata or {},
+        }
+        if seg_data.segment_id:
+            seg_kwargs["segment_id"] = seg_data.segment_id
+        segment = TranscriptSegment(**seg_kwargs)
         segments.append(segment)
 
     if not segments:
@@ -338,6 +381,7 @@ def get_next_action(
     device_id: str = Depends(require_auth),
 ) -> Dict[str, Any]:
     """Get the single most important next action."""
+    _require_owner(incident_id, device_id)
     next_action = _engine.get_next_action(incident_id)
     if next_action is None:
         return {
@@ -396,7 +440,8 @@ async def upload_audio(
             ),
         )
 
-    # 2. Validate incident exists
+    # 2. Validate incident exists and ownership
+    _require_owner(incident_id, device_id)
     incident = _engine.get_incident(incident_id)
     if incident is None:
         raise HTTPException(status_code=404, detail=f"Incident not found: {incident_id}")
@@ -427,9 +472,12 @@ async def upload_audio(
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
-    except RuntimeError as exc:
+    except Exception as exc:
         logger.exception("Transcription failed")
-        raise HTTPException(status_code=500, detail=f"Transcription failed: {exc}")
+        raise HTTPException(
+            status_code=500,
+            detail="Speech-to-text transcription failed. Please try again.",
+        )
 
     # 5. Feed batch into existing incident engine
     try:

@@ -197,6 +197,7 @@ class Incident:
     independently or reference one or more sessions for backward compatibility.
     """
     incident_id: str = field(default_factory=lambda: uuid.uuid4().hex)
+    owner_device_id: Optional[str] = None
     created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     updated_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     status: IncidentStatus = IncidentStatus.ACTIVE
@@ -238,6 +239,7 @@ class Incident:
             "created_at": self.created_at,
             "updated_at": self.updated_at,
             "status": self.status.value,
+            "owner_device_id": self.owner_device_id,
             "timeline": [e.to_dict() for e in self.timeline],
             "user_actions": [a.to_dict() for a in self.user_actions],
             "exposure": {k: v.to_dict() for k, v in self.exposure.items()},
