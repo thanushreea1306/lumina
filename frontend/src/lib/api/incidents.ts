@@ -5,7 +5,7 @@
    All calls require device authentication headers.
    ============================================================ */
 
-import { apiGet, apiPost } from './client';
+import { apiGet, apiPost, DEFAULT_BASE_URL } from './client';
 import { generateAuthHeaders } from './device';
 import type { ApiResponse } from '@/types/api';
 import type {
@@ -144,7 +144,7 @@ export async function uploadIncidentAudio(
   const headers = await generateAuthHeaders(credentials, 'POST', path);
 
   // Base is the backend origin WITHOUT /api (see client.ts); empty in dev.
-  const baseUrl = import.meta.env.VITE_API_BASE_URL || '';
+  const baseUrl = DEFAULT_BASE_URL;
   const url = `${baseUrl}${path}`;
 
   try {

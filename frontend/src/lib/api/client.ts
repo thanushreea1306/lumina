@@ -21,7 +21,13 @@ import type { ApiResponse } from '@/types/api';
 //   IMPORTANT: base must NOT include the /api suffix. Adding it here (with
 //   paths that also carry /api) produced /api/api/... and broke HMAC, since
 //   the signature is computed over the final request pathname.
-const DEFAULT_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
+//
+//   Defense-in-depth: strip a trailing /api suffix if the env var was
+//   accidentally set with one (e.g. VITE_API_BASE_URL ending in /api).
+//   This prevents the double-/api regression that shipped as a misconfigured
+//   Vercel env var and caused production session creation to return 404.
+const _rawBase = import.meta.env.VITE_API_BASE_URL || '';
+export const DEFAULT_BASE_URL = _rawBase.replace(/\/api\/?$/, '');
 
 // ---- Fetch wrapper ----
 async function request<T>(

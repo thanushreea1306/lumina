@@ -134,3 +134,38 @@ describe('API URL pathname + HMAC consistency (CP-07 regression)', () => {
     expect(authPaths[0]).not.toMatch(/\/api\/api/);
   });
 });
+
+describe('DEFAULT_BASE_URL normalization (VITE_API_BASE_URL /api suffix guard)', () => {
+  // Reproduce the exact normalization logic from client.ts.
+  // import.meta.env is resolved at Vite build time, so we test the
+  // regex directly to verify it strips trailing /api as expected.
+  const normalize = (raw: string) => raw.replace(/\/api\/?$/, '');
+
+  it('strips trailing /api from a misconfigured env var', () => {
+    // This is the exact production misconfiguration: VITE_API_BASE_URL
+    // was set to "https://lumina-backend-sw45.onrender.com/api"
+    const result = normalize('https://lumina-backend-sw45.onrender.com/api');
+    expect(result).toBe('https://lumina-backend-sw45.onrender.com');
+    expect(result).not.toMatch(/\/api$/);
+  });
+
+  it('strips trailing /api/ (with trailing slash)', () => {
+    const result = normalize('https://lumina-backend-sw45.onrender.com/api/');
+    expect(result).toBe('https://lumina-backend-sw45.onrender.com');
+  });
+
+  it('leaves a correct base URL unchanged', () => {
+    const result = normalize('https://lumina-backend-sw45.onrender.com');
+    expect(result).toBe('https://lumina-backend-sw45.onrender.com');
+  });
+
+  it('empty string stays empty (dev mode)', () => {
+    const result = normalize('');
+    expect(result).toBe('');
+  });
+
+  it('URL with /api in path but not as suffix is untouched', () => {
+    const result = normalize('https://api.example.com');
+    expect(result).toBe('https://api.example.com');
+  });
+});
