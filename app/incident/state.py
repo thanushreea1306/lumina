@@ -655,6 +655,11 @@ def recalculate_incident(incident: Incident) -> None:
     escalation = detect_escalation(incident)
     incident.metadata["escalation"] = escalation.to_dict()
 
+    # Conversation intelligence layer (advisory, INference only)
+    from app.incident.conversation_intelligence import analyze_conversation_intelligence
+    intelligence = analyze_conversation_intelligence(incident, escalation=escalation)
+    incident.metadata["conversation_intelligence"] = intelligence.to_dict()
+
     exposure = calculate_exposure(observations, incident.user_actions)
     unknowns = calculate_unknowns(observations, incident.user_actions)
     status = calculate_status(observations, incident.user_actions, exposure)

@@ -39,10 +39,50 @@ from typing import Any, Dict, List, Optional
 
 
 class DeliveryChannel(str, Enum):
-    """Supported delivery channels for trusted-contact alerts."""
+    """Supported delivery channels for trusted-contact alerts.
+
+    SMS is the PRIMARY channel for emergency trusted-contact alerts.
+    Email is a fallback. NONE means no delivery configured.
+    """
     SMS = "SMS"
     EMAIL = "EMAIL"
     NONE = "NONE"
+
+
+# ---- Phone Validation ----
+
+import re
+
+# International phone number pattern: +<country_code><number>
+# Supports India (+91), US (+1), UK (+44), and most international formats
+_PHONE_PATTERN = re.compile(r'^\+\d{7,15}$')
+
+
+def validate_phone_number(phone: str) -> bool:
+    """Validate an international phone number.
+
+    Must start with '+' followed by 7-15 digits.
+    Example: +919876543210, +14155552671
+
+    Returns True if valid, False otherwise.
+    """
+    if not phone or not isinstance(phone, str):
+        return False
+    return bool(_PHONE_PATTERN.match(phone.strip()))
+
+
+def normalize_phone_number(phone: str) -> str:
+    """Normalize a phone number to international format.
+
+    Strips whitespace and ensures + prefix.
+    Does NOT validate — use validate_phone_number() first.
+    """
+    cleaned = phone.strip().replace(" ", "").replace("-", "").replace("(", "").replace(")", "")
+    if not cleaned.startswith("+"):
+        # Assume Indian number if 10 digits
+        if len(cleaned) == 10 and cleaned.isdigit():
+            cleaned = "+91" + cleaned
+    return cleaned
 
 
 # ---- Help Request Status ----
@@ -86,12 +126,16 @@ class TrustedContact:
 
     This is the owner's explicitly configured trusted contact.
     It is owner-bound and must never be shared across owners.
+
+    PRIMARY CHANNEL: SMS to a phone number.
+    Phone numbers are the preferred destination for emergency alerts.
     """
     contact_id: str = field(default_factory=lambda: uuid.uuid4().hex[:16])
     owner_device_id: str = ""
     display_name: str = ""
     delivery_channel: DeliveryChannel = DeliveryChannel.NONE
-    destination: str = ""  # phone number or email — sensitive, not in logs
+    destination: str = ""  # phone number (preferred) or email — sensitive, not in logs
+    phone_number: str = ""  # explicit phone number field for SMS
     enabled: bool = True
     automatic_help_enabled: bool = False  # Conservative default: OFF
     configured_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
@@ -100,11 +144,25 @@ class TrustedContact:
 
     def is_configured(self) -> bool:
         """Whether this contact has a real delivery destination."""
-        return (
-            self.enabled
-            and self.delivery_channel != DeliveryChannel.NONE
-            and bool(self.destination.strip())
-        )
+        if not self.enabled or self.delivery_channel == DeliveryChannel.NONE:
+            return False
+        # SMS requires a valid phone number
+        if self.delivery_channel == DeliveryChannel.SMS:
+            return validate_phone_number(self.phone_number or self.destination)
+        # Email requires a destination
+        if self.delivery_channel == DeliveryChannel.EMAIL:
+            return bool(self.destination.strip())
+        return False
+
+    def get_sms_destination(self) -> Optional[str]:
+        """Get the normalized phone number for SMS delivery.
+
+        Returns None if no valid phone number is configured.
+        """
+        phone = self.phone_number or self.destination
+        if validate_phone_number(phone):
+            return normalize_phone_number(phone)
+        return None
 
     def to_dict(self, redact_destination: bool = True) -> Dict[str, Any]:
         """Serialize the contact.
@@ -122,14 +180,16 @@ class TrustedContact:
             "updated_at": self.updated_at,
         }
         if redact_destination:
-            if self.destination:
+            if self.phone_number or self.destination:
+                phone = self.phone_number or self.destination
                 result["destination_masked"] = _mask_destination(
-                    self.destination, self.delivery_channel
+                    phone, self.delivery_channel
                 )
             else:
                 result["destination_masked"] = ""
         else:
             result["destination"] = self.destination
+            result["phone_number"] = self.phone_number
         return result
 
     def to_owner_dict(self) -> Dict[str, Any]:
@@ -179,6 +239,7 @@ class HelpRequest:
     reason: Optional[str] = None
     contact_id: Optional[str] = None  # Which trusted contact was used
     delivery_channel: DeliveryChannel = DeliveryChannel.NONE
+    provider_request_id: Optional[str] = None  # Provider-specific message ID
     delivered_at: Optional[str] = None
     failed_at: Optional[str] = None
     failure_reason: Optional[str] = None
@@ -252,6 +313,11 @@ def set_memory_fallback(enabled: bool) -> None:
     """Enable in-memory fallback for testing."""
     global _use_memory_fallback
     _use_memory_fallback = enabled
+
+
+def get_memory_fallback() -> bool:
+    """Get the current in-memory fallback state."""
+    return _use_memory_fallback
 
 
 def save_trusted_contact(contact: TrustedContact) -> None:

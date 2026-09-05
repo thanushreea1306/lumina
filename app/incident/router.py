@@ -882,6 +882,7 @@ class ConfigureTrustedContactRequest(BaseModel):
     display_name: str = Field(..., min_length=1, max_length=100)
     delivery_channel: str = Field(..., pattern=r"^(SMS|EMAIL|NONE)$")
     destination: str = Field(..., min_length=1, max_length=200)
+    phone_number: str = Field(default="", max_length=20)  # Primary for SMS
     automatic_help_enabled: bool = False
 
 
@@ -906,11 +907,23 @@ def configure_trusted_contact(
     except ValueError:
         raise HTTPException(status_code=422, detail=f"Invalid delivery channel: {req.delivery_channel}")
 
+    # Validate phone number for SMS channel
+    phone_number = req.phone_number or req.destination
+    if channel == DeliveryChannel.SMS:
+        from app.incident.trusted_contact import validate_phone_number, normalize_phone_number
+        if not validate_phone_number(phone_number):
+            raise HTTPException(
+                status_code=422,
+                detail="Invalid phone number. Must start with + followed by 7-15 digits (e.g., +919876543210)",
+            )
+        phone_number = normalize_phone_number(phone_number)
+
     contact = TrustedContact(
         owner_device_id=device_id,
         display_name=req.display_name,
         delivery_channel=channel,
         destination=req.destination,
+        phone_number=phone_number if channel == DeliveryChannel.SMS else "",
         automatic_help_enabled=req.automatic_help_enabled,
     )
     save_trusted_contact(contact)
@@ -1096,13 +1109,19 @@ def request_help(
         help_request.status = HelpRequestStatus.QUEUED
         save_help_request(help_request)
 
-        # Attempt delivery
+        # Attempt delivery — use phone number for SMS, destination for email
+        delivery_destination = trusted_contact.destination
+        if trusted_contact.delivery_channel == DeliveryChannel.SMS:
+            sms_dest = trusted_contact.get_sms_destination()
+            if sms_dest:
+                delivery_destination = sms_dest
+
         delivery_result = attempt_delivery(
             help_story_text=help_story.to_readable_text(),
             help_story_data=help_story.to_dict(),
             request_id=help_request.request_id,
             delivery_channel=trusted_contact.delivery_channel.value,
-            destination=trusted_contact.destination,
+            destination=delivery_destination,
         )
 
         # Update status based on honest delivery result

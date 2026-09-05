@@ -348,6 +348,94 @@ export interface EscalationResult {
   epistemic_status: string;
 }
 
+// ---- Conversation Intelligence Types (CP-20) ----
+
+export type BehavioralCategory =
+  | 'AUTHORITY_ESTABLISHMENT'
+  | 'THREAT_PRESENTATION'
+  | 'TIME_PRESSURE'
+  | 'ISOLATION_TACTIC'
+  | 'CREDENTIAL_EXTRACTION'
+  | 'FINANCIAL_EXTRACTION'
+  | 'REMOTE_ACCESS_EXTRACTION'
+  | 'IDENTITY_EXTRACTION'
+  | 'RESISTANCE_EXPRESSED'
+  | 'COMPLIANCE_PRESSURE'
+  | 'REPETITION_DETECTED'
+  | 'ESCALATION_OBSERVED';
+
+export type InterventionType =
+  | 'EARLY_UNCERTAINTY'
+  | 'PRESSURE_PAUSE'
+  | 'CREDENTIAL_PROTECTION'
+  | 'FINANCIAL_PROTECTION'
+  | 'ACCESS_PROTECTION'
+  | 'ISOLATION_COUNTER'
+  | 'EMERGENCY_SURFACING'
+  | 'RECOVERY_GUIDANCE';
+
+export interface BehavioralEvent {
+  event_id: string;
+  timeline_entry_id: string;
+  sequence: number;
+  timestamp: string;
+  observation_type: string;
+  behavioral_category: BehavioralCategory;
+  epistemic_status: string;
+  text_span: string;
+  source: string;
+}
+
+export interface ConversationTransition {
+  transition_id: string;
+  from_category: BehavioralCategory;
+  to_category: BehavioralCategory;
+  time_gap_seconds: number | null;
+  explanation: string;
+  epistemic_status: string;
+}
+
+export interface TemporalFeatures {
+  total_events: number;
+  categories_count: number;
+  setup_events: number;
+  pressure_events: number;
+  extraction_events: number;
+  time_span_seconds: number | null;
+  avg_event_interval: number | null;
+  max_gap_seconds: number | null;
+  has_escalation_pattern: boolean;
+  has_repeated_requests: boolean;
+  escalation_stage: string | null;
+  consecutive_pressure_count: number;
+  consecutive_extraction_count: number;
+  setup_to_pressure_gap: number | null;
+  pressure_to_extraction_gap: number | null;
+}
+
+export interface ConversationDynamics {
+  categories_present: BehavioralCategory[];
+  transitions: ConversationTransition[];
+  progression_direction: string;
+  has_extraction_pressure: boolean;
+  has_isolation_pressure: boolean;
+  has_authority_foundation: boolean;
+  repetition_detected: boolean;
+  overall_assessment: string;
+  epistemic_status: string;
+}
+
+export interface ConversationIntelligenceResult {
+  incident_id: string;
+  events: BehavioralEvent[];
+  temporal_features: TemporalFeatures;
+  dynamics: ConversationDynamics;
+  interventions: Array<{ type: string; reason: string; priority: string }>;
+  model_metadata: Record<string, unknown>;
+  generated_at: string;
+  epistemic_status: string;
+}
+
 // ---- Streaming Types (CP-15) ----
 
 export type SessionStatus =
@@ -487,6 +575,7 @@ export interface ConfigureTrustedContactRequest {
   display_name: string;
   delivery_channel: DeliveryChannel;
   destination: string;
+  phone_number?: string;  // Primary for SMS
   automatic_help_enabled?: boolean;
 }
 

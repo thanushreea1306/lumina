@@ -311,6 +311,9 @@ export function IncidentViewPage() {
   // Escalation data from incident metadata (computed by escalation engine)
   const escalation = (incident.metadata?.escalation as EscalationResult | undefined) ?? null;
 
+  // Conversation intelligence data (computed by intelligence layer)
+  const intelligence = (incident.metadata?.conversation_intelligence as import('../types/incident').ConversationIntelligenceResult | undefined) ?? null;
+
 
   // ---- Get observations from last extraction (immediate display) ----
   const extractionObservations = lastExtraction?.observations ?? [];
@@ -858,6 +861,123 @@ export function IncidentViewPage() {
           </div>
         )}
       </Card>
+
+      {/* ---- CONVERSATION INTELLIGENCE (CP-20) ---- */}
+      {intelligence && intelligence.events.length > 0 && (
+        <Card>
+          <SectionHeader
+            number={escalation && escalation.has_escalation ? 2.5 : 2.5}
+            title="Conversation Dynamics"
+            subtitle="Behavioral pattern analysis — this is not proof of fraud"
+          />
+          <div style={{ padding: 'var(--space-2)', fontSize: 'var(--text-xs)', color: 'var(--lumina-text-muted)', fontStyle: 'italic', marginBottom: 'var(--space-3)' }}>
+            Pattern analysis only — this is not proof of fraud. LUMINA identifies interaction patterns from available evidence; it does not determine intent.
+          </div>
+
+          {/* Progression direction */}
+          <div style={{ marginBottom: 'var(--space-3)' }}>
+            <span style={{ fontSize: 'var(--text-xs)', color: 'var(--lumina-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Progression</span>
+            <div style={{ marginTop: 'var(--space-1)' }}>
+              <span
+                style={{
+                  display: 'inline-block',
+                  padding: '2px 8px',
+                  borderRadius: 'var(--radius-full)',
+                  fontSize: 'var(--text-xs)',
+                  fontWeight: 500,
+                  backgroundColor: intelligence.dynamics.progression_direction === 'ESCALATING'
+                    ? 'var(--lumina-warning-bg, #fff3cd)'
+                    : 'var(--lumina-success-bg, #d1e7dd)',
+                  color: intelligence.dynamics.progression_direction === 'ESCALATING'
+                    ? 'var(--lumina-warning-text, #856404)'
+                    : 'var(--lumina-success-text, #0f5132)',
+                }}
+              >
+                {intelligence.dynamics.progression_direction.replace(/_/g, ' ')}
+              </span>
+            </div>
+          </div>
+
+          {/* Behavioral categories present */}
+          {intelligence.dynamics.categories_present.length > 0 && (
+            <div style={{ marginBottom: 'var(--space-3)' }}>
+              <span style={{ fontSize: 'var(--text-xs)', color: 'var(--lumina-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Detected Behaviors</span>
+              <div style={{ marginTop: 'var(--space-1)', display: 'flex', flexWrap: 'wrap', gap: 'var(--space-1)' }}>
+                {intelligence.dynamics.categories_present.map((cat) => (
+                  <span
+                    key={cat}
+                    style={{
+                      display: 'inline-block',
+                      padding: '2px 8px',
+                      borderRadius: 'var(--radius-sm)',
+                      fontSize: 'var(--text-xs)',
+                      backgroundColor: 'var(--lumina-surface-alt, #f8f9fa)',
+                      color: 'var(--lumina-text)',
+                    }}
+                  >
+                    {cat.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, (l) => l.toUpperCase())}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Transitions */}
+          {intelligence.dynamics.transitions.length > 0 && (
+            <div style={{ marginBottom: 'var(--space-3)' }}>
+              <span style={{ fontSize: 'var(--text-xs)', color: 'var(--lumina-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Behavioral Transitions</span>
+              <div style={{ marginTop: 'var(--space-1)', display: 'flex', flexDirection: 'column', gap: 'var(--space-1)' }}>
+                {intelligence.dynamics.transitions.map((t, i) => (
+                  <div key={t.transition_id} style={{ fontSize: 'var(--text-sm)', color: 'var(--lumina-text)' }}>
+                    <span style={{ color: 'var(--lumina-text-muted)' }}>{i + 1}.</span> {t.explanation}
+                    {t.time_gap_seconds !== null && (
+                      <span style={{ color: 'var(--lumina-text-muted)', fontSize: 'var(--text-xs)' }}> ({Math.round(t.time_gap_seconds)}s gap)</span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Advisory interventions */}
+          {intelligence.interventions.length > 0 && (
+            <div style={{ marginBottom: 'var(--space-3)' }}>
+              <span style={{ fontSize: 'var(--text-xs)', color: 'var(--lumina-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Suggested Interventions</span>
+              <div style={{ marginTop: 'var(--space-1)', display: 'flex', flexDirection: 'column', gap: 'var(--space-1)' }}>
+                {intelligence.interventions.map((intv, i) => (
+                  <div key={i} style={{ fontSize: 'var(--text-sm)', color: 'var(--lumina-text)' }}>
+                    <span style={{
+                      display: 'inline-block',
+                      padding: '1px 6px',
+                      borderRadius: 'var(--radius-sm)',
+                      fontSize: 'var(--text-xs)',
+                      fontWeight: 500,
+                      marginRight: 'var(--space-1)',
+                      backgroundColor: intv.priority === 'HIGH' ? '#f8d7da' : '#fff3cd',
+                      color: intv.priority === 'HIGH' ? '#842029' : '#856404',
+                    }}>
+                      {intv.priority}
+                    </span>
+                    {intv.reason}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Overall assessment */}
+          <p style={{ fontSize: 'var(--text-sm)', color: 'var(--lumina-text-muted)', fontStyle: 'italic' }}>
+            {intelligence.dynamics.overall_assessment}
+          </p>
+
+          {/* Model status */}
+          {intelligence.model_metadata?.model_status === 'NOT_TRAINED' && (
+            <p style={{ fontSize: 'var(--text-xs)', color: 'var(--lumina-text-muted)', marginTop: 'var(--space-2)' }}>
+              Intelligence model: deterministic feature extraction (no ML model trained)
+            </p>
+          )}
+        </Card>
+      )}
 
       {/* ---- EXPOSURE PANEL ---- */}
       {exposureEntries.length > 0 && (

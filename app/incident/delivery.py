@@ -343,6 +343,266 @@ if _email_provider.is_available:
     register_delivery_provider(_email_provider)
 
 
+# ---- SMS Delivery Provider ----
+#
+# SMS is the PRIMARY channel for emergency trusted-contact alerts.
+#
+# Architecture:
+#   LUMINA does NOT directly integrate with a specific SMS provider.
+#   Instead, it supports two SMS delivery paths:
+#
+#   1. Android textbee gateway (FREE, 300 msgs/month)
+#      - Uses the user's own Android phone + SIM
+#      - Sends from the user's real phone number
+#      - No credit card required
+#      - Requires: LUMINA_TEXTBEE_API_KEY env var
+#
+#   2. Generic SMS provider (paid, production-grade)
+#      - Requires: LUMINA_SMS_API_URL + LUMINA_SMS_API_KEY env vars
+#      - Provider-specific integration
+#      - Supports delivery status webhooks
+#
+# If neither is configured, SMS delivery returns NOT_CONFIGURED.
+# The in-app Help Story always works regardless of SMS configuration.
+
+
+class SmsDeliveryProvider(TrustedContactDeliveryProvider):
+    """SMS delivery provider using textbee or generic SMS API.
+
+    Reads configuration from environment variables:
+      LUMINA_TEXTBEE_API_KEY  — textbee API key (free tier: 300 msgs/month)
+      LUMINA_SMS_API_URL     — Generic SMS API endpoint (alternative)
+      LUMINA_SMS_API_KEY     — Generic SMS API key
+
+    Reports unavailable if not configured.
+    Never logs phone numbers.
+    """
+
+    def __init__(self) -> None:
+        self._textbee_key = os.environ.get("LUMINA_TEXTBEE_API_KEY", "")
+        self._sms_api_url = os.environ.get("LUMINA_SMS_API_URL", "")
+        self._sms_api_key = os.environ.get("LUMINA_SMS_API_KEY", "")
+
+    @property
+    def provider_id(self) -> str:
+        return "sms"
+
+    @property
+    def provider_name(self) -> str:
+        if self._textbee_key:
+            return "SMS (textbee)"
+        if self._sms_api_url:
+            return "SMS (configured provider)"
+        return "SMS (not configured)"
+
+    @property
+    def is_available(self) -> bool:
+        return bool(self._textbee_key or (self._sms_api_url and self._sms_api_key))
+
+    def send_help_story(
+        self,
+        destination: str,
+        help_story_text: str,
+        help_story_data: Dict[str, Any],
+        request_id: str,
+    ) -> DeliveryResult:
+        if not self.is_available:
+            return DeliveryResult(
+                status=DeliveryResultStatus.UNAVAILABLE,
+                provider_id=self.provider_id,
+                message="SMS provider not configured",
+            )
+
+        # Build a concise, privacy-safe SMS message
+        sms_text = _build_sms_message(help_story_text, request_id)
+
+        if self._textbee_key:
+            return self._send_via_textbee(destination, sms_text, request_id)
+        elif self._sms_api_url:
+            return self._send_via_generic_api(destination, sms_text, request_id)
+
+        return DeliveryResult(
+            status=DeliveryResultStatus.FAILED,
+            provider_id=self.provider_id,
+            message="No SMS provider available",
+        )
+
+    def _send_via_textbee(
+        self,
+        destination: str,
+        message: str,
+        request_id: str,
+    ) -> DeliveryResult:
+        """Send SMS via textbee API.
+
+        Uses the user's own Android phone + SIM.
+        Free tier: 300 msgs/month, 50/day.
+        """
+        import urllib.request
+        import urllib.error
+        import json
+
+        try:
+            payload = json.dumps({
+                "recipients": [destination],
+                "message": message,
+            }).encode("utf-8")
+
+            req = urllib.request.Request(
+                "https://api.textbee.dev/api/v1/gateway/send-sms",
+                data=payload,
+                headers={
+                    "x-api-key": self._textbee_key,
+                    "Content-Type": "application/json",
+                },
+                method="POST",
+            )
+
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                body = json.loads(resp.read().decode("utf-8"))
+                # textbee returns {"success": true, ...} on acceptance
+                if body.get("success"):
+                    return DeliveryResult(
+                        status=DeliveryResultStatus.SENT,
+                        provider_id=self.provider_id,
+                        message="SMS sent via textbee",
+                        provider_message_id=body.get("data", {}).get("message_id"),
+                    )
+                return DeliveryResult(
+                    status=DeliveryResultStatus.FAILED,
+                    provider_id=self.provider_id,
+                    message=f"textbee error: {body.get('error', 'unknown')}",
+                )
+
+        except urllib.error.HTTPError as exc:
+            return DeliveryResult(
+                status=DeliveryResultStatus.FAILED,
+                provider_id=self.provider_id,
+                message=f"textbee HTTP error: {exc.code}",
+            )
+        except Exception as exc:
+            return DeliveryResult(
+                status=DeliveryResultStatus.FAILED,
+                provider_id=self.provider_id,
+                message=f"textbee delivery failed: {type(exc).__name__}",
+            )
+
+    def _send_via_generic_api(
+        self,
+        destination: str,
+        message: str,
+        request_id: str,
+    ) -> DeliveryResult:
+        """Send SMS via a generic SMS API endpoint.
+
+        Expected API contract:
+          POST {LUMINA_SMS_API_URL}
+          Authorization: Bearer {LUMINA_SMS_API_KEY}
+          Content-Type: application/json
+          Body: {"to": "+number", "message": "text"}
+
+        Response: {"success": true, "message_id": "..."}
+        """
+        import urllib.request
+        import urllib.error
+        import json
+
+        try:
+            payload = json.dumps({
+                "to": destination,
+                "message": message,
+            }).encode("utf-8")
+
+            req = urllib.request.Request(
+                self._sms_api_url,
+                data=payload,
+                headers={
+                    "Authorization": f"Bearer {self._sms_api_key}",
+                    "Content-Type": "application/json",
+                },
+                method="POST",
+            )
+
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                body = json.loads(resp.read().decode("utf-8"))
+                if body.get("success"):
+                    return DeliveryResult(
+                        status=DeliveryResultStatus.SENT,
+                        provider_id=self.provider_id,
+                        message="SMS sent via configured provider",
+                        provider_message_id=body.get("message_id"),
+                    )
+                return DeliveryResult(
+                    status=DeliveryResultStatus.FAILED,
+                    provider_id=self.provider_id,
+                    message=f"SMS provider error: {body.get('error', 'unknown')}",
+                )
+
+        except urllib.error.HTTPError as exc:
+            return DeliveryResult(
+                status=DeliveryResultStatus.FAILED,
+                provider_id=self.provider_id,
+                message=f"SMS API HTTP error: {exc.code}",
+            )
+        except Exception as exc:
+            return DeliveryResult(
+                status=DeliveryResultStatus.FAILED,
+                provider_id=self.provider_id,            message=f"SMS delivery failed: {type(exc).__name__}",
+        )
+
+
+# Register SMS provider if configured
+_sms_provider = SmsDeliveryProvider()
+if _sms_provider.is_available:
+    register_delivery_provider(_sms_provider)
+
+
+def _build_sms_message(help_story_text: str, request_id: str) -> str:
+    """Build a concise, privacy-safe SMS message from the help story.
+
+    SMS has a 160-character limit per segment. We build a concise message
+    that fits in 1-2 SMS segments (320 chars max).
+
+    The message must be contextual (not hardcoded) but brief.
+    """
+    # Extract key sections from the help story
+    lines = help_story_text.split("\n")
+    urgency = "URGENT"
+    summary = ""
+    status = ""
+
+    for line in lines:
+        if line.startswith("HELP REQUEST"):
+            urgency = line.replace("HELP REQUEST — ", "").strip()
+        elif line.startswith("Urgency:"):
+            urgency = line.replace("Urgency:", "").strip().rstrip(".")
+        elif "victim" in line.lower() or "situation" in line.lower():
+            if not summary:
+                summary = line.strip()
+
+    # Build concise message
+    parts = [f"LUMINA EMERGENCY HELP REQUEST"]
+
+    if urgency and urgency != "URGENT":
+        parts.append(f"Priority: {urgency}")
+
+    if summary:
+        # Truncate to 100 chars for SMS
+        if len(summary) > 100:
+            summary = summary[:97] + "..."
+        parts.append(summary)
+
+    parts.append("")
+    parts.append("What to do:")
+    parts.append("- Call the person immediately")
+    parts.append("- Help them verify the situation")
+    parts.append("- If financial loss occurred, contact their bank")
+    parts.append("")
+    parts.append(f"Reference: {request_id[:8]}")
+
+    return "\n".join(parts)
+
+
 # ---- Delivery Orchestration ----
 
 
@@ -363,7 +623,15 @@ def attempt_delivery(
 
     Never claims DELIVERED without provider confirmation.
     """
-    provider = get_delivery_provider(provider_id)
+    # Auto-select SMS provider if channel is SMS and no specific provider given
+    if delivery_channel == "SMS" and provider_id == "console":
+        sms_provider = get_delivery_provider("sms")
+        if sms_provider.is_available:
+            provider = sms_provider
+        else:
+            provider = get_delivery_provider(provider_id)
+    else:
+        provider = get_delivery_provider(provider_id)
 
     if not provider.is_available:
         return DeliveryResult(
