@@ -1017,7 +1017,7 @@ export function IncidentViewPage() {
                     color: mlIntel.phase_prediction.phase === 'EXTRACTION' || mlIntel.phase_prediction.phase === 'ESCALATION'
                       ? 'var(--lumina-warning-text, #856404)' : 'var(--lumina-text)',
                   }}>
-                    {mlIntel.phase_prediction.phase} ({Math.round(mlIntel.phase_prediction.confidence * 100)}% classification confidence)
+                    {mlIntel.phase_prediction.phase}
                   </span>
                 </div>
               </div>

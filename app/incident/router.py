@@ -434,6 +434,13 @@ def add_transcript_segments(
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
+    # Track segment arrivals for semantic analysis trigger policy
+    try:
+        from app.incident.semantic_provider import record_segments_arrived
+        record_segments_arrived(incident_id, len(segments))
+    except Exception:
+        pass  # Non-critical — do not block transcript addition
+
     return {
         "incident_id": incident.incident_id,
         "status": incident.status.value,

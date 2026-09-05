@@ -799,6 +799,75 @@ def sanitize_segment_text(text: str) -> str:
     return text
 
 
+# ---- Semantic Result Conversion ----
+
+
+def _convert_semantic_to_ml(semantic_result: Any) -> MLIntelligenceResult:
+    """Convert a SemanticResult to MLIntelligenceResult for pipeline compatibility.
+
+    This bridges the semantic provider output to the existing ML intelligence
+    interface while preserving all provenance and epistemic status.
+    """
+    # Convert semantic observations to tactic predictions
+    tactic_predictions: List[TacticPrediction] = []
+    for obs in semantic_result.observations:
+        tactic_predictions.append(TacticPrediction(
+            tactic=TacticLabel(obs.tactic.value) if obs.tactic.value in {t.value for t in TacticLabel} else TacticLabel.UNKNOWN,
+            confidence=obs.confidence,
+            text_span=obs.evidence_spans[0] if obs.evidence_spans else "",
+            evidence_basis=obs.evidence_spans,
+            epistemic_status=obs.epistemic_status,
+        ))
+
+    # Convert phase
+    phase_prediction = None
+    if semantic_result.conversation_phase:
+        phase_prediction = ConversationPhasePrediction(
+            phase=semantic_result.conversation_phase.value,
+            confidence=semantic_result.phase_confidence,
+            evidence_basis=semantic_result.supporting_evidence,
+            epistemic_status="MODEL_OUTPUT",
+        )
+
+    # Aggregate observed tactics
+    observed_tactics = tuple(
+        sorted(
+            set(p.tactic for p in tactic_predictions if p.confidence > 0.5),
+            key=lambda t: t.value,
+        )
+    )
+
+    # Build explanation with semantic intelligence
+    explanation = semantic_result.explanation
+    if not explanation:
+        if observed_tactics:
+            tactic_names = [t.value.replace("_", " ").lower() for t in observed_tactics]
+            explanation = (
+                f"The conversation shows: {', '.join(tactic_names)}. "
+                f"Phase: {semantic_result.conversation_phase.value}. "
+                f"This is a semantic AI inference — not proof of fraud."
+            )
+        else:
+            explanation = "No significant social-engineering tactics detected."
+
+    return MLIntelligenceResult(
+        incident_id=semantic_result.incident_id,
+        tactic_predictions=tuple(tactic_predictions),
+        phase_prediction=phase_prediction,
+        observed_tactics=observed_tactics,
+        requested_actions=semantic_result.requested_actions,
+        pressure_progression=tuple(
+            p.tactic.value for p in tactic_predictions
+            if p.tactic in (TacticLabel.THREAT_PRESENTATION, TacticLabel.TIME_PRESSURE, TacticLabel.ISOLATION_TACTIC)
+        ),
+        supporting_evidence=semantic_result.supporting_evidence,
+        uncertainties=semantic_result.uncertainties,
+        explanation=explanation,
+        model_metadata=semantic_result.provider_metadata,
+        generated_at=semantic_result.generated_at,
+    )
+
+
 # ---- Main Intelligence Pipeline ----
 
 def analyze_with_ml(
@@ -907,15 +976,29 @@ def analyze_with_ml(
     # Optionally run semantic AI provider
     if semantic_provider and semantic_provider.is_available:
         try:
-            ai_result = semantic_provider.analyze(
-                incident_id=incident.incident_id,
-                segments_text=segments_text,
-                observations=observations,
-                temporal_features={},
-            )
+            # Build valid segment IDs for evidence grounding
+            valid_segment_ids = set(str(i) for i in range(len(segments_text)))
+
+            # Use the real semantic provider if available
+            from app.incident.semantic_provider import OpenAICompatibleProvider
+            if isinstance(semantic_provider, OpenAICompatibleProvider):
+                ai_result = semantic_provider.analyze(
+                    incident_id=incident.incident_id,
+                    segments_text=segments_text,
+                    observations=observations,
+                    temporal_features={},
+                    valid_segment_ids=valid_segment_ids,
+                )
+            else:
+                ai_result = semantic_provider.analyze(
+                    incident_id=incident.incident_id,
+                    segments_text=segments_text,
+                    observations=observations,
+                    temporal_features={},
+                )
             if ai_result:
-                # Merge AI results with baseline (AI supplements, doesn't replace)
-                return ai_result
+                # Convert SemanticResult to MLIntelligenceResult for compatibility
+                return _convert_semantic_to_ml(ai_result)
         except Exception:
             # Semantic AI failure must not break the pipeline
             model_metadata["semantic_ai_error"] = "Provider failed — using baseline results"
@@ -936,6 +1019,68 @@ def analyze_with_ml(
         model_metadata=model_metadata,
         generated_at=datetime.now(timezone.utc).isoformat(),
     )
+
+
+# ---- Semantic Analysis (Explicit Trigger Only) ----
+
+
+def analyze_with_semantic_ai(
+    incident: Incident,
+    valid_segment_ids: Optional[set] = None,
+) -> Optional[MLIntelligenceResult]:
+    """Run semantic AI analysis on an incident.
+
+    This is an OPTIONAL secondary analysis operation.
+    It is NEVER called during deterministic recalculation.
+    It must be triggered explicitly (e.g., by user request or batch job).
+
+    Provider failure returns None — caller falls back to deterministic results.
+    """
+    from app.incident.semantic_provider import get_semantic_provider
+    provider = get_semantic_provider()
+
+    if not provider.is_available:
+        return None
+
+    # Extract segments from timeline
+    segments_text: List[str] = []
+    observations: List[str] = []
+
+    for entry in incident.timeline:
+        if entry.entry_type.value == "EVIDENCE_ADDED":
+            obs_type = entry.metadata.get("observation_type", "")
+            text_span = entry.metadata.get("text_span", "")
+            if obs_type:
+                observations.append(obs_type)
+            if text_span:
+                segments_text.append(sanitize_segment_text(text_span))
+
+    if not segments_text:
+        return None
+
+    try:
+        from app.incident.semantic_provider import OpenAICompatibleProvider
+        if isinstance(provider, OpenAICompatibleProvider):
+            result = provider.analyze(
+                incident_id=incident.incident_id,
+                segments_text=segments_text,
+                observations=observations,
+                temporal_features={},
+                valid_segment_ids=valid_segment_ids,
+            )
+        else:
+            result = provider.analyze(
+                incident_id=incident.incident_id,
+                segments_text=segments_text,
+                observations=observations,
+                temporal_features={},
+            )
+        if result:
+            return _convert_semantic_to_ml(result)
+    except Exception:
+        pass  # Provider failure returns None
+
+    return None
 
 
 # ---- Global State ----

@@ -660,12 +660,13 @@ def recalculate_incident(incident: Incident) -> None:
     intelligence = analyze_conversation_intelligence(incident, escalation=escalation)
     incident.metadata["conversation_intelligence"] = intelligence.to_dict()
 
-    # ML intelligence layer (advisory, MODEL_OUTPUT only)
-    from app.incident.ml_intelligence import analyze_with_ml, get_classifier, get_semantic_provider
+    # ML intelligence layer — deterministic baseline only (no external API call)
+    # Semantic analysis is a separate optional operation, NOT part of recalculation
+    from app.incident.ml_intelligence import analyze_with_ml, get_classifier
     ml_result = analyze_with_ml(
         incident,
         classifier=get_classifier(),
-        semantic_provider=get_semantic_provider(),
+        semantic_provider=None,  # Never call external provider during recalculation
     )
     incident.metadata["ml_intelligence"] = ml_result.to_dict()
 
