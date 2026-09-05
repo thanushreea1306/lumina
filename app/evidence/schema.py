@@ -67,6 +67,70 @@ _migration(
     lambda conn: conn.execute("ALTER TABLE incidents ADD COLUMN owner_device_id TEXT"),
 )
 
+_migration(
+    "identity.lumina_phone_verifications.device_id",
+    _column_exists("lumina_phone_verifications", "device_id"),
+    lambda conn: conn.execute(
+        "ALTER TABLE lumina_phone_verifications ADD COLUMN device_id TEXT"
+    ),
+)
+
+_migration(
+    "identity.lumina_users.account_status",
+    _column_exists("lumina_users", "account_status"),
+    lambda conn: conn.execute(
+        "ALTER TABLE lumina_users ADD COLUMN "
+        "account_status TEXT NOT NULL DEFAULT 'ACTIVE'"
+    ),
+)
+
+
+def _needs_phone_unique_index(conn: sqlite3.Connection) -> bool:
+    if not _table_exists(conn, "lumina_users"):
+        return False
+    row = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='index' "
+        "AND name='idx_lumina_users_phone_unique'"
+    ).fetchone()
+    return row is None
+
+
+def _dedupe_lumina_users_by_phone(conn: sqlite3.Connection) -> None:
+    """Drop duplicate lumina_users rows per phone, keeping the newest account.
+
+    Only rows sharing a phone_number are touched; unique phones and rows with
+    an empty phone are never candidates. The dedupe is idempotent, so it can
+    safely run again on a fresh database.
+    """
+    conn.execute(
+        """
+        DELETE FROM lumina_users
+        WHERE phone_number <> ''
+          AND user_id NOT IN (
+            SELECT user_id FROM (
+              SELECT user_id,
+                     ROW_NUMBER() OVER (
+                       PARTITION BY phone_number
+                       ORDER BY updated_at DESC, created_at DESC
+                     ) AS rn
+              FROM lumina_users
+            )
+            WHERE rn = 1
+          )
+        """
+    )
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_lumina_users_phone_unique "
+        "ON lumina_users (phone_number)"
+    )
+
+
+_migration(
+    "identity.lumina_users.phone_number_unique",
+    _needs_phone_unique_index,
+    _dedupe_lumina_users_by_phone,
+)
+
 
 def _ensure_migrations_table(conn: sqlite3.Connection) -> None:
     conn.execute(

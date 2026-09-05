@@ -44,6 +44,12 @@ from app.persistence.base import PersistenceBackend, TransactionCtx
 
 DB_PATH = os.getenv("LUMINA_DB_PATH", os.path.join("data", "evidence.db"))
 
+
+def _default_db_path() -> str:
+    """Resolve the default database path lazily so test redirection via the
+    ``LUMINA_DB_PATH`` environment variable takes effect per call."""
+    return os.getenv("LUMINA_DB_PATH", DB_PATH)
+
 logger = logging.getLogger(__name__)
 
 _EVIDENCE_SCHEMA = """
@@ -239,13 +245,50 @@ CREATE TABLE IF NOT EXISTS help_policies (
 );
 """
 
+_IDENTITY_SCHEMA = """
+CREATE TABLE IF NOT EXISTS lumina_users (
+    user_id TEXT PRIMARY KEY,
+    display_name TEXT NOT NULL DEFAULT '',
+    phone_number TEXT NOT NULL DEFAULT '',
+    phone_verified INTEGER NOT NULL DEFAULT 0,
+    emergency_consent TEXT NOT NULL DEFAULT 'NOT_GIVEN',
+    account_status TEXT NOT NULL DEFAULT 'ACTIVE',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS lumina_user_devices (
+    device_id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'ACTIVE',
+    bound_at TEXT NOT NULL,
+    revoked_at TEXT,
+    device_label TEXT NOT NULL DEFAULT ''
+);
+
+CREATE TABLE IF NOT EXISTS lumina_phone_verifications (
+    verification_id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    phone_number TEXT NOT NULL,
+    otp_hash TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'NOT_STARTED',
+    attempts INTEGER NOT NULL DEFAULT 0,
+    max_attempts INTEGER NOT NULL DEFAULT 5,
+    created_at TEXT NOT NULL,
+    expires_at TEXT,
+    verified_at TEXT,
+    last_sent_at TEXT,
+    device_id TEXT
+);
+"""
+
 
 def connect_db(path: Optional[str] = None) -> sqlite3.Connection:
     """Open a SQLite connection with explicit production-safe pragmas.
 
     Same behavior as the historical ``app.evidence.db.connect_db``.
     """
-    target = path or DB_PATH
+    target = path or _default_db_path()
     conn = sqlite3.connect(target, timeout=30.0)
     conn.row_factory = sqlite3.Row
     try:
@@ -276,7 +319,7 @@ class SQLiteBackend(PersistenceBackend):
     """Unified SQLite backend for evidence + incident persistence."""
 
     def __init__(self, path: Optional[str] = None):
-        self.path = path or DB_PATH
+        self.path = path or _default_db_path()
         os.makedirs(os.path.dirname(os.path.abspath(self.path)), exist_ok=True)
         self.migrate()
 
@@ -324,6 +367,7 @@ class SQLiteBackend(PersistenceBackend):
                 conn.executescript(_EVIDENCE_SCHEMA)
                 conn.executescript(_INCIDENT_SCHEMA)
                 conn.executescript(_TRANSCRIPT_SCHEMA)
+                conn.executescript(_IDENTITY_SCHEMA)
                 run_migrations(conn)
         finally:
             conn.close()
@@ -1044,3 +1088,344 @@ class SQLiteBackend(PersistenceBackend):
         ).fetchone()
         conn.close()
         return dict(row) if row else None
+
+    # ---- identity (CP-25) ----
+
+    def save_user(
+        self,
+        user_id: str,
+        display_name: str,
+        phone_number: str,
+        phone_verified: bool,
+        emergency_consent: str,
+        account_status: str = "ACTIVE",
+        created_at: str = "",
+        updated_at: str = "",
+        txn: Optional[TransactionCtx] = None,
+    ) -> None:
+        def _do(conn: sqlite3.Connection) -> None:
+            conn.execute(
+                "INSERT INTO lumina_users "
+                "(user_id, display_name, phone_number, phone_verified, "
+                "emergency_consent, account_status, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?) "
+                "ON CONFLICT (user_id) DO UPDATE SET "
+                "display_name = excluded.display_name, "
+                "phone_number = excluded.phone_number, "
+                "phone_verified = excluded.phone_verified, "
+                "emergency_consent = excluded.emergency_consent, "
+                "account_status = excluded.account_status, "
+                "updated_at = excluded.updated_at",
+                (user_id, display_name, phone_number, int(phone_verified),
+                 emergency_consent, account_status, created_at, updated_at),
+            )
+        if txn is not None:
+            _do(txn.connection)
+        else:
+            conn = self._connect()
+            try:
+                _do(conn)
+                conn.commit()
+            finally:
+                conn.close()
+
+    def get_user(self, user_id: str) -> Optional[Dict]:
+        conn = self._connect()
+        row = conn.execute(
+            "SELECT * FROM lumina_users WHERE user_id = ?",
+            (user_id,),
+        ).fetchone()
+        conn.close()
+        return dict(row) if row else None
+
+    def get_user_by_phone(self, phone_number: str) -> Optional[Dict]:
+        conn = self._connect()
+        row = conn.execute(
+            "SELECT * FROM lumina_users WHERE phone_number = ?",
+            (phone_number,),
+        ).fetchone()
+        conn.close()
+        return dict(row) if row else None
+
+    def update_user(
+        self,
+        user_id: str,
+        display_name: Optional[str] = None,
+        phone_verified: Optional[bool] = None,
+        emergency_consent: Optional[str] = None,
+        account_status: Optional[str] = None,
+        updated_at: Optional[str] = None,
+        txn: Optional[TransactionCtx] = None,
+    ) -> Optional[Dict]:
+        conn = self._connect()
+        updates = []
+        params: list = []
+        if display_name is not None:
+            updates.append("display_name = ?")
+            params.append(display_name)
+        if phone_verified is not None:
+            updates.append("phone_verified = ?")
+            params.append(int(phone_verified))
+        if emergency_consent is not None:
+            updates.append("emergency_consent = ?")
+            params.append(emergency_consent)
+        if account_status is not None:
+            updates.append("account_status = ?")
+            params.append(account_status)
+        if updated_at is not None:
+            updates.append("updated_at = ?")
+            params.append(updated_at)
+        if not updates:
+            conn.close()
+            return self.get_user(user_id)
+        params.append(user_id)
+        with conn:
+            conn.execute(
+                f"UPDATE lumina_users SET {', '.join(updates)} WHERE user_id = ?",
+                tuple(params),
+            )
+        conn.close()
+        return self.get_user(user_id)
+
+    def save_user_device(
+        self,
+        device_id: str,
+        user_id: str,
+        status: str,
+        bound_at: str,
+        revoked_at: Optional[str],
+        device_label: str,
+        txn: Optional[TransactionCtx] = None,
+    ) -> None:
+        def _do(conn: sqlite3.Connection) -> None:
+            conn.execute(
+                "INSERT INTO lumina_user_devices "
+                "(device_id, user_id, status, bound_at, revoked_at, device_label) "
+                "VALUES (?, ?, ?, ?, ?, ?) "
+                "ON CONFLICT (device_id) DO UPDATE SET "
+                "status = excluded.status, "
+                "bound_at = excluded.bound_at, "
+                "revoked_at = excluded.revoked_at, "
+                "device_label = excluded.device_label",
+                (device_id, user_id, status, bound_at, revoked_at, device_label),
+            )
+        if txn is not None:
+            _do(txn.connection)
+        else:
+            conn = self._connect()
+            try:
+                _do(conn)
+                conn.commit()
+            finally:
+                conn.close()
+
+    def get_user_device(self, device_id: str) -> Optional[Dict]:
+        conn = self._connect()
+        row = conn.execute(
+            "SELECT * FROM lumina_user_devices WHERE device_id = ?",
+            (device_id,),
+        ).fetchone()
+        conn.close()
+        return dict(row) if row else None
+
+    def revoke_user_device(
+        self,
+        device_id: str,
+        revoked_at: str,
+        txn: Optional[TransactionCtx] = None,
+    ) -> Optional[Dict]:
+        conn = self._connect()
+        with conn:
+            cur = conn.execute(
+                "UPDATE lumina_user_devices SET status = 'REVOKED', revoked_at = ? "
+                "WHERE device_id = ?",
+                (revoked_at, device_id),
+            )
+        if cur.rowcount == 0:
+            row = None
+        else:
+            row = conn.execute(
+                "SELECT * FROM lumina_user_devices WHERE device_id = ?", (device_id,)
+            ).fetchone()
+        conn.close()
+        return dict(row) if row else None
+
+    def save_phone_verification(
+        self,
+        verification_id: str,
+        user_id: str,
+        phone_number: str,
+        otp_hash: str,
+        status: str,
+        attempts: int,
+        max_attempts: int,
+        created_at: str,
+        expires_at: str,
+        verified_at: Optional[str],
+        last_sent_at: Optional[str],
+        device_id: Optional[str] = None,
+        txn: Optional[TransactionCtx] = None,
+    ) -> None:
+        def _do(conn: sqlite3.Connection) -> None:
+            conn.execute(
+                "INSERT INTO lumina_phone_verifications "
+                "(verification_id, user_id, phone_number, otp_hash, status, "
+                "attempts, max_attempts, created_at, expires_at, verified_at, "
+                "last_sent_at, device_id) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+                "ON CONFLICT (verification_id) DO UPDATE SET "
+                "status = excluded.status, "
+                "attempts = excluded.attempts, "
+                "verified_at = excluded.verified_at, "
+                "device_id = excluded.device_id",
+                (verification_id, user_id, phone_number, otp_hash, status,
+                 attempts, max_attempts, created_at, expires_at, verified_at,
+                 last_sent_at, device_id),
+            )
+        if txn is not None:
+            _do(txn.connection)
+        else:
+            conn = self._connect()
+            try:
+                _do(conn)
+                conn.commit()
+            finally:
+                conn.close()
+
+    def get_phone_verification(self, verification_id: str) -> Optional[Dict]:
+        conn = self._connect()
+        row = conn.execute(
+            "SELECT * FROM lumina_phone_verifications WHERE verification_id = ?",
+            (verification_id,),
+        ).fetchone()
+        conn.close()
+        return dict(row) if row else None
+
+    def get_latest_phone_verification(
+        self, user_id: str, phone_number: str
+    ) -> Optional[Dict]:
+        conn = self._connect()
+        try:
+            row = conn.execute(
+                "SELECT * FROM lumina_phone_verifications "
+                "WHERE user_id = ? AND phone_number = ? "
+                "ORDER BY created_at DESC LIMIT 1",
+                (user_id, phone_number),
+            ).fetchone()
+            return dict(row) if row else None
+        finally:
+            conn.close()
+
+    def update_phone_verification(
+        self,
+        verification_id: str,
+        status: Optional[str] = None,
+        attempts: Optional[int] = None,
+        verified_at: Optional[str] = None,
+        txn: Optional[TransactionCtx] = None,
+    ) -> Optional[Dict]:
+        conn = self._connect()
+        updates = []
+        params: list = []
+        if status is not None:
+            updates.append("status = ?")
+            params.append(status)
+        if attempts is not None:
+            updates.append("attempts = ?")
+            params.append(attempts)
+        if verified_at is not None:
+            updates.append("verified_at = ?")
+            params.append(verified_at)
+        if not updates:
+            conn.close()
+            return self.get_phone_verification(verification_id)
+        params.append(verification_id)
+        with conn:
+            conn.execute(
+                f"UPDATE lumina_phone_verifications SET {', '.join(updates)} "
+                "WHERE verification_id = ?",
+                tuple(params),
+            )
+        conn.close()
+        return self.get_phone_verification(verification_id)
+
+    def consume_phone_verification_attempt(
+        self, verification_id: str, now_iso: str
+    ) -> Optional[Dict]:
+        """Atomically increment the attempt counter for a live verification.
+
+        Returns the refreshed row ONLY when an attempt slot was actually
+        consumed; returns None when the verification is not live (missing,
+        already LOCKED/FAILED/EXPIRED/VERIFIED, past max_attempts, or past
+        expires_at). The guarded single UPDATE makes the check race-safe.
+        """
+        conn = self._connect()
+        try:
+            with conn:
+                cur = conn.execute(
+                    "UPDATE lumina_phone_verifications SET "
+                    "attempts = attempts + 1, "
+                    "status = CASE "
+                    "  WHEN attempts + 1 >= max_attempts THEN 'LOCKED' "
+                    "  ELSE status END "
+                    "WHERE verification_id = ? "
+                    "AND status = 'CODE_SENT' "
+                    "AND attempts < max_attempts "
+                    "AND (expires_at IS NULL OR expires_at > ?)",
+                    (verification_id, now_iso),
+                )
+                if cur.rowcount == 0:
+                    return None
+            row = conn.execute(
+                "SELECT * FROM lumina_phone_verifications WHERE verification_id = ?",
+                (verification_id,),
+            ).fetchone()
+            return dict(row) if row else None
+        finally:
+            conn.close()
+
+    def delete_user_account(self, user_id: str) -> bool:
+        """Permanently delete all account identity data for a user (atomic).
+
+        Device bindings are REVOKED and kept as tombstones so account-bound
+        device authorization stops (a deleted account's device credential
+        can no longer act as that account), while the registered HMAC device
+        credential that safety features depend on stays intact.
+        """
+        conn = self._connect()
+        try:
+            with conn:
+                conn.execute(
+                    "UPDATE lumina_user_devices SET status = 'REVOKED', revoked_at = ? "
+                    "WHERE user_id = ?",
+                    (datetime.now().isoformat(), user_id),
+                )
+                conn.execute(
+                    "DELETE FROM lumina_phone_verifications WHERE user_id = ?",
+                    (user_id,),
+                )
+                conn.execute(
+                    "DELETE FROM trusted_contacts WHERE owner_device_id IN "
+                    "(SELECT device_id FROM lumina_user_devices WHERE user_id = ?)",
+                    (user_id,),
+                )
+                conn.execute(
+                    "DELETE FROM help_policies WHERE owner_device_id IN "
+                    "(SELECT device_id FROM lumina_user_devices WHERE user_id = ?)",
+                    (user_id,),
+                )
+                conn.execute(
+                    "UPDATE incidents SET owner_device_id = NULL "
+                    "WHERE owner_device_id IN "
+                    "(SELECT device_id FROM lumina_user_devices WHERE user_id = ?)",
+                    (user_id,),
+                )
+                cur = conn.execute(
+                    "DELETE FROM lumina_users WHERE user_id = ?",
+                    (user_id,),
+                )
+            return cur.rowcount > 0
+        except sqlite3.Error:
+            return False
+        finally:
+            conn.close()

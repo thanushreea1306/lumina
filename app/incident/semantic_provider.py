@@ -697,6 +697,11 @@ def _redact_secrets(text: str) -> str:
     # OTP / verification codes (4-8 digit numbers in sensitive context)
     result = re.sub(r'\b(otp|code|pin)\s*(is|:|=)\s*\d{4,8}\b', r'\1 [REDACTED]', result, flags=re.IGNORECASE)
 
+    # Phone numbers in E.164 form (+<7-15 digits>) — e.g. +919876543210.
+    # Phone numbers are account/trusted-contact identity and must never reach
+    # an external AI provider.
+    result = re.sub(r'\+\d{7,15}\b', '[PHONE_REDACTED]', result)
+
     # Passwords
     result = re.sub(r'(password|passwd|pwd)\s*(is|:|=)\s*\S+', r'\1 [REDACTED]', result, flags=re.IGNORECASE)
 

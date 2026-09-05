@@ -10,14 +10,25 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { RecoveryPage } from '@/app/RecoveryPage';
-import { PrivacyPage } from '@/app/PrivacyPage';
+import { PrivacyCenterPage } from '@/app/PrivacyCenterPage';
 import { AccessibilityPage } from '@/app/AccessibilityPage';
 import { SecurityPage } from '@/app/SecurityPage';
 import { SettingsPage } from '@/app/SettingsPage';
 import { HistoryPage } from '@/app/HistoryPage';
+import {
+  getPrivacyPolicy,
+  getMyAccount,
+  deleteAccount,
+} from '@/lib/api/account';
 
 vi.mock('@/hooks/useSessionState', () => ({
   useSessionState: vi.fn(),
+}));
+
+vi.mock('@/lib/api/account', () => ({
+  getPrivacyPolicy: vi.fn(),
+  getMyAccount: vi.fn(),
+  deleteAccount: vi.fn(),
 }));
 
 import { useSessionState } from '@/hooks/useSessionState';
@@ -141,50 +152,56 @@ describe('RecoveryPage', () => {
 });
 
 // ============================================================
-// PRIVACY PAGE
+// PRIVACY CENTER
 // ============================================================
-describe('PrivacyPage', () => {
-  beforeEach(() => vi.clearAllMocks());
+describe('PrivacyCenterPage', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    const mockPolicy = {
+      retention_policy: {},
+      retention_enforcement: 'NOT_IMPLEMENTED',
+      summary: {
+        what_lumina_stores: ['Phone number (account identity)', 'Incidents and evidence (safety continuity)'],
+        what_lumina_does_not_store: ['Location data', 'Contact lists'],
+        what_is_shared: ['Sanitized transcript evidence to semantic AI provider'],
+        ai_data_boundary: 'AI receives only sanitized evidence. Never phone numbers, OTPs, or raw audio.',
+      },
+    };
+    vi.mocked(getPrivacyPolicy).mockResolvedValue(mockPolicy);
+    vi.mocked(getMyAccount).mockResolvedValue({
+      user_id: 'user-123', display_name: 'Test', phone_masked: '+91****3210',
+      phone_verified: true, emergency_consent: 'GIVEN', account_status: 'ACTIVE',
+      created_at: '2026-01-01',
+    });
+    vi.mocked(deleteAccount).mockResolvedValue({ status: 'ok' });
+  });
 
   it('renders privacy center', () => {
-    renderWithRouter(<PrivacyPage />);
+    renderWithRouter(<PrivacyCenterPage />);
     expect(screen.getByRole('heading', { name: /privacy center/i })).toBeInTheDocument();
   });
 
-  it('shows privacy principle', () => {
-    renderWithRouter(<PrivacyPage />);
-    expect(screen.getByText(/privacy principle/i)).toBeInTheDocument();
-    expect(screen.getByText(/minimum data necessary/i)).toBeInTheDocument();
-  });
-
-  it('shows data collected', () => {
-    renderWithRouter(<PrivacyPage />);
-    expect(screen.getByText(/session events/i)).toBeInTheDocument();
-    expect(screen.getByText(/user observations/i)).toBeInTheDocument();
-    // "Device Identity" appears in both collected list and controls — use container
-    const deviceIdentityItems = screen.getAllByText(/device identity/i);
-    expect(deviceIdentityItems.length).toBeGreaterThanOrEqual(1);
-  });
-
-  it('shows data NOT collected', () => {
-    renderWithRouter(<PrivacyPage />);
-    expect(screen.getByText(/microphone/i)).toBeInTheDocument();
-    expect(screen.getByText(/sms \/ message content/i)).toBeInTheDocument();
+  it('shows what LUMINA stores and does not store from backend policy', async () => {
+    renderWithRouter(<PrivacyCenterPage />);
+    expect(await screen.findByText(/phone number \(account identity\)/i)).toBeInTheDocument();
+    expect(screen.getByText(/incidents and evidence \(safety continuity\)/i)).toBeInTheDocument();
     expect(screen.getByText(/location data/i)).toBeInTheDocument();
     expect(screen.getByText(/contact lists/i)).toBeInTheDocument();
   });
 
-  it('shows data controls with honest status', () => {
-    renderWithRouter(<PrivacyPage />);
-    expect(screen.getByText(/data controls/i)).toBeInTheDocument();
-    expect(screen.getByText(/export your data/i)).toBeInTheDocument();
-    expect(screen.getByText(/delete your data/i)).toBeInTheDocument();
+  it('shows the AI data boundary honestly', async () => {
+    renderWithRouter(<PrivacyCenterPage />);
+    expect(await screen.findByText(/ai receives only sanitized evidence/i)).toBeInTheDocument();
   });
 
-  it('does not claim capabilities that do not exist', () => {
-    renderWithRouter(<PrivacyPage />);
-    expect(screen.queryByText(/export successful/i)).not.toBeInTheDocument();
-    expect(screen.queryByText(/deleted successfully/i)).not.toBeInTheDocument();
+  it('does not silently fall back to a fabricated policy when the backend fails', async () => {
+    vi.mocked(getPrivacyPolicy).mockRejectedValue(new Error('network down'));
+    vi.mocked(getMyAccount).mockRejectedValue(new Error('network down'));
+    renderWithRouter(<PrivacyCenterPage />);
+    expect(await screen.findByRole('alert')).toBeInTheDocument();
+    // Error surfaced honestly; no fabricated policy content rendered.
+    expect(screen.queryByText(/what lumina stores/i)).not.toBeInTheDocument();
+    expect(screen.getByRole('alert')).toHaveTextContent(/could not load/i);
   });
 });
 

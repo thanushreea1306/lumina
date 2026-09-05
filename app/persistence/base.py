@@ -288,3 +288,121 @@ class PersistenceBackend:
 
     def get_help_policy(self, owner_device_id: str) -> Optional[Dict]:
         raise NotImplementedError
+
+    # ---- identity (CP-25) ----
+
+    def save_user(
+        self,
+        user_id: str,
+        display_name: str,
+        phone_number: str,
+        phone_verified: bool,
+        emergency_consent: str,
+        account_status: str = "ACTIVE",
+        created_at: str = "",
+        updated_at: str = "",
+        txn: Optional[TransactionCtx] = None,
+    ) -> None:
+        raise NotImplementedError
+
+    def get_user(self, user_id: str) -> Optional[Dict]:
+        raise NotImplementedError
+
+    def get_user_by_phone(self, phone_number: str) -> Optional[Dict]:
+        raise NotImplementedError
+
+    def update_user(
+        self,
+        user_id: str,
+        display_name: Optional[str] = None,
+        phone_verified: Optional[bool] = None,
+        emergency_consent: Optional[str] = None,
+        account_status: Optional[str] = None,
+        updated_at: Optional[str] = None,
+        txn: Optional[TransactionCtx] = None,
+    ) -> Optional[Dict]:
+        raise NotImplementedError
+
+    def save_user_device(
+        self,
+        device_id: str,
+        user_id: str,
+        status: str,
+        bound_at: str,
+        revoked_at: Optional[str],
+        device_label: str,
+        txn: Optional[TransactionCtx] = None,
+    ) -> None:
+        raise NotImplementedError
+
+    def get_user_device(self, device_id: str) -> Optional[Dict]:
+        raise NotImplementedError
+
+    def revoke_user_device(
+        self,
+        device_id: str,
+        revoked_at: str,
+        txn: Optional[TransactionCtx] = None,
+    ) -> None:
+        raise NotImplementedError
+
+    def save_phone_verification(
+        self,
+        verification_id: str,
+        user_id: str,
+        phone_number: str,
+        otp_hash: str,
+        status: str,
+        attempts: int,
+        max_attempts: int,
+        created_at: str,
+        expires_at: str,
+        verified_at: Optional[str],
+        last_sent_at: Optional[str],
+        device_id: Optional[str] = None,
+        txn: Optional[TransactionCtx] = None,
+    ) -> None:
+        raise NotImplementedError
+
+    def get_phone_verification(self, verification_id: str) -> Optional[Dict]:
+        raise NotImplementedError
+
+    def get_latest_phone_verification(
+        self, user_id: str, phone_number: str
+    ) -> Optional[Dict]:
+        """Return the most recently created phone verification for a phone."""
+        raise NotImplementedError
+
+    def update_phone_verification(
+        self,
+        verification_id: str,
+        status: Optional[str] = None,
+        attempts: Optional[int] = None,
+        verified_at: Optional[str] = None,
+        txn: Optional[TransactionCtx] = None,
+    ) -> Optional[Dict]:
+        raise NotImplementedError
+
+    def consume_phone_verification_attempt(
+        self, verification_id: str, now_iso: str
+    ) -> Optional[Dict]:
+        """Atomically increment the attempt counter for a live verification.
+
+        Only a verification in CODE_SENT state, below max_attempts, and not
+        expired may be consumed. Returns the updated row (with incremented
+        attempts) or None when no attempt slot is available. Used to make OTP
+        attempts race-safe across concurrent requests.
+        """
+        raise NotImplementedError
+
+    def delete_user_account(self, user_id: str) -> bool:
+        """Permanently delete all account identity data for a user.
+
+        Transactional (all or nothing) and idempotent. Revokes device
+        bindings (kept as REVOKED tombstones so account-bound authorization
+        stops), invalidates OTPs, removes trusted contacts and help policies,
+        detaches incidents from the identity, and deletes the user row.
+        Incidents/evidence are intentionally kept but lose their owner
+        linkage.
+        """
+        raise NotImplementedError

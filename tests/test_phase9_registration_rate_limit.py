@@ -82,7 +82,7 @@ def test_429_response_does_not_leak_info(client):
 def test_requests_resume_after_window_expiry(client):
     """After the window expires, requests should succeed again."""
     limiter = RegistrationRateLimiter(
-        max_requests=3, window_seconds=0.1,  # 3 per 100ms for fast test
+        max_requests=3, window_seconds=2.0,  # 3 per 2s for a fast test
     )
     evidence_router._registration_limiter = limiter
 
@@ -91,14 +91,16 @@ def test_requests_resume_after_window_expiry(client):
         r = client.post("/api/devices/register", json={})
         assert r.status_code == 200
 
-    # Should be limited now
+    # Should be limited now. A 2s window is wide enough that the three
+    # sequential round-trips above cannot outlast it, so this assertion is
+    # robust to scheduler/timing jitter during a full-suite run.
     r = client.post("/api/devices/register", json={})
     assert r.status_code == 429
 
-    # Wait for the window to expire. Use a generous margin (5x the 100ms window)
+    # Wait for the window to expire. Use a generous margin (2x the 2s window)
     # so the assertion is robust to scheduler/timing jitter during a full-suite
     # run; the behavior under test (requests resume after the window) is unchanged.
-    time.sleep(0.5)
+    time.sleep(4.0)
 
     # Should succeed again
     r = client.post("/api/devices/register", json={})

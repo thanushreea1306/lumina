@@ -2,6 +2,8 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AppShell } from '@/components/AppShell';
 import { WelcomePage } from '@/app/WelcomePage';
 import { ConsentPage } from '@/app/ConsentPage';
+import { OnboardingPage } from '@/app/OnboardingPage';
+import { PrivacyCenterPage } from '@/app/PrivacyCenterPage';
 import { HomePage } from '@/app/HomePage';
 import { SessionPage } from '@/app/SessionPage';
 import { EvidencePage } from '@/app/EvidencePage';
@@ -12,7 +14,6 @@ import { PausePage } from '@/app/PausePage';
 import { ProtectPage } from '@/app/ProtectPage';
 import { TrustedContactPage } from '@/app/TrustedContactPage';
 import { RecoveryPage } from '@/app/RecoveryPage';
-import { PrivacyPage } from '@/app/PrivacyPage';
 import { AccessibilityPage } from '@/app/AccessibilityPage';
 import { SecurityPage } from '@/app/SecurityPage';
 import { IncidentEntryPage } from '@/app/IncidentEntryPage';
@@ -26,6 +27,8 @@ export function App() {
         <Route path="/" element={<WelcomePage />} />
         <Route path="/welcome" element={<Navigate to="/" replace />} />
         <Route path="/consent" element={<ConsentPage />} />
+        <Route path="/onboarding" element={<OnboardingPage />} />
+        <Route path="/privacy" element={<PrivacyCenterPage />} />
 
         {/* Protected routes (with shell) */}
         <Route
@@ -97,14 +100,6 @@ export function App() {
           element={
             <AppShell>
               <RecoveryPage />
-            </AppShell>
-          }
-        />
-        <Route
-          path="/privacy"
-          element={
-            <AppShell>
-              <PrivacyPage />
             </AppShell>
           }
         />

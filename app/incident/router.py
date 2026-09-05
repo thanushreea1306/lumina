@@ -28,8 +28,49 @@ from pydantic import BaseModel, Field
 from app.evidence.auth import authenticate_request
 from app.evidence.db import EvidenceStore
 from app.evidence.models import UserObservationType
+
+
+# ---- Help Request Rate Limiting (CP-27) ----
+
+from app.evidence.auth import RegistrationRateLimiter
+
+# Reuses the bounded, thread-safe RegistrationRateLimiter (10 requests /
+# hour per device). This replaces the unbounded dict limiter, so tracked
+# clients stay bounded and counting is race-safe.
+_help_request_limiter = RegistrationRateLimiter(
+    max_requests=10,
+    window_seconds=3600,
+)
+HELP_REQUEST_RATE_LIMIT = 10  # Max help requests per device per hour
+HELP_REQUEST_RATE_WINDOW = 3600  # 1 hour in seconds
+
+
+def _check_help_request_rate_limit(device_id: str) -> bool:
+    """Check if device is within rate limit for help requests.
+
+    Returns True if request is allowed, False if rate-limited.
+    """
+    return not _help_request_limiter.is_rate_limited(device_id)
+
+
+# ---- OTP Request Rate Limiting (CP-24) ----
+
+# Keyed by client IP + phone so an attacker spinning new devices is still
+# constrained, while a user re-requesting on retry windows is not blocked
+# from the resend path.
+OTP_REQUEST_RATE_LIMIT = 10  # Max OTP requests per window
+OTP_REQUEST_RATE_WINDOW = 60  # 60 seconds
+_otp_request_limiter = RegistrationRateLimiter(
+    max_requests=OTP_REQUEST_RATE_LIMIT,
+    window_seconds=OTP_REQUEST_RATE_WINDOW,
+)
+
+# Minimum interval before an OTP for the same phone may be re-sent.
+OTP_RESEND_COOLDOWN_SECONDS = 60
+
+
 from app.incident.engine import IncidentEngine
-from app.incident.models import EpistemicStatus, UserActionType
+from app.incident.models import EpistemicStatus, TimelineEntryType, UserActionType
 from app.incident.transcript import TranscriptSource
 from app.incident.transcript_provider import TranscriptBatch, TranscriptSegment
 from app.incident.whisper_provider import MAX_AUDIO_BYTES, SUPPORTED_EXTENSIONS
@@ -63,7 +104,24 @@ _engine = IncidentEngine()
 # ---- Authentication (reuse evidence auth) ----
 
 def _verify_auth(request: Request) -> str:
-    """Verify request authentication and return device_id."""
+    """Verify the request's HMAC device credential and return device_id.
+
+    TWO-TIER AUTH MODEL (CP-24/25/27 blocker B fix):
+      (1) REGISTERED DEVICE CREDENTIAL — HMAC signature against the
+          evidence `devices` table. This is what `_verify_auth` checks. It is
+          the identity used by safety/evidence features that must always
+          work, account or not: incident creation, I'M TRAPPED help requests,
+          audio/AI ingestion, and trusted-contact configuration.
+      (2) ACCOUNT-BOUND DEVICE AUTHORIZATION — a binding in
+          `lumina_user_devices` to a phone-verified account. Account and
+          identity endpoints additionally require an ACTIVE binding via
+          `_require_account_owner`. Deleting an account revokes its bindings
+          (leaving REVOKED tombstones), so those endpoints refuse the request
+          (401) while the registered credential above remains a valid device
+          identity for (1).
+
+    A device that fails HMAC receives 401.
+    """
     device_id = request.headers.get("X-Device-ID")
     timestamp = request.headers.get("X-Timestamp")
     nonce = request.headers.get("X-Nonce")
@@ -1040,7 +1098,9 @@ def request_help(
     if incident is None:
         raise HTTPException(status_code=404, detail=f"Incident not found: {incident_id}")
 
-    # Idempotency: check if a help request was already made
+    # Idempotency: reuse an existing request. This runs BEFORE rate limiting
+    # so replaying a completed help request never consumes a rate-limit slot
+    # (blocking a legitimate re-query would be harmful during an emergency).
     existing_request = get_help_request_for_incident(incident_id)
     if existing_request is not None:
         # Return the existing request's state (idempotent)
@@ -1059,6 +1119,13 @@ def request_help(
             "trusted_contact_configured": existing_request.contact_id is not None,
             "delivery_channel": existing_request.delivery_channel.value,
         }
+
+    # Rate limiting: prevent abuse while preserving legitimate emergencies
+    if not _check_help_request_rate_limit(device_id):
+        raise HTTPException(
+            status_code=429,
+            detail="Too many help requests. Please wait before trying again.",
+        )
 
     # Create new help request
     help_request = HelpRequest(
@@ -1311,3 +1378,508 @@ def _verify_brevo_webhook(request: Request, body: bytes) -> bool:
     ).hexdigest()
 
     return hmac.compare_digest(expected, signature)
+
+
+# ================================================================
+# IDENTITY / ONBOARDING ENDPOINTS (CP-24)
+# ================================================================
+
+from app.incident.identity import (
+    AccountStatus,
+    User,
+    create_user,
+    get_user,
+    update_user,
+    normalize_phone,
+    validate_phone,
+    create_phone_verification,
+    invalidate_phone_verification,
+    verify_phone_otp,
+    bind_device,
+    get_device,
+    get_post_otp_identity,
+    mask_phone,
+    EmergencyConsentStatus,
+    PhoneVerificationStatus,
+)
+from app.incident.otp_delivery import (
+    OtpDeliveryStatus,
+    get_otp_provider,
+    send_otp_code,
+)
+from app.incident.identity import seconds_since_last_otp_send
+
+
+def _get_device_or_503(device_id: str):
+    """Load the account binding for a device, failing closed on outage.
+
+    Returns the UserDevice (possibly REVOKED/unbound) or None if the device
+    has no binding. If the identity service is unreachable we cannot safely
+    decide account authorization, so the request is refused (503) rather than
+    silently treated as authorized.
+    """
+    try:
+        return get_device(device_id)
+    except Exception:
+        logger.exception("identity service unavailable during account auth")
+        raise HTTPException(
+            status_code=503,
+            detail="Account service temporarily unavailable",
+        )
+
+
+def _require_account_owner(
+    user_id: str, device_id: str, require_active: bool = False
+) -> User:
+    """Require an ACTIVE account binding and verify the account owner.
+
+    Authorization order (all must hold):
+      1. The account exists (a deleted account is indistinguishable -> 404).
+      2. The authenticated device has an ACTIVE binding to it
+         (revoked binding -> 401; unbound device -> 403).
+      3. The binding belongs to this exact account (foreign device -> 403).
+      4. The account is eligible: phone verified, not UNVERIFIED/DISABLED.
+      5. If require_active, account_status must be ACTIVE.
+
+    This is the ONLY guard the account routes use — phone number alone, or a
+    user_id alone, is never enough to act as an account owner.
+    """
+    user = get_user(user_id)
+    if user is None:
+        raise HTTPException(status_code=404, detail="Account not found")
+
+    device = _get_device_or_503(device_id)
+    if device is not None and not device.is_active():
+        raise HTTPException(status_code=401, detail="Device revoked")
+    if device is None or device.user_id != user.user_id:
+        raise HTTPException(
+            status_code=403, detail="Not authorized to access this account"
+        )
+
+    if user.account_status in (
+        AccountStatus.UNVERIFIED,
+        AccountStatus.DISABLED,
+        AccountStatus.DELETED,
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail="Account is not eligible for this operation",
+        )
+    if not user.phone_verified:
+        raise HTTPException(status_code=403, detail="Phone number not verified")
+    if require_active and user.account_status != AccountStatus.ACTIVE:
+        raise HTTPException(status_code=403, detail="Account is not active")
+    return user
+
+
+class CreateAccountRequest(BaseModel):
+    """Request to create a new LUMINA account."""
+    display_name: str = Field(..., min_length=1, max_length=100)
+    phone_number: str = Field(..., min_length=7, max_length=20)
+
+
+class VerifyPhoneSendRequest(BaseModel):
+    """Request to send a phone verification OTP."""
+    phone_number: str = Field(..., min_length=7, max_length=20)
+
+
+class VerifyPhoneRequest(BaseModel):
+    """Request to verify phone with OTP."""
+    verification_id: str
+    otp: str = Field(..., min_length=6, max_length=6)
+
+
+class BindDeviceRequest(BaseModel):
+    """Request to bind a device to an account."""
+    user_id: str
+    device_id: str
+    device_label: str = ""
+
+
+class EmergencyConsentRequest(BaseModel):
+    """Request to update emergency consent."""
+    consent: bool  # True = give, False = withdraw
+
+
+@router.post("/api/account")
+def create_account(
+    req: CreateAccountRequest,
+    device_id: str = Depends(require_auth),
+) -> Dict[str, Any]:
+    """Claim a phone for a LUMINA account (auth required).
+
+    CLAIM ONLY — this grants NO ownership. Knowing a phone number is never
+    sufficient: no device binding happens here. Ownership is established only
+    after the phone OTP is confirmed at /api/account/verify-phone/confirm,
+    which proves possession of the phone through the delivery channel.
+
+    CREATE-OR-REUSE: an existing account for this phone is returned as-is.
+    The response is generic regardless of whether the phone was registered
+    before, which prevents account enumeration.
+
+    The phone number identifies the account — it is NOT automatically
+    a trusted contact. It is for identity, verification, and recovery.
+
+    PRIVACY: No user_id, display_name, or phone is returned.
+    """
+    normalized = normalize_phone(req.phone_number)
+    if not validate_phone(normalized):
+        raise HTTPException(status_code=422, detail="Invalid phone number format")
+
+    create_user(display_name=req.display_name, phone_number=normalized)
+
+    return {
+        "status": "ok",
+        "message": "Account claimed. Verify your phone to bind this device.",
+    }
+
+
+@router.post("/api/account/verify-phone/request")
+def send_phone_verification(
+    req: VerifyPhoneSendRequest,
+    request: Request,
+    device_id: str = Depends(require_auth),
+) -> Dict[str, Any]:
+    """Request an OTP for phone verification (auth required).
+
+    Applies create-or-reuse for the phone — still CLAIM ONLY, no device
+    binding here. The OTP is stored hashed and device-bound, then delivery is
+    attempted through the configured provider. Binding and ownership happen
+    at /api/account/verify-phone/confirm only after the code is accepted.
+
+    PRIVACY:
+      - Response is identical for a new or existing phone (no enumeration).
+      - The OTP is NEVER returned in the response, and is never logged.
+      - delivery_status is honest (NOT_CONFIGURED unless a provider
+        actually accepted the send; never fabricated).
+
+    ABUSE PROTECTION:
+      - Per-IP+phone rate limit (OTP_REQUEST_RATE_LIMIT / window).
+      - 60s resend cooldown via last_sent_at.
+    """
+    normalized = normalize_phone(req.phone_number)
+    if not validate_phone(normalized):
+        raise HTTPException(status_code=422, detail="Invalid phone number format")
+
+    client_ip = request.client.host if request.client else "unknown"
+    rate_key = f"{client_ip}:{normalized}"
+    if _otp_request_limiter.is_rate_limited(rate_key):
+        raise HTTPException(
+            status_code=429,
+            detail="Too many verification requests. Please wait a minute.",
+        )
+
+    user = create_user(display_name="", phone_number=normalized)
+
+    # Resend cooldown: refuse an immediate re-request for the same phone.
+    since_last = seconds_since_last_otp_send(user.user_id, normalized)
+    if since_last is not None and since_last < OTP_RESEND_COOLDOWN_SECONDS:
+        raise HTTPException(
+            status_code=429,
+            detail="Please wait before requesting another code.",
+        )
+
+    # Renewable eligibility + cooldown
+    verification, otp = create_phone_verification(
+        user.user_id, normalized, device_id=device_id
+    )
+
+    provider = get_otp_provider()
+    result = send_otp_code(verification.verification_id, otp, normalized, provider)
+
+    # Honest delivery-state handling: only an OTP the provider actually
+    # accepted may remain usable. If the provider was not configured or the
+    # send failed, the stored OTP is invalidated so it can never be confirmed
+    # — the client is told delivery failed, never handed the code.
+    accepted = result.status in (
+        OtpDeliveryStatus.SENT,
+        OtpDeliveryStatus.DELIVERED,
+    )
+    if not accepted:
+        verification = invalidate_phone_verification(
+            verification.verification_id,
+            status=PhoneVerificationStatus.FAILED,
+        ) or verification
+
+    return {
+        "verification_id": verification.verification_id,
+        "status": verification.status.value,
+        "delivery_status": result.status.value,
+        "delivery_message": result.message,
+        "expires_at": verification.expires_at,
+    }
+
+
+@router.post("/api/account/verify-phone/confirm")
+def confirm_phone_verification(
+    req: VerifyPhoneRequest,
+    device_id: str = Depends(require_auth),
+) -> Dict[str, Any]:
+    """Confirm a phone verification OTP (auth required, device-bound).
+
+    The verification is scoped to the requesting device: a confirm from any
+    other device fails with the same generic error.
+
+    OWNERSHIP BOUNDARY: the user_id is only revealed, and the requesting
+    device is only bound, AFTER a valid OTP is accepted — i.e. proof of
+    possession of the phone through its delivery channel. Before this point
+    the caller could merely claim the phone number.
+    """
+    if not verify_phone_otp(req.verification_id, req.otp, device_id=device_id):
+        raise HTTPException(status_code=400, detail="Invalid or expired OTP")
+
+    account = get_post_otp_identity(req.verification_id)
+    if account is None:
+        raise HTTPException(status_code=400, detail="Invalid or expired OTP")
+
+    try:
+        bind_device(account.user_id, device_id, "")
+    except ValueError:
+        raise HTTPException(
+            status_code=409,
+            detail="This device is already bound to another account",
+        )
+
+    return {
+        "verified": True,
+        "user_id": account.user_id,
+        "phone_masked": mask_phone(account.phone_number) if account.phone_number else "",
+    }
+
+
+@router.post("/api/account/bind-device")
+def bind_account_device(
+    req: BindDeviceRequest,
+    device_id: str = Depends(require_auth),
+) -> Dict[str, Any]:
+    """Idempotent re-label of an existing device binding (auth required).
+
+    The device must ALREADY be bound to the account — bindings are created
+    only at /api/account/verify-phone/confirm after OTP possession. A fresh
+    or revoked device can never bind here: knowing a user_id is never
+    ownership, so this endpoint offers no way to establish a new binding.
+
+    A device bound to a different account cannot be transferred (409).
+    Rebinding the same device to the same eligible account is idempotent.
+    """
+    user = get_user(req.user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="Account not found")
+
+    # Verify the authenticated device matches the request
+    if device_id != req.device_id:
+        raise HTTPException(
+            status_code=403,
+            detail="Can only bind your own authenticated device",
+        )
+
+    existing = _get_device_or_503(device_id)
+    if existing is not None and not existing.is_active():
+        raise HTTPException(status_code=401, detail="Device revoked")
+    if existing is None:
+        raise HTTPException(
+            status_code=403,
+            detail="Device is not bound to this account; bind by verifying your phone",
+        )
+    if existing.user_id != user.user_id:
+        raise HTTPException(
+            status_code=409,
+            detail="Device is already bound to another account",
+        )
+
+    try:
+        bound = bind_device(user.user_id, device_id, req.device_label)
+    except ValueError:
+        raise HTTPException(
+            status_code=409,
+            detail="Device is already bound to another account",
+        )
+    return {
+        "device_id": bound.device_id,
+        "user_id": bound.user_id,
+        "status": bound.status.value,
+        "bound_at": bound.bound_at,
+    }
+
+
+@router.get("/api/account/me")
+def get_my_account(
+    device_id: str = Depends(require_auth),
+) -> Dict[str, Any]:
+    """Get the authenticated device's account.
+
+    Resolves the account through the ACTIVE account binding (no client-
+    supplied user_id), so the privacy center can identify the account to
+    delete without storing the user_id on the device. A device whose binding
+    was revoked (e.g. account deleted) receives 401.
+    """
+    device = _get_device_or_503(device_id)
+    if device is None:
+        raise HTTPException(
+            status_code=401, detail="No account is bound to this device"
+        )
+    if not device.is_active():
+        raise HTTPException(status_code=401, detail="Device revoked")
+
+    user = get_user(device.user_id)
+    if user is None:
+        raise HTTPException(status_code=404, detail="Account not found")
+
+    if user.account_status in (
+        AccountStatus.UNVERIFIED,
+        AccountStatus.DISABLED,
+        AccountStatus.DELETED,
+    ) or not user.phone_verified:
+        raise HTTPException(
+            status_code=403, detail="Account is not eligible for this operation"
+        )
+    return user.to_dict()
+
+
+@router.get("/api/account/{user_id}")
+def get_account(
+    user_id: str,
+    device_id: str = Depends(require_auth),
+) -> Dict[str, Any]:
+    """Get account information for the authenticated owner."""
+    user = _require_account_owner(user_id, device_id, require_active=True)
+    return user.to_dict()
+
+
+@router.post("/api/account/{user_id}/emergency-consent")
+def update_emergency_consent(
+    user_id: str,
+    req: EmergencyConsentRequest,
+    device_id: str = Depends(require_auth),
+) -> Dict[str, Any]:
+    """Update emergency communication consent.
+
+    The user must explicitly consent to emergency trusted-contact messaging.
+    This is separate from account creation and trusted-contact configuration.
+    Only the ACTIVE, phone-verified account owner may grant consent.
+    """
+    _require_account_owner(user_id, device_id, require_active=True)
+
+    consent = EmergencyConsentStatus.GIVEN if req.consent else EmergencyConsentStatus.WITHDRAWN
+    update_user(user_id, emergency_consent=consent)
+
+    return {
+        "user_id": user_id,
+        "emergency_consent": consent.value,
+        "message": "Emergency consent updated",
+    }
+
+
+@router.post("/api/account/{user_id}/deletion-request")
+def request_account_deletion_endpoint(
+    user_id: str,
+    device_id: str = Depends(require_auth),
+) -> Dict[str, Any]:
+    """Request account deletion (grace-period lifecycle).
+
+    Transitions the account to DELETION_REQUESTED and withdraws emergency
+    consent. Data is NOT removed yet — this opens a recovery window that the
+    user can cancel via /deletion-cancel. Only the phone-verified account
+    owner may do this.
+    """
+    from app.incident.identity import request_account_deletion
+    _require_account_owner(user_id, device_id, require_active=False)
+
+    updated = request_account_deletion(user_id)
+    if updated is None:
+        raise HTTPException(status_code=404, detail="Account not found")
+
+    return {
+        "user_id": user_id,
+        "account_status": updated.account_status.value,
+        "emergency_consent": updated.emergency_consent.value,
+        "message": "Account deletion requested. You can cancel this within the recovery window, or confirm deletion.",
+    }
+
+
+@router.post("/api/account/{user_id}/deletion-cancel")
+def cancel_account_deletion_endpoint(
+    user_id: str,
+    device_id: str = Depends(require_auth),
+) -> Dict[str, Any]:
+    """Cancel a pending account deletion request.
+
+    Restores the account to ACTIVE. Returning to DELETION_REQUESTED requires
+    a fresh deletion request. Only the phone-verified account owner may do this.
+    """
+    from app.incident.identity import cancel_account_deletion
+    _require_account_owner(user_id, device_id, require_active=False)
+
+    updated = cancel_account_deletion(user_id)
+    if updated is None:
+        raise HTTPException(status_code=404, detail="Account not found")
+
+    return {
+        "user_id": user_id,
+        "account_status": updated.account_status.value,
+        "message": "Account deletion request cancelled.",
+    }
+
+
+@router.post("/api/account/{user_id}/delete")
+def delete_account_endpoint(
+    user_id: str,
+    device_id: str = Depends(require_auth),
+) -> Dict[str, Any]:
+    """Delete account identity data.
+
+    PRIVACY: This removes account identity, devices, OTPs, trusted contacts,
+    and help policies. Account-bound device authorization is revoked (REVOKED
+    tombstones) so the deleted account's device credential can no longer act
+    as that account. Incident evidence is retained for safety continuity.
+
+    The operation is idempotent.
+    """
+    from app.incident.identity import delete_account
+    _require_account_owner(user_id, device_id, require_active=False)
+
+    delete_account(user_id)
+
+    return {
+        "status": "deleted",
+        "message": "Account identity data has been removed. Incident evidence is retained for safety continuity.",
+    }
+
+
+@router.get("/api/privacy/policy")
+def get_privacy_policy() -> Dict[str, Any]:
+    """Return the data retention policy for display in Privacy Center.
+
+    IMPORTANT: The retention_policy is POLICY DEFINITION, not enforcement.
+    Automated retention enforcement is NOT_IMPLEMENTED.
+    Data is retained until account deletion or manual intervention.
+    """
+    from app.incident.identity import get_retention_policy
+    return {
+        "retention_policy": get_retention_policy(),
+        "retention_enforcement": "NOT_IMPLEMENTED",
+        "retention_note": "Retention policy is defined but automated enforcement is not yet implemented. Data is retained until account deletion.",
+        "summary": {
+            "what_lumina_stores": [
+                "Display name (account identity)",
+                "Phone number (account identity)",
+                "Trusted contact information (emergency delivery)",
+                "Device identifiers (authentication)",
+                "Incidents and evidence (safety continuity)",
+                "Transcripts (conversation evidence)",
+                "Help requests (emergency audit trail)",
+            ],
+            "what_lumina_does_not_store": [
+                "Full audio recordings (deleted after transcription)",
+                "Address book (never uploaded)",
+                "Location data",
+                "Browsing history",
+                "Payment information",
+            ],
+            "what_is_shared": [
+                "Trusted contact phone via SMS provider (only when I'M TRAPPED is pressed)",
+                "Sanitized transcript evidence to semantic AI provider (only when configured)",
+            ],
+            "ai_data_boundary": "AI receives only sanitized transcript evidence. Never receives phone numbers, OTPs, credentials, or raw audio.",
+        },
+    }

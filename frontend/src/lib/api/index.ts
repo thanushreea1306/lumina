@@ -23,3 +23,23 @@ export {
   sendAlert,
 } from './alert';
 export type { SendAlertRequest, SendAlertResponse } from './alert';
+export {
+  createAccount,
+  requestPhoneVerification,
+  confirmPhoneVerification,
+  bindDeviceToAccount,
+  setEmergencyConsent,
+  requestAccountDeletion,
+  deleteAccount,
+  getMyAccount,
+  getPrivacyPolicy,
+  saveTrustedContact,
+} from './account';
+export type {
+  CreateAccountResponse,
+  VerifyPhoneRequestResponse,
+  VerifyPhoneConfirmResponse,
+  AccountResponse,
+  PrivacyPolicy,
+  TrustedContactResponse,
+} from './account';
