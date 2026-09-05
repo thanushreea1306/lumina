@@ -660,6 +660,15 @@ def recalculate_incident(incident: Incident) -> None:
     intelligence = analyze_conversation_intelligence(incident, escalation=escalation)
     incident.metadata["conversation_intelligence"] = intelligence.to_dict()
 
+    # ML intelligence layer (advisory, MODEL_OUTPUT only)
+    from app.incident.ml_intelligence import analyze_with_ml, get_classifier, get_semantic_provider
+    ml_result = analyze_with_ml(
+        incident,
+        classifier=get_classifier(),
+        semantic_provider=get_semantic_provider(),
+    )
+    incident.metadata["ml_intelligence"] = ml_result.to_dict()
+
     exposure = calculate_exposure(observations, incident.user_actions)
     unknowns = calculate_unknowns(observations, incident.user_actions)
     status = calculate_status(observations, incident.user_actions, exposure)

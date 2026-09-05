@@ -979,6 +979,94 @@ export function IncidentViewPage() {
         </Card>
       )}
 
+      {/* ---- ML INTELLIGENCE (CP-22) ---- */}
+      {(() => {
+        const mlIntel = (incident.metadata?.ml_intelligence as import('../types/incident').MLIntelligenceResult | undefined) ?? null;
+        if (!mlIntel || mlIntel.tactic_predictions.length === 0) return null;
+        return (
+          <Card>
+            <SectionHeader
+              number={2.6}
+              title="ML Tactic Analysis"
+              subtitle="Model-output tactic classification — not proof of fraud"
+            />
+            <div style={{ padding: 'var(--space-2)', fontSize: 'var(--text-xs)', color: 'var(--lumina-text-muted)', fontStyle: 'italic', marginBottom: 'var(--space-3)' }}>
+              ML analysis only — this is not proof of fraud. Predictions are model outputs, not confirmed behavior.
+            </div>
+
+            {/* Model status */}
+            {mlIntel.model_metadata?.model_status === 'NOT_TRAINED' && (
+              <div style={{ padding: 'var(--space-2)', fontSize: 'var(--text-xs)', color: 'var(--lumina-text-muted)', marginBottom: 'var(--space-3)', backgroundColor: 'var(--lumina-surface-alt, #f8f9fa)', borderRadius: 'var(--radius-sm)' }}>
+                Model status: NOT_TRAINED — using deterministic baseline (no suitable dataset identified during implementation)
+              </div>
+            )}
+
+            {/* Phase prediction */}
+            {mlIntel.phase_prediction && (
+              <div style={{ marginBottom: 'var(--space-3)' }}>
+                <span style={{ fontSize: 'var(--text-xs)', color: 'var(--lumina-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Conversation Phase</span>
+                <div style={{ marginTop: 'var(--space-1)' }}>
+                  <span style={{
+                    display: 'inline-block',
+                    padding: '2px 8px',
+                    borderRadius: 'var(--radius-full)',
+                    fontSize: 'var(--text-xs)',
+                    fontWeight: 500,
+                    backgroundColor: mlIntel.phase_prediction.phase === 'EXTRACTION' || mlIntel.phase_prediction.phase === 'ESCALATION'
+                      ? 'var(--lumina-warning-bg, #fff3cd)' : 'var(--lumina-surface-alt, #f8f9fa)',
+                    color: mlIntel.phase_prediction.phase === 'EXTRACTION' || mlIntel.phase_prediction.phase === 'ESCALATION'
+                      ? 'var(--lumina-warning-text, #856404)' : 'var(--lumina-text)',
+                  }}>
+                    {mlIntel.phase_prediction.phase} ({Math.round(mlIntel.phase_prediction.confidence * 100)}% classification confidence)
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {/* Observed tactics */}
+            {mlIntel.observed_tactics.length > 0 && (
+              <div style={{ marginBottom: 'var(--space-3)' }}>
+                <span style={{ fontSize: 'var(--text-xs)', color: 'var(--lumina-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Detected Tactics</span>
+                <div style={{ marginTop: 'var(--space-1)', display: 'flex', flexWrap: 'wrap', gap: 'var(--space-1)' }}>
+                  {mlIntel.observed_tactics.map((tactic) => (
+                    <span
+                      key={tactic}
+                      style={{
+                        display: 'inline-block',
+                        padding: '2px 8px',
+                        borderRadius: 'var(--radius-sm)',
+                        fontSize: 'var(--text-xs)',
+                        backgroundColor: 'var(--lumina-surface-alt, #f8f9fa)',
+                        color: 'var(--lumina-text)',
+                      }}
+                    >
+                      {tactic.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, (l) => l.toUpperCase())}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Explanation */}
+            <p style={{ fontSize: 'var(--text-sm)', color: 'var(--lumina-text-muted)', fontStyle: 'italic' }}>
+              {mlIntel.explanation}
+            </p>
+
+            {/* Uncertainties */}
+            {mlIntel.uncertainties.length > 0 && (
+              <div style={{ marginTop: 'var(--space-2)' }}>
+                <span style={{ fontSize: 'var(--text-xs)', color: 'var(--lumina-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Limitations</span>
+                <ul style={{ marginTop: 'var(--space-1)', paddingLeft: 'var(--space-4)', fontSize: 'var(--text-xs)', color: 'var(--lumina-text-muted)' }}>
+                  {mlIntel.uncertainties.map((u, i) => (
+                    <li key={i}>{u}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </Card>
+        );
+      })()}
+
       {/* ---- EXPOSURE PANEL ---- */}
       {exposureEntries.length > 0 && (
         <Card>

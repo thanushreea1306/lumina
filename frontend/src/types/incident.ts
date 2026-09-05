@@ -436,6 +436,53 @@ export interface ConversationIntelligenceResult {
   epistemic_status: string;
 }
 
+// ---- ML Intelligence Types (CP-22) ----
+
+export type TacticLabel =
+  | 'AUTHORITY_CLAIM'
+  | 'THREAT_PRESENTATION'
+  | 'TIME_PRESSURE'
+  | 'ISOLATION_TACTIC'
+  | 'CREDENTIAL_REQUEST'
+  | 'FINANCIAL_REQUEST'
+  | 'REMOTE_ACCESS_REQUEST'
+  | 'IDENTITY_REQUEST'
+  | 'BENIGN_CONVERSATION'
+  | 'USER_RESISTANCE'
+  | 'ADVICE_OR_WARNING'
+  | 'UNKNOWN';
+
+export interface TacticPrediction {
+  tactic: TacticLabel;
+  confidence: number;
+  segment_id: string | null;
+  text_span: string;
+  evidence_basis: string[];
+  epistemic_status: string;
+}
+
+export interface ConversationPhasePrediction {
+  phase: string;
+  confidence: number;
+  evidence_basis: string[];
+  epistemic_status: string;
+}
+
+export interface MLIntelligenceResult {
+  incident_id: string;
+  tactic_predictions: TacticPrediction[];
+  phase_prediction: ConversationPhasePrediction | null;
+  observed_tactics: TacticLabel[];
+  requested_actions: string[];
+  pressure_progression: string[];
+  supporting_evidence: string[];
+  uncertainties: string[];
+  explanation: string;
+  model_metadata: Record<string, unknown>;
+  generated_at: string;
+  epistemic_status: string;
+}
+
 // ---- Streaming Types (CP-15) ----
 
 export type SessionStatus =
