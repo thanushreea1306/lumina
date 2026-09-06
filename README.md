@@ -1,530 +1,406 @@
 # LUMINA
 
-A real-time safety-support system that helps users recognize and resist social-engineering pressure during phone calls — particularly digital-arrest and authority-impersonation scams.
+**Digital Incident Protection** — helps a person caught in a high-pressure digital attack understand what happened, what may be exposed, what can still be stopped, and what to do next.
+
+LUMINA is an incident-focused safety system. It turns authorized audio and user-reported signals into structured conversation evidence, applies a deterministic safety engine, and guides the user — and, when asked, a trusted human — through intervention and recovery. It does not pretend to know more than it does: uncertainty is reported as uncertainty, and the human keeps control at every step.
 
 ---
 
-## Overview
+## Why LUMINA Exists
 
-LUMINA is designed around a specific problem: **a person under active social-engineering pressure may be unable to think clearly, verify claims, or seek help independently.**
+A scam call doesn't just trick people. It can isolate them, pressure them, and keep them on the phone until they make an irreversible decision.
 
-The system does not attempt to "detect scams" with certainty. Instead, it:
+High-pressure attacks share a pattern: an authority figure, a manufactured emergency, a demand for secrecy, and a push to act immediately. The person under pressure often cannot think clearly, verify claims, or ask for help independently. Labeling the event a "scam" is not enough — the victim needs to understand the incident itself, see what is at risk, and be supported through the next safest move.
 
-1. Captures real device signals (call lifecycle) as **honest evidence** — never fabricated.
-2. Accepts **user-confirmed observations** (what the person actually experiences).
-3. Evaluates evidence through a **deterministic safety engine** — not ML classification.
-4. Produces **explainable safety states** with clear recommended actions.
-5. Supports the user in **making a safer decision** — not making decisions for them.
+LUMINA is built on a simple principle:
 
-LUMINA is a safety-support tool, not an authority. It does not declare guilt, certainty, or scam status. It says: *"Based on what has been reported, here is what to consider."*
+> Don't just detect the threat. Understand the incident. Stop the next mistake.
 
 ---
 
-## Problem
+## What LUMINA Does
 
-Social-engineering attacks on phone calls share common patterns:
-
-- **Authority impersonation** — the caller claims to be police, a bank, or a government agency.
-- **Urgency and threats** — "you must act now or face arrest/consequences."
-- **Secrecy** — "do not tell anyone about this call."
-- **Financial pressure** — requests for money transfers, OTPs, or gift cards.
-- **Credential extraction** — requests for passwords, PINs, or remote access.
-- **Isolation** — keeping the victim on a long call, preventing verification.
-
-Simply labeling a call as "scam" is insufficient because:
-- The victim may not believe it is a scam while under pressure.
-- False positives damage trust.
-- The situation is dynamic — risk escalates as pressure intensifies.
-- The victim needs actionable guidance, not a binary verdict.
+- **Incident understanding** — records an incident as a first-class object with a timeline, evidence, actions, and exposure state, rather than a one-off "scam score."
+- **Conversation analysis** — extracts behavioral signals from transcribed conversation: authority claims, urgency, pressure, extraction attempts, and their progression over time.
+- **Pressure / escalation detection** — deterministic analysis of how pressure builds across a conversation, marked as inference rather than fact.
+- **Evidence grounding** — every claim in the system carries a source and an epistemic status; nothing is assumed to be certain without a basis.
+- **Exposure awareness** — tracks what may have been exposed (money, account, authentication, device, identity, personal information) and keeps exposure honest until confirmed.
+- **Next safest action** — the safety engine produces a clear recommendation and a calm intervention, never a verdict.
+- **Trusted-human assistance** — a manual "I'm Trapped — Get Help" flow that works independently of what LUMINA did or did not classify.
+- **Recovery continuity** — when damage has occurred, a structured recovery plan (contain, secure, preserve, report, recover, monitor) with completion that is never fabricated.
+- **Privacy and security** — authenticated, owner-scoped data, temporary handling of raw audio, and no hidden recording.
 
 ---
 
-## LUMINA's Approach
+## The Core Experience
+
+Calls and conversations are the center of the product. The pipeline looks like this:
 
 ```
-REAL SIGNALS + USER-CONFIRMED OBSERVATIONS
-        ↓
-    EVIDENCE
-        ↓
-  DECISION CONTEXT
-        ↓
-  SAFETY ASSESSMENT
-        ↓
-EXPLAINABLE INTERVENTION
-        ↓
-  PROTECTIVE ACTION
-        ↓
-    OUTCOME
-        ↓
-FUTURE LEARNING
+Authorized Audio  (user-provided file · browser mic · Android opt-in mic)
+      ↓
+Speech-to-Text   (local faster-whisper)
+      ↓
+Conversation Evidence      (deterministic extraction)
+      ↓
+Pressure / Escalation Analysis   (deterministic)
+      ↓
+Safety Decision            (deterministic safety engine — authoritative)
+      ↓
+Intervention               (calm, action-focused guidance)
+      ↓
+Trusted Human              (manual "I'm Trapped" flow — opt-in, independent)
+      ↓
+Incident Continuity        (persisted incident + timeline)
+      ↓
+Recovery                   (stages; completion never fabricated)
 ```
 
-The architecture has a clear separation of concerns:
-
-- **Evidence** is factual: what was observed (by the device) or reported (by the user).
-- **Decision Context** aggregates evidence without interpretation.
-- **Safety Assessment** applies deterministic rules to produce a safety state.
-- **Intervention** provides the user with a clear, honest recommendation.
-- **Outcome** records what the user actually did.
-
-The deterministic safety engine is the **authoritative decision layer**. ML models, if present, are subordinate to evidence and safety rules — they can corroborate but never override.
+The transcription step is AI-assisted, but every interpretation downstream is **deterministic** and clearly separated from the AI output. AI output is never treated as fact.
 
 ---
 
-## Safety States
+## Safety Model
 
-| State | Meaning | Recommended Action |
-|-------|---------|-------------------|
-| **CLEAR** | No concerning indicators reported or observed. | Continue normally. |
-| **WATCH** | At least one observation warrants attention. | Stay alert. Verify independently if possible. |
-| **PAUSE** | A high-risk action is being requested (e.g., OTP, money transfer). | Do not proceed. Pause and verify. |
-| **VERIFY** | Multiple pressure indicators present. | Stop. Verify the caller's identity through an independent channel. |
-| **PROTECT** | Coercion pattern detected (authority claim + urgency + financial/credential request). | **STOP AND VERIFY INDEPENDENTLY.** Do not send money, codes, or grant access. |
-| **RECOVERY** | The user reports they performed a high-risk action. | Seek help immediately. Contact your bank if financial information was shared. |
+LUMINA keeps every piece of information labeled with how much it can be trusted:
 
-These states are deterministic — the same evidence always produces the same state. There is no randomness, no hidden scoring, and no ML-driven state transitions.
+| Label | Meaning |
+|-------|---------|
+| **FACT** | Directly observed or user-confirmed. |
+| **INFERENCE** | Derived by the system from evidence (clearly marked as such). |
+| **USER REPORT** | Stated by the user (source `USER`, confirmed by them). |
+| **UNKNOWN** | Genuinely undetermined — never converted into 0, false, or a safe-looking default. |
+| **ACTION** | A recorded user action (e.g., shared OTP, sent money, hung up). |
 
----
+Unknown or unavailable signals are represented as missing. The platform's answer to "can you see this signal?" may be `NOT_AVAILABLE`, `NOT_PERMITTED`, or `NOT_VERIFIED` — and that answer is preserved.
 
-## Evidence Model
-
-LUMINA uses an explicit evidence model where **missing data is represented as missing**, never converted into `0`, `false`, or empty strings.
-
-### Evidence Sources
-
-| Source | Description |
-|--------|-------------|
-| `DEVICE` | Genuinely observed by the device (call lifecycle, direction, duration). |
-| `USER` | Explicitly reported by the user (observations they select). |
-| `SYSTEM` | Derived by the system from existing evidence. |
-| `MODEL` | Produced by an ML model (subordinate to safety rules). |
-| `RULE` | Produced by the deterministic safety engine. |
-
-### Evidence Statuses
-
-| Status | Meaning |
-|--------|---------|
-| `OBSERVED` | The signal was actually observed. |
-| `USER_CONFIRMED` | The user explicitly confirmed this observation. |
-| `UNKNOWN` | The signal could not be determined. |
-| `NOT_AVAILABLE` | The platform does not provide this signal. |
-| `NOT_PERMITTED` | The user has not granted permission for this signal. |
-| `INFERRED` | Derived from other evidence (clearly marked as such). |
-
-Unknown or unavailable evidence is never silently converted into a positive or negative observation.
+The **deterministic safety engine is authoritative**. It maps evidence to safety states (`CLEAR`, `WATCH`, `PAUSE`, `VERIFY`, `PROTECT`, `RECOVERY`) through non-random, explainable rules. ML output, when present, can corroborate but can never override the safety engine or force a risk level. LUMINA avoids pretending uncertainty is certainty; a `CLEAR` state means "no concerning indicators observed or reported", not "this call is safe".
 
 ---
 
-## Android Client
+## Incident Model
 
-The Android app captures real call lifecycle events and allows users to report observations during a call.
+An incident is a structured graph of what happened:
 
-### Implemented Features
+```
+INCIDENT
+├── CONTACT
+│   ├── CALL
+│   ├── SMS
+│   └── MESSAGE
+├── ACTION
+│   ├── LOGIN
+│   ├── OTP
+│   ├── PAYMENT
+│   └── ACCESS
+└── EVIDENCE
+    ├── TRANSCRIPT
+    ├── MESSAGE
+    └── RECEIPT
+```
 
-- **Real call lifecycle capture** via `TelephonyManager` / `PhoneStateListener`.
-- **CallStateMachine** — pure-logic state machine that produces truthful completed-call records.
-- **Local event persistence** — events stored on-device before any network call.
-- **Offline-first sync queue** — events persist locally; upload happens only when the backend is reachable.
-- **Retry with bounded backoff** — transient failures retry with exponential backoff (2s → 60s max).
-- **Stale session recovery** — if the backend session expires, a new session is created and pending events are retried.
-- **User observations** — 16 observation types (authority claim, urgency, OTP request, etc.) that the user explicitly selects and submits.
-- **Decision retrieval** — fetches the safety decision from the backend.
-- **User response recording** — records what the user actually did (performed/declined/paused).
-- **HMAC-SHA256 authenticated transport** — every request is signed; sessions are bound to devices.
-- **Android Keystore-backed secret storage** — device credentials encrypted with AES-256-GCM.
-
-### What the Android Client Does NOT Do
-
-- No microphone recording or audio analysis.
-- No SMS monitoring or contact harvesting.
-- No location tracking or screen capture.
-- No automatic call blocking.
-- No ML inference on-device.
-- No fabrication of caller identity or scam status.
-
-### Verification Status
-
-| Component | Status |
-|-----------|--------|
-| Unit tests (71) | Verified |
-| Build (assembleDebug) | Verified |
-| HMAC interop with backend | Verified |
-| Keystore implementation | Verified (static) |
-| Physical device runtime | Not yet verified |
-| Emulator runtime | Not yet verified |
+Everything lives on an append-only timeline and is scoped to the owning device. Each item carries an epistemic status and a sequence, so the model can represent "the transcript says the OTP was shared" (inference) as distinct from "the user confirmed the OTP was shared" (fact). Exposure only escalates to `USER_CONFIRMED_EXPOSED` when the user explicitly confirms the action.
 
 ---
 
-## Backend
+## Conversation Intelligence
 
-The backend is a FastAPI application with a database-agnostic persistence layer
-(SQLite for local dev, PostgreSQL/Supabase for durable production) and a
-deterministic safety engine.
+Conversation intelligence is applied to transcript segments (each attributed to a speaker where the transcript provides it):
 
-### Architecture
+- **Transcript processing** — ingestion of full transcripts and incrementally assembled segments, with idempotent, append-only writes.
+- **Behavioral extraction** — deterministic identification of authority, pressure, urgency, secrecy, and extraction signals from the text.
+- **Speaker attribution** — segments are kept attributed to their speaker based on what the transcription returns.
+- **Escalation stages** — deterministic detection of pressure building across a conversation window, reported as `INFERENCE`.
+- **Temporal reasoning** — how signals appear and intensify over the timeline.
+- **Intervention policy** — deterministic, evidence-grounded intervention decisions with no numeric risk score.
 
-- **FastAPI** — async Python web framework.
-- **SQLite & PostgreSQL/Supabase** — swappable persistence backends (one
-  repository abstraction). Append-only evidence + incident persistence.
-- **Deterministic safety engine** — no randomness, no ML in the decision path.
-- **HMAC-SHA256 authentication** — device registration + request signing.
-- **Session ownership** — each session is bound to a registered device.
-
-### Implemented Endpoints
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| `POST` | `/api/devices/register` | Register a new device (returns `device_id` + `device_secret`). |
-| `POST` | `/api/sessions` | Create a new session (auth required). |
-| `POST` | `/api/sessions/{id}/events` | Append a timeline event (auth required). |
-| `POST` | `/api/sessions/{id}/observations` | Add a user-confirmed observation (auth required). |
-| `GET` | `/api/sessions/{id}` | Read a session (auth required). |
-| `GET` | `/api/sessions/{id}/decision` | Evaluate safety decision (auth required). |
-| `POST` | `/api/sessions/{id}/respond` | Record user response (auth required). |
-| `POST` | `/api/sessions/{id}/outcome` | Record outcome (auth required). |
-
-All protected endpoints require valid HMAC-SHA256 authentication headers (`X-Device-ID`, `X-Timestamp`, `X-Nonce`, `X-Signature`).
-
-### Incident Copilot (Digital Incident Copilot)
-
-The incident copilot adds owner-scoped incidents with endpoint paths under
-`/api/incidents/...` (create, get, list, evidence, actions, transcript,
-transcript segments, next-action, audio). All require device authentication,
-and access is scoped to the incident owner.
-
-**Confirmation rule (safety semantics):** a first-person *transcript claim*
-(e.g. "I shared the OTP") is extracted as **unconfirmed** evidence
-(timeline `source="TRANSCRIPT_CLAIM"`, epistemic `INFERENCE`). It must NOT
-auto-create a confirmed user action. Exposure stays `POTENTIALLY_EXPOSED`
-until the user explicitly confirms via
-`POST /api/incidents/{id}/actions`, which is the only path that creates a
-confirmed `UserAction` (epistemic `FACT`), escalates the category to
-`USER_CONFIRMED_EXPOSED`, and moves the incident to `RECOVERING` with
-urgent recovery guidance. No numeric scam/risk score is introduced.
+The extraction and analysis layers are **deterministic keyword/rule logic — not machine learning**. There is no trained conversation classifier in production inference today, and LUMINA does not describe rule matching as ML.
 
 ---
 
-## Security
+## Speech & Audio
 
-### Implemented
+Implemented paths:
 
-- **HMAC-SHA256 request signing** — every protected request is authenticated.
-- **Device registration** — each device receives unique credentials once.
-- **Replay prevention** — nonce tracking + timestamp window (±5 minutes).
-- **Session ownership** — cross-device access returns HTTP 403.
-- **Constant-time signature comparison** — `hmac.compare_digest()`.
-- **Generic error messages** — authentication failures do not reveal whether a device exists.
-- **HTTPS-only transport** — cleartext HTTP is rejected.
-- **Android Keystore** — device secret encrypted with AES-256-GCM, hardware-backed key.
-- **No hardcoded secrets** — credentials generated at runtime, never committed.
+- **User-provided audio recordings** — upload a file for transcription (WAV, MP3, FLAC, OGG, M4A, WebM, WMA; maximum 50 MB).
+- **Browser microphone capture** — frontend capture via `MediaRecorder`, streamed to `/stream/*` endpoints.
+- **Android opt-in microphone recording** — user starts a visible recording; a system microphone indicator is shown. Mic audio is never mixed with call data.
+- **Local faster-whisper transcription** — runs locally on the server (default model size `small`, configurable via `WHISPER_MODEL_SIZE`); no cloud STT dependency.
+- **Incremental chunk processing** — audio chunks are processed incrementally; chunks are assembled with duplicate detection before extraction.
+- **Temporary raw-audio handling** — raw audio is written to a temp file, transcribed, and immediately deleted. No raw audio is persisted in the metadata store.
+- **Idempotency** — retry keys are derived deterministically from file metadata so the same file maps to the same backend batch.
 
-### Not Yet Implemented
+### Current Platform Limitations
 
-- Credential rotation (currently requires re-registration).
-- Production TLS certificate pinning.
-
-> **Rate limiting** on the device-registration endpoint **is implemented**
-> (per-client/IP cooldown with DDoS abuse protection) and covered by
-> `tests/test_phase9_registration_rate_limit.py`.
+- **Ordinary cellular call-audio capture is NOT implemented.** Android exposes no public API for a third-party app to capture both sides of a phone call. LUMINA does not use hidden recording or `AccessibilityService` tricks to obtain call audio.
+- `PhoneStateListener` (used for call lifecycle awareness) is deprecated on API 31+ and would need migration to `TelephonyCallback`. It provides **call state/direction/duration only — never the remote caller's audio**.
+- A `PhoneStateListener`-based listener does not mean the caller's voice is available. Call lifecycle awareness and call-audio capture are different things; LUMINA implements the former.
+- Streaming transcription is **batched chunk processing, not true neural streaming**.
+- **Diarization (speaker separation) is not implemented.**
+- External SMS/phone/email providers depend on configuration; see Limited Delivery below.
 
 ---
 
-## Privacy
+## Trusted Human Help
 
-LUMINA is designed with privacy by default:
+The manual emergency path is **"I'M TRAPPED — GET HELP"**:
 
-- **No microphone access** — no continuous background microphone recording.
-- **Incident audio transcription (opt-in)** — an owner may upload a short audio
-  clip to `POST /api/incidents/{id}/audio` for speech-to-text evidence. The raw
-  audio is written to a temporary file, transcribed locally, then **immediately
-  deleted** — raw audio is never persisted. No audio is recorded unless the user
-  explicitly uploads it.
-- **No SMS monitoring** — no message content is read.
-- **No contact harvesting** — the contact list is never accessed.
-- **No location tracking** — GPS is not used.
-- **No social media monitoring** — no social graph analysis.
-- **No screen capture** — no screenshots or screen recording.
-- **No automatic blocking** — the user retains full control.
-- **Consent-gated** — data collection requires explicit user consent.
-- **Evidence-only** — only facts that were genuinely observed or reported are stored.
+- It is **independent of automatic conversation detection** — it works even if LUMINA never classified anything.
+- It does not require LUMINA to have been correct about the incident.
+- It sends only through **configured/authorized delivery paths**, and delivery state is reported honestly.
+- Trusted contacts receive **useful context, not secrets** — OTPs, passwords, PINs, card numbers, and authentication secrets are never placed in the contact message.
+- Trusted-contact configuration is owner-bound and stored encrypted; one contact per device.
 
-Unavailable or unpermitted signals remain unavailable rather than being fabricated.
+**Delivery today:** the codebase defines SMS and email delivery providers, but the only fully working provider is a console/stub implementation. Real SMS/email delivery requires configuring an external provider; until then, delivery is `NOT_CONFIGURED` rather than simulated.
 
 ---
 
-## Project Structure
+## Recovery & Incident Continuity
+
+When an incident crosses from "can still be stopped" to "damage may have occurred", LUMINA classifies the phase honestly:
+
+- **BEFORE_DAMAGE** — nothing confirmed exposed.
+- **AFTER_DAMAGE** — exposure is confirmed by the user.
+- **UNKNOWN** — it is not known whether damage occurred.
+
+Recovery then progresses through stages:
+
+```
+CONTAIN → SECURE → PRESERVE → REPORT → RECOVER → MONITOR
+```
+
+Each stage and its tasks are deterministic. Task completion is **never fabricated** — if LUMINA cannot observe that a step is done (e.g., "change password at the actual site"), it stays `NOT_VERIFIED`. LUMINA does not claim external reporting or account-recovery integrations that do not exist.
+
+---
+
+## Privacy & Security
+
+Implemented protections (verified in code):
+
+- **HMAC-authenticated API paths** — every protected request is signed with device credentials; auth failures are classified distinctly from network failures.
+- **Device ownership** — sessions and incidents are bound to the registering device.
+- **Incident ownership checks** — cross-device access to an incident is rejected.
+- **Nonce/replay protection** — timestamp window plus nonce tracking.
+- **Idempotency** — duplicate inserts and retried uploads are no-ops, never duplicated.
+- **Account/device lifecycle** — phone-verified account registration, device binding, emergency consent, and account deletion request/confirm/cancel/delete flows.
+- **OTP handling** — verification codes are possession-proven and never stored in the clear in a form reusable after confirmation.
+- **Temporary raw-audio cleanup** — raw audio lives only in a temp file and is deleted on every path (success, failure, validation error).
+- **No raw audio persistence** — audio is never queued or stored in the metadata store.
+- **Persistence architecture** — one repository abstraction over SQLite (local) and PostgreSQL (durable), with append-only history and non-destructive migrations.
+- **Deletion/retention behavior** — timelines are append-only for forensic history; deletion requests follow an explicit lifecycle and never silently destroy forensic records.
+- **Trusted-contact privacy** — secret-free context only; contacts stored encrypted and owner-bound.
+- **Android Keystore** — device secrets encrypted with AES-256-GCM, hardware-backed where the platform provides it.
+
+LUMINA does not claim "full compliance with every privacy standard" and does not perform hidden recording, SMS monitoring, contact harvesting, location tracking, or screen capture.
+
+---
+
+## Architecture
+
+```
+Android / Web
+      │
+      ▼
+API / Authentication          (HMAC device auth, rate-limited registration)
+      │
+      ▼
+Incident Layer
+      ├── Transcript
+      ├── Evidence
+      ├── User Actions
+      └── Timeline
+      │
+      ▼
+Conversation Intelligence     (deterministic extraction; AI transcription only)
+      │
+      ▼
+Deterministic Safety Engine   (authoritative)
+      ├── Intervention
+      ├── Trusted Human        (opt-in, independent)
+      └── Recovery
+      │
+      ▼
+SQLite / PostgreSQL           (swappable via one backend)
+```
+
+A legacy scoring/dashboard surface (`/api/score`, Streamlit dashboard, optional XGBoost artifacts) remains mounted but is subordinate: the deterministic safety engine is the decision authority.
+
+---
+
+## Technology
+
+- **Android / Kotlin** — call lifecycle awareness, opt-in microphone recording, HMAC transport, Keystore-backed secrets.
+- **Python / FastAPI** — backend API.
+- **SQLite & PostgreSQL** — interchangeable persistence backends.
+- **faster-whisper** — local speech-to-text.
+- **React / TypeScript / Vite / Vitest** — frontend with custom CSS (no UI framework dependency).
+- **HMAC-SHA256 authentication** — device and API request signing.
+- **scikit-learn / XGBoost** — optional legacy model artifacts (synthetic-data only, see Limitations).
+
+---
+
+## Repository Structure
 
 ```
 lumina/
-├── app/
-│   ├── api/                    # FastAPI route modules
-│   ├── core/                   # Risk engine, features, transforms, DB
-│   ├── evidence/               # Evidence model, safety engine, auth, API
-│   │   ├── models.py           # Evidence, Session, TimelineEvent
-│   │   ├── safety_state.py     # Deterministic safety state machine
-│   │   ├── decision_context.py # Evidence aggregation
-│   │   ├── explainability.py   # Human-readable explanations
-│   │   ├── pipeline.py         # Safety evaluation pipeline
-│   │   ├── actions.py          # Protective action definitions
-│   │   ├── auth.py             # HMAC-SHA256 authentication
-│   │   ├── db.py               # Persistence facade (SQLite / Postgres)
-│   │   └── router.py           # FastAPI endpoints
-│   └── services/               # Alert, report generation
-├── android_app/
-│   ├── app/src/main/java/com/lumina/app/
-│   │   ├── CallEvent.kt        # Call lifecycle data model
-│   │   ├── CallStateMachine.kt # Pure-logic state machine
-│   │   ├── CallMonitor.kt      # TelephonyManager integration
-│   │   ├── DeviceAuth.kt       # HMAC signing
-│   │   ├── SecretStore.kt      # Keystore-backed credential storage
-│   │   ├── LuminaTransport.kt  # HTTPS transport with auth
-│   │   ├── SyncManager.kt      # Offline-first sync with backoff
-│   │   ├── ObservationManager.kt # User observation lifecycle
-│   │   └── ...                 # Other components
-│   └── app/src/test/           # 71 JVM unit tests
-├── frontend/                   # React + TypeScript + Vite
-│   ├── src/
-│   │   ├── app/                # Page components (Home, Session, Evidence, etc.)
-│   │   ├── components/         # Reusable UI primitives (Card, Button, StatusBadge, etc.)
-│   │   ├── hooks/              # Custom hooks (useHomeState, useSessionState)
-│   │   ├── lib/                # API client, observations, utilities
-│   │   ├── types/              # TypeScript domain types
-│   │   └── styles/             # Design tokens, CSS modules
-│   ├── package.json
-│   └── vite.config.ts
-├── tests/                      # Backend test suite
-├── dashboard/                  # Streamlit dashboard (legacy)
-├── models/saved/               # ML artifacts (subordinate to safety engine)
-├── data/                       # Runtime data (not committed)
+├── android_app/            # Android client (Kotlin, Gradle)
+│   └── app/src/            #   main/ + test/ (JVM unit tests)
+├── app/                    # FastAPI backend
+│   ├── api/                #   panic detection endpoint
+│   ├── core/               #   legacy risk/features pipeline
+│   ├── evidence/           #   evidence model, deterministic safety engine,
+│   │                       #   HMAC auth, session endpoints
+│   ├── incident/           #   incidents, conversation intelligence, transcript,
+│   │                       #   streaming, trusted contact, help, account, recovery
+│   ├── persistence/        #   SQLite / PostgreSQL backends + migration
+│   └── services/           #   alert, panic trigger, report generator
+├── dashboard/              # Streamlit dashboard (legacy)
+├── frontend/               # React + TypeScript + Vite web app
+│   ├── src/app/            #   page components
+│   ├── src/components/     #   UI primitives
+│   ├── src/hooks/          #   state hooks (home, session, incident, streaming)
+│   ├── src/lib/api/        #   API clients (sessions, incidents, account, help, …)
+│   ├── src/types/          #   domain types
+│   └── src/test/           #   Vitest tests
+├── models/saved/           # Optional ML artifacts (synthetic-data only)
+├── notebooks/              # Model training experiments
+├── scripts/                # Small utility scripts
+├── tests/                  # Backend pytest suite
+├── config/                 # Package marker
+├── data/                   # Runtime database files (not for committing)
+├── .env.example            # Environment variable contract
+├── pytest.ini              # Pytest configuration
+├── render.yaml             # Render (backend) deployment config
 ├── requirements.txt
-├── render.yaml                 # Backend deployment config
+├── LICENSE                 # MIT
 └── README.md
 ```
 
 ---
 
-## Testing
+## Running LUMINA Locally
+
+### Prerequisites
+
+- Python 3.10+ (backend), Node.js 18+ (frontend), JDK 17 + Android SDK (API 34) (Android).
 
 ### Backend
-
-```
-659 passed / 1 skipped (full suite, PostgreSQL enabled)
-```
-
-Covers: evidence model, safety states, decision context, explainability, API contracts, authentication, idempotency, session lifecycle, device event ingestion, observation flow, E2E integration, HMAC interoperability, incident-continuity, persistence backends (SQLite + Postgres), migration, transaction rollback, audio idempotency, endpoint security matrix.
-
-### Android
-
-```
-71 tests passed, 0 failed, 0 errors
-```
-
-Covers: call state machine, event adapter, sync manager, observation manager, HMAC signing, nonce generation, auth headers, secret storage.
-
-### Frontend (React)
-
-```
-297 tests passed
-```
-
-Covers: safety states, evidence types, API client, routing, accessibility, component rendering, intervention flows, trusted contact, recovery, privacy, security settings.
-
-### Build
-
-```
-Android: BUILD SUCCESSFUL — APK generated
-Backend: All tests passing
-Frontend: Production build successful
-```
-
----
-
-## Development Setup
-
-### Backend
-
-Requirements: Python 3.10+
 
 ```bash
-git clone https://github.com/thanushreea1306/lumina.git
+git clone <repo-url> lumina
 cd lumina
+
 python -m venv venv
-source venv/bin/activate   # or venv\Scripts\activate on Windows
+venv\Scripts\activate            # Windows (or: source venv/bin/activate)
 pip install -r requirements.txt
-python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
-```
 
-Run tests:
-
-```bash
-python -m pytest -q         # 659 passed / 1 skipped (PostgreSQL enabled)
+# Uses SQLite by default (data/evidence.db). Copy .env.example to .env for overrides.
+python run.py                    # or: uvicorn app.main:app --host 127.0.0.1 --port 8000
 ```
 
 ### Frontend
 
-Requirements: Node.js 18+
-
 ```bash
 cd frontend
 npm install
-npm run dev                 # Vite dev server on :5173 (proxies to :8000)
-```
-
-Run tests:
-
-```bash
-npm test                    # 297 tests
-npm run build               # Production build to dist/
+npm run dev                      # Vite dev server on :5173, proxies /api to :8000
+npm run build                    # production build (tsc -b && vite build)
 ```
 
 ### Android
 
-Requirements: JDK 17, Android SDK (API 34), Gradle 8.6+
-
 ```bash
 cd android_app
-./gradlew assembleDebug     # APK at app/build/outputs/apk/debug/
-./gradlew testDebugUnitTest # 71 tests
+# create local.properties with: sdk.dir=C:\\android-sdk
+.\gradlew.bat :app:assembleDebug        # APK at app/build/outputs/apk/debug/
+.\gradlew.bat :app:testDebugUnitTest    # JVM unit tests
 ```
+
+### Environment Variables
+
+| Variable | Purpose | Default |
+|----------|---------|---------|
+| `LUMINA_DB_BACKEND` | `sqlite` or `postgres` | `sqlite` |
+| `LUMINA_DB_PATH` | SQLite file location (SQLite backend only) | `data/evidence.db` |
+| `DATABASE_URL` | PostgreSQL/Supabase connection string (Postgres backend only) | none |
+| `LUMINA_CORS_ORIGINS` | Allowed CORS origins (comma-separated) | localhost origins |
+| `WHISPER_MODEL_SIZE` | Local STT model size | `small` |
+| `VITE_API_BASE_URL` | Backend origin for the frontend (no `/api` prefix) | `''` (dev proxy) |
+| `LUMINA_API_BASE` | API base for the legacy Streamlit dashboard | `http://localhost:8000` |
+| `OPENAI_API_KEY` / `OPENAI_API_BASE` | Optional semantic-provider credentials | none |
+
+See `.env.example` and `frontend/.env.production.example` for the full contract.
+
+---
+
+## Testing
+
+Automated test state (current, verified):
+
+| Surface | Result |
+|---------|--------|
+| Backend (`pytest -q`) | **1274 passed, 14 skipped** |
+| Frontend (`vitest run`) | **359 passed across 16 test files** |
+| Android JVM unit tests | **117 passed, 0 failed, 0 skipped** (10 suites) |
+| Android build (`assembleDebug`) | **PASS** |
+
+These are automated test-coverage results, **not real-world model performance**. LUMINA makes no claim of field accuracy, precision, or benchmark scores against real conversations.
 
 ---
 
 ## Deployment
 
-### Frontend (Vercel)
+Deployment configuration exists for:
 
-The React frontend is deployed on Vercel (free tier):
+- **Backend — Render** (`render.yaml`): Python 3.11 free-tier web service, `LUMINA_DB_BACKEND=postgres`, `DATABASE_URL` supplied as a deployment secret, health check at `/health`, auto-deploy disabled.
+- **Frontend — Vercel** (`frontend/vercel.json`): static SPA with client-side routing and immutable asset caching; production API origin set via `VITE_API_BASE_URL` in `frontend/.env.production`.
 
-- Static SPA with client-side routing
-- Production API base URL configured via `VITE_API_BASE_URL`
-- Vite proxy handles API requests in development
-
-### Backend (Render)
-
-The FastAPI backend is deployed on Render (free tier):
-
-- Python 3.11 runtime
-- **PostgreSQL/Supabase persistence** (durable) with a SQLite local-dev backend
-  — see "Database Durability" below
-- Environment-driven CORS configuration
-- Health endpoint at `/health`
-
-### Database Durability
-
-LUMINA now supports **two interchangeable persistence backends** so durability
-can be stated honestly rather than over-claimed:
-
-| Context | Backend | Config | Survives restart/redeploy? |
-|---------|---------|--------|-----------------------------|
-| Local development | SQLite | `LUMINA_DB_BACKEND=sqlite`, `LUMINA_DB_PATH=data/evidence.db` | Yes (file on local disk) |
-| Ephemeral demo | SQLite on Render free `/tmp` | SQLite with `LUMINA_DB_PATH=/tmp/...` | **No** — not durable |
-| **Durable production** | **PostgreSQL / Supabase** | `LUMINA_DB_BACKEND=postgres`, `DATABASE_URL=...` | **Yes** |
-
-**Why not SQLite on Render free tier?** Render *free* web services cannot attach
-a persistent disk (only paid services can) and their free Postgres expires after
-30 days. So the genuinely durable, free production path is a **Supabase
-free-tier PostgreSQL** database. The incident store, device auth, evidence,
-transcript, and timeline persistence all run against Postgres in production
-through one database-agnostic repository abstraction; the SQLite backend is
-kept for local development and tests.
-
-**Supabase free-tier caveat (documented, not hidden):** free Supabase projects
-are automatically *paused* after ~7 days with no database activity. Paused
-projects keep their data but the backend is offline until someone resumes the
-project in the Supabase dashboard. This is an availability limitation of the
-free tier, not a per-request persistence gap. If `DATABASE_URL` is not
-configured but `LUMINA_DB_BACKEND=postgres` is set, the application **refuses to
-start** rather than silently falling back to SQLite.
-
-**Migrating existing data:** to move an existing SQLite database (local/dev or a
-prior ephemeral deployment) into Supabase, run the idempotent, restart-safe
-import:
-
-```bash
-python -m app.persistence.migrate data/evidence.db "$DATABASE_URL"
-```
-
-It preserves incidents, evidence, transcripts, timeline, exposure, CLOSED
-status, device ownership and stable IDs, never duplicates rows, and rolls back
-atomically on failure (see `tests/test_persistence_migrate.py`).
-
-### Environment Variables
-
-| Variable | Description | Example |
-|----------|-------------|--------|
-| `LUMINA_DB_BACKEND` | `sqlite` (default, local dev) or `postgres` (durable prod) | `postgres` |
-| `LUMINA_DB_PATH` | SQLite file path (used only with `LUMINA_DB_BACKEND=sqlite`) | `data/evidence.db` |
-| `DATABASE_URL` | PostgreSQL/Supabase connection string (used only with `LUMINA_DB_BACKEND=postgres`); never commit | `postgresql://...` |
-| `LUMINA_CORS_ORIGINS` | Allowed CORS origins (comma-separated) | `https://your-frontend.vercel.app` |
-| `VITE_API_BASE_URL` | Backend API URL for frontend | `https://your-backend.onrender.com` |
-
-### Local Development
-
-```bash
-# Backend
-python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
-
-# Frontend (with API proxy to backend)
-cd frontend
-npm install
-npm run dev
-```
+Caveats that are documented in config rather than hidden: Render free tier has no persistent disk (PostgreSQL is the durable path), and Supabase free-tier projects can auto-pause after a period of inactivity, leaving data intact but the backend offline until resumed. Live PostgreSQL/Supabase behavior has not been exercised end-to-end from CI.
 
 ---
 
 ## Limitations
 
-- **Production durability uses Supabase/Postgres** — local SQLite is durable only on a local disk; SQLite on Render's *free* tier is ephemeral (no persistent disk available on free). Durable production uses a Supabase PostgreSQL database (`LUMINA_DB_BACKEND=postgres`, `DATABASE_URL`). Supabase *free-tier projects auto-pause after ~7 days of inactivity*; data is preserved but the backend is offline until resumed.
-- **No physical-device runtime verification yet** — the Android app has been built and unit-tested, but not yet run on a real device or emulator.
-- **No emulator runtime verification yet.**
-- **Credential rotation not yet implemented** — if a device secret is compromised, the device must re-register.
-- **`PhoneStateListener` is deprecated** (API 31+) — functional on current targets but should migrate to `TelephonyCallback`.
-- **No production user accounts** — the HMAC system provides device identity but not user accounts.
-- **Single-process backend** — nonce tracking is in-memory; not suitable for multi-worker deployment without shared state.
-- **Trusted Contact delivery** — the legacy alert endpoint is in demo mode; no real SMS delivery is configured.
-- **No incident/evidence/transcript/account deletion or data-export APIs** — the
-  incident store is append-only and intentionally never deletes rows (forensic
-  history). A user-facing "delete incident" / data-export feature is **not yet
-  implemented**; it is deferred to a future phase and must not silently destroy
-  forensic records. LUMINA does not claim "full privacy compliance."
-- **Live Supabase verification is not yet performed** — PostgreSQL behavior is
-  verified against a local PostgreSQL mirror (and both persistence backends are
-  covered by the test suite); a live Supabase project has not been exercised
-  from CI. The Supabase free-tier 7-day inactivity pause is a documented
-  availability limitation.
+Explicit engineering boundaries, not hidden gaps:
+
+- **Cellular call audio** is not captured (no public Android API for it; no hidden-recording workaround).
+- **Conversation ML model** — no trained model in production inference; analysis is deterministic. ML artifacts present in `models/saved/` are trained on **synthetic data only** and are explicitly disclaimed as not real-world validated; they serve only as corroboration and cannot force a safety state.
+- **Delivery providers** — SMS/email delivery exists as an abstraction; the working provider is console/stub only. Trusted-contact and help flows send nothing real until an external provider is configured.
+- **Streaming STT** is batched chunk processing, not neural streaming; diarization is not implemented.
+- **PhoneStateListener** is deprecated on API 31+ (functional; migration to `TelephonyCallback` pending).
+- **Persistence/deployment** — SQLite is the local-dev backend; durable production uses PostgreSQL; free-tier Supabase pause and Render ephemeral filesystem are documented in `render.yaml`.
+- **External integrations** — NGO/government/community endpoints return `NOT_CONFIGURED`; there are no active third-party integrations.
 
 ---
 
 ## Roadmap
 
-- **Phase 8**: Physical device runtime verification and end-to-end Android → backend testing.
-- **Phase 9**: Credential rotation and production authentication design.
-- **Phase 10**: Observation UI refinement and decision display polish.
+Realistic, platform-honest directions:
+
+- Legitimate, platform-supported call-audio integration where Android permits it.
+- Stronger real-world ML validation using legitimate datasets — only then would ML enter the inference path.
+- Improved streaming and long-context transcript handling.
+- Richer recovery integrations that are genuinely verifiable.
+- Additional trusted-contact delivery providers.
+- Broader platform support and `TelephonyCallback` migration.
 
 ---
 
-## Responsible Claims
+## Engineering Principles
 
-LUMINA is a **safety-support tool**, not a scam-detection authority. It:
-
-- Does not claim to identify every scam or social-engineering attempt.
-- Does not make legal, financial, or medical recommendations.
-- Does not replace law enforcement, financial institutions, or human judgment.
-- Provides **information and guidance** based on what has been observed and reported.
-- Leaves all final decisions to the user.
-
-The deterministic safety engine produces **advisory states**, not verdicts. A CLEAR state means "no concerning indicators have been reported" — not "this call is safe."
-
----
-
-## Built By
-
-**Thanushree A**
-
-Solo project.
+- Evidence before inference.
+- Safety engine before AI autonomy.
+- Unknown is better than false certainty.
+- Human control is preserved.
+- Privacy by design.
+- No fabricated telemetry.
+- No fabricated ML.
+- No hidden recording.
+- No silent actions.
+- No secrets in trusted-contact context.
 
 ---
 
 ## License
 
-MIT — see `LICENSE`.
+MIT — see [LICENSE](LICENSE).
