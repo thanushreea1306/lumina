@@ -15,7 +15,7 @@ import org.json.JSONObject
  * is unreachable, events remain pending — nothing is lost, nothing is
  * fabricated.
  */
-class LocalEventStore(context: Context) : SyncStore, ObservationStore {
+class LocalEventStore(context: Context) : SyncStore, ObservationStore, IncidentStore {
 
     private val prefs =
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -104,6 +104,18 @@ class LocalEventStore(context: Context) : SyncStore, ObservationStore {
         return null
     }
 
+    // ---- Incident ID (audio evidence target, CP-31) ----
+
+    /** Returns the stored incident ID for audio uploads, or null if none. */
+    override fun getIncidentId(): String? {
+        return prefs.getString(KEY_INCIDENT_ID, null)
+    }
+
+    /** Store the incident ID created for this device's audio evidence. */
+    override fun setIncidentId(incidentId: String?) {
+        prefs.edit().putString(KEY_INCIDENT_ID, incidentId).apply()
+    }
+
     // ---- Private helpers ----
 
     private fun addToPending(eventId: String) {
@@ -174,5 +186,6 @@ class LocalEventStore(context: Context) : SyncStore, ObservationStore {
         const val KEY_CONSENTED = "user_consented"
         const val KEY_PENDING_IDS = "pending_event_ids"
         const val KEY_OBSERVATIONS = "pending_observations"
+        const val KEY_INCIDENT_ID = "backend_incident_id"
     }
 }

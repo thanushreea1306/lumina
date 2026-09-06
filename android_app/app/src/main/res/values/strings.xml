@@ -55,4 +55,30 @@
     <string name="obs_gift_card_desc">Select if the caller asked you to buy gift cards</string>
     <string name="obs_call_back_desc">Select if the caller told you to call a specific number back</string>
     <string name="obs_verification_blocked_desc">Select if the caller prevented you from verifying their identity</string>
+
+    <!-- ============================================ -->
+    <!-- Audio section (CP-31) — honest capability UX -->
+    <!-- ============================================ -->
+    <string name="section_audio">Audio evidence</string>
+    <string name="audio_privacy">LUMINA never records phone call audio. On Android, system call audio is not exposed to apps, so LUMINA only analyzes (1) audio files you explicitly choose, or (2) what you deliberately record from your microphone. Microphone capture is local-device audio only, is never mixed with call data, and requires your permission — the system shows a microphone indicator while it is active.</string>
+    <string name="audio_capability_title">What LUMINA can capture here</string>
+    <string name="audio_capability_microphone">Microphone: available — captures only this device\'s microphone audio (never the remote caller, unless they are on speakerphone and the mic picks it up).</string>
+    <string name="audio_capability_upload">Uploaded recordings: available — you choose an audio file; LUMINA analyzes it.</string>
+    <string name="audio_capability_call_audio">System call audio: NOT available on Android — no public API allows a third-party app to capture both sides of a phone call. LUMINA does not use hidden recording or AccessibilityService tricks.</string>
+    <string name="audio_mic_button">Record microphone audio</string>
+    <string name="audio_mic_button_desc">Start a short, visible microphone recording. The system shows a recording indicator.</string>
+    <string name="audio_mic_stop">Stop &amp; analyze recording</string>
+    <string name="audio_mic_stop_desc">Stop the microphone recording and upload it for analysis.</string>
+    <string name="audio_mic_recording">Recording microphone audio — a microphone indicator is showing</string>
+    <string name="audio_mic_cancelled">Microphone recording cancelled; no audio was kept.</string>
+    <string name="audio_upload_button">Upload an audio file</string>
+    <string name="audio_upload_button_desc">Choose an audio file and upload it for analysis.</string>
+    <string name="audio_upload_requires_connection">Audio upload requires a connection — the recording was not kept.</string>
+    <string name="audio_uploaded">Audio analyzed: %1$d segment(s) transcribed</string>
+    <string name="audio_too_large">Audio file is too large (maximum 50 MB).</string>
+    <string name="audio_unsupported">Unsupported audio format. Supported: WAV, MP3, FLAC, OGG, M4A, WebM, WMA.</string>
+    <string name="audio_auth_failed">Audio upload rejected — device credentials are no longer valid.</string>
+    <string name="audio_incident_needed">No assessment active yet — start monitoring to enable audio analysis.</string>
+    <string name="audio_permission_denied_forever">Microphone permission is denied permanently. LUMINA will not ask again; enable it in system settings if you change your mind.</string>
+    <string name="audio_file_copied_failed">Could not read the selected audio file.</string>
 </resources>

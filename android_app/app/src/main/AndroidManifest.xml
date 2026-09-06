@@ -27,6 +27,15 @@
       POST_NOTIFICATIONS    - runtime, normal - show the foreground-service
                             notification on Android 13+.
 
+      RECORD_AUDIO          - runtime, normal - enables the OPT-IN microphone
+                            path (CP-31). The user explicitly starts a
+                            recording; a system microphone indicator is shown
+                            on API 29+. LUMINA does NOT use this permission for
+                            call capture — Android has no third-party API for
+                            cellular call audio, and this app never claims to
+                            record a phone call. Microphone output is a temp
+                            file only; see MicrophoneRecorder.
+
       Removed in this phase because no code path uses them and they are not part
       of the truthful MVP contract (they are invasive and/or need special access):
         ACCESS_FINE_LOCATION   (was only logged to Logcat; not a real signal)
@@ -37,6 +46,7 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
 
     <application
         android:allowBackup="false"

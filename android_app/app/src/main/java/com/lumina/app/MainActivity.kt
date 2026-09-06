@@ -6,17 +6,22 @@ import android.content.Context
 import android.content.Intent
 import android.content.ServiceConnection
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.IBinder
+import android.provider.OpenableColumns
 import android.widget.Button
 import android.widget.EditText
 import android.widget.TextView
 import android.widget.Toast
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import com.google.android.material.chip.ChipGroup
+import java.io.File
+import java.io.FileOutputStream
 
 class MainActivity : AppCompatActivity() {
 
@@ -39,10 +44,25 @@ class MainActivity : AppCompatActivity() {
     private lateinit var responsePausedButton: Button
     private lateinit var responsePerformedButton: Button
     private lateinit var responseStatusText: TextView
+    private lateinit var audioStatusText: TextView
+    private lateinit var micRecordButton: Button
+    private lateinit var micStopButton: Button
+    private lateinit var uploadAudioButton: Button
 
     private var luminaService: LuminaService? = null
     private var isBound = false
     private var currentSessionId: String? = null
+    private val microphoneRecorder = MicrophoneRecorder()
+
+    private val audioFilePicker = registerForActivityResult(
+        ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        if (uri == null) {
+            audioStatusText.text = ""
+        } else {
+            uploadPickedAudio(uri)
+        }
+    }
 
     private val serviceConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
@@ -83,6 +103,10 @@ class MainActivity : AppCompatActivity() {
         responsePausedButton = findViewById(R.id.responsePausedButton)
         responsePerformedButton = findViewById(R.id.responsePerformedButton)
         responseStatusText = findViewById(R.id.responseStatusText)
+        audioStatusText = findViewById(R.id.audioStatusText)
+        micRecordButton = findViewById(R.id.micRecordButton)
+        micStopButton = findViewById(R.id.micStopButton)
+        uploadAudioButton = findViewById(R.id.uploadAudioButton)
 
         endpointInput.setText(LuminaConfig.backendEndpoint(this).ifPlaceholder("").toString())
 
@@ -129,6 +153,13 @@ class MainActivity : AppCompatActivity() {
         responseDeclinedButton.setOnClickListener { sendResponse("declined") }
         responsePausedButton.setOnClickListener { sendResponse("paused") }
         responsePerformedButton.setOnClickListener { sendResponse("performed") }
+
+        // Audio (CP-31): microphone record / stop / file upload
+        micRecordButton.setOnClickListener { startMicrophoneRecording() }
+        micStopButton.setOnClickListener { stopMicrophoneRecording() }
+        uploadAudioButton.setOnClickListener {
+            audioFilePicker.launch("audio/*")
+        }
 
         updateUI()
     }
@@ -403,6 +434,10 @@ class MainActivity : AppCompatActivity() {
             != PackageManager.PERMISSION_GRANTED) {
             needed.add(Manifest.permission.POST_NOTIFICATIONS)
         }
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
+            != PackageManager.PERMISSION_GRANTED) {
+            needed.add(Manifest.permission.RECORD_AUDIO)
+        }
         if (needed.isNotEmpty()) {
             ActivityCompat.requestPermissions(this, needed.toTypedArray(), PERMISSION_REQUEST_CODE)
         }
@@ -410,6 +445,150 @@ class MainActivity : AppCompatActivity() {
 
     private fun String.ifPlaceholder(fallback: String): String =
         if (this == LuminaConfig.DEFAULT_ENDPOINT) fallback else this
+
+    // ---- Audio (CP-31) ----
+
+    private fun createAudioUploader(): AudioUploader {
+        val store = LocalEventStore(this)
+        val secretStore = KeystoreSecretStore(this)
+        val transport = HttpsLuminaTransport(
+            configuredEndpoint = { LuminaConfig.backendEndpoint(this) },
+            isAllowedToSend = { LuminaConfig.hasUserConsent(this) },
+            secretStore = secretStore,
+        )
+        return AudioUploader(store, transport)
+    }
+
+    private fun startMicrophoneRecording() {
+        if (!LuminaConfig.hasUserConsent(this)) {
+            Toast.makeText(this, "Consent required before capturing audio", Toast.LENGTH_LONG).show()
+            return
+        }
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
+            != PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.requestPermissions(
+                this, arrayOf(Manifest.permission.RECORD_AUDIO), PERMISSION_REQUEST_CODE
+            )
+            return
+        }
+        val file = microphoneRecorder.start(cacheDir)
+        if (file == null) {
+            audioStatusText.text = "Microphone recording could not start on this device."
+            return
+        }
+        // Honest indicator: LUMINA is capturing microphone audio, NOT a call.
+        audioStatusText.text = getString(R.string.audio_mic_recording)
+        micRecordButton.isEnabled = false
+        micStopButton.isEnabled = true
+    }
+
+    private fun stopMicrophoneRecording() {
+        val file = microphoneRecorder.stop()
+        micRecordButton.isEnabled = true
+        micStopButton.isEnabled = false
+        if (file == null) {
+            audioStatusText.text = getString(R.string.audio_mic_cancelled)
+            return
+        }
+        uploadTempFile(file, MicrophoneRecorder.CONTENT_TYPE)
+    }
+
+    private fun uploadPickedAudio(uri: Uri) {
+        val name = displayNameFor(uri) ?: "recording"
+        val temp = copyUriToTemp(uri, name)
+        if (temp == null) {
+            audioStatusText.text = getString(R.string.audio_file_copied_failed)
+            return
+        }
+        val mime = contentResolver.getType(uri)
+            ?: (AudioUploadValidator.mimeTypeFromName(name) ?: "")
+        uploadTempFile(temp, mime)
+    }
+
+    private fun uploadTempFile(tempFile: File, contentType: String) {
+        if (!LuminaConfig.hasUserConsent(this)) {
+            tempFile.delete()
+            Toast.makeText(this, "Consent required before audio upload", Toast.LENGTH_LONG).show()
+            return
+        }
+        val sessionId = currentSessionId
+        if (sessionId == null) {
+            // Honest: analysis is tied to an active assessment. Never queue raw audio.
+            tempFile.delete()
+            audioStatusText.text = getString(R.string.audio_incident_needed)
+            return
+        }
+        audioStatusText.text = "Uploading audio for analysis\u2026"
+        Thread {
+            val result = runCatching {
+                val uploader = createAudioUploader()
+                val incident = uploader.ensureIncident()
+                when (incident) {
+                    is CreateIncidentResult.Success ->
+                        uploader.upload(incident.incidentId, tempFile, contentType)
+                    is CreateIncidentResult.NotConfigured -> {
+                        tempFile.delete()
+                        AudioUploadResult.NotConfigured
+                    }
+                    is CreateIncidentResult.Failed -> {
+                        tempFile.delete()
+                        AudioUploadResult.Failed(incident.detail)
+                    }
+                }
+            }.getOrElse { e ->
+                tempFile.delete()
+                AudioUploadResult.Failed(e.message ?: e.javaClass.simpleName)
+            }
+            runOnUiThread { showUploadResult(result) }
+        }.start()
+    }
+
+    private fun showUploadResult(result: AudioUploadResult) {
+        when (result) {
+            is AudioUploadResult.Success ->
+                audioStatusText.text =
+                    getString(R.string.audio_uploaded, result.segmentsAccepted)
+            is AudioUploadResult.NotConfigured ->
+                audioStatusText.text = getString(R.string.audio_upload_requires_connection)
+            is AudioUploadResult.TooLarge ->
+                audioStatusText.text = getString(R.string.audio_too_large)
+            is AudioUploadResult.Unsupported ->
+                audioStatusText.text = getString(R.string.audio_unsupported)
+            is AudioUploadResult.Invalid ->
+                audioStatusText.text = result.detail
+            is AudioUploadResult.AuthFailed ->
+                audioStatusText.text = getString(R.string.audio_auth_failed)
+            is AudioUploadResult.Failed ->
+                audioStatusText.text = "Audio upload failed: ${result.detail}"
+        }
+    }
+
+    private fun displayNameFor(uri: Uri): String? {
+        contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+            if (cursor.moveToFirst()) {
+                val idx = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                if (idx >= 0) return cursor.getString(idx)
+            }
+        }
+        return null
+    }
+
+    private fun copyUriToTemp(uri: Uri, originalName: String): File? {
+        val safeName = AudioMultipartBody.sanitizeFilename(originalName)
+        val temp = File(cacheDir, "lumina_upload_${System.currentTimeMillis()}_$safeName")
+        return try {
+            contentResolver.openInputStream(uri)?.use { input ->
+                FileOutputStream(temp).use { out -> input.copyTo(out) }
+            }
+            if (temp.exists() && temp.length() > 0L) temp else {
+                temp.delete()
+                null
+            }
+        } catch (e: Exception) {
+            temp.delete()
+            null
+        }
+    }
 
     override fun onRequestPermissionsResult(
         requestCode: Int,
@@ -426,6 +605,19 @@ class MainActivity : AppCompatActivity() {
                 else "Some permissions denied; capture will be limited",
                 Toast.LENGTH_LONG
             ).show()
+
+            // Honest handling of the microphone permission.
+            val micIndex = permissions.indexOf(Manifest.permission.RECORD_AUDIO)
+            if (micIndex >= 0 && grantResults[micIndex] != PackageManager.PERMISSION_GRANTED) {
+                val deniedForever = !ActivityCompat.shouldShowRequestPermissionRationale(
+                    this, Manifest.permission.RECORD_AUDIO
+                )
+                audioStatusText.text = if (deniedForever) {
+                    getString(R.string.audio_permission_denied_forever)
+                } else {
+                    "Microphone permission denied — LUMINA will only analyze files you choose."
+                }
+            }
         }
     }
 

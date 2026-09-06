@@ -2,6 +2,9 @@ package com.lumina.app
 
 import android.util.Log
 import org.json.JSONObject
+import java.io.BufferedOutputStream
+import java.io.File
+import java.io.FileInputStream
 import java.net.HttpURLConnection
 import java.net.URL
 
@@ -60,6 +63,44 @@ sealed class AuthResult {
 }
 
 /**
+ * Result of creating an incident (CP-31 audio upload target).
+ *
+ * POST /api/incidents — returns the incident_id that the device owns, which
+ * is then the required target for all audio evidence uploads.
+ */
+sealed class CreateIncidentResult {
+    data class Success(val incidentId: String) : CreateIncidentResult()
+    data object NotConfigured : CreateIncidentResult()
+    data class Failed(val detail: String) : CreateIncidentResult()
+}
+
+/**
+ * Outcome of uploading audio evidence.
+ *
+ * Honest, never fabricated:
+ *  - [Success] carries exactly what the backend reported back.
+ *  - [TooLarge] mirrors the backend 50 MB limit without attempting upload.
+ *  - [Unsupported] mirrors the backend format whitelist.
+ *  - [Invalid] is used for empty/undersized inputs rejected before network.
+ *  - [AuthFailed] is a distinct class so it is never retried as a network
+ *    failure (invalid credentials will keep failing).
+ */
+sealed class AudioUploadResult {
+    data class Success(
+        val incidentId: String,
+        val transcriptId: String,
+        val segmentsAccepted: Int,
+    ) : AudioUploadResult()
+
+    data object NotConfigured : AudioUploadResult()
+    data class TooLarge(val maxBytes: Long) : AudioUploadResult()
+    data class Unsupported(val detail: String) : AudioUploadResult()
+    data class Invalid(val detail: String) : AudioUploadResult()
+    data class AuthFailed(val detail: String) : AudioUploadResult()
+    data class Failed(val detail: String) : AudioUploadResult()
+}
+
+/**
  * Transport abstraction for the Android -> backend boundary:
  *
  *   Android local event -> HTTPS -> backend session/event API
@@ -70,6 +111,8 @@ sealed class AuthResult {
  *  3. [addObservation]       -> POST /api/sessions/{session_id}/observations
  *  4. [getDecision]          -> GET  /api/sessions/{session_id}/decision
  *  5. [sendResponse]         -> POST /api/sessions/{session_id}/respond
+ *  6. [createIncident]       -> POST /api/incidents                (CP-31)
+ *  7. [uploadAudio]          -> POST /api/incidents/{id}/audio     (CP-31)
  *
  * Hard rules:
  *  - HTTPS only (RFC-2606 placeholder treated as not configured)
@@ -77,6 +120,7 @@ sealed class AuthResult {
  *  - No fabricated success
  *  - HMAC-SHA256 authentication on all protected endpoints
  *  - Auth failures classified distinctly from network failures
+ *  - Audio is streamed from a temporary file and is never queued/persisted
  */
 interface LuminaTransport {
     fun createSession(): CreateSessionResult
@@ -84,6 +128,30 @@ interface LuminaTransport {
     fun addObservation(sessionId: String, body: JSONObject): ObservationResult
     fun getDecision(sessionId: String): DecisionFetchResult
     fun sendResponse(sessionId: String, body: JSONObject): UserResponseResult
+
+    /**
+     * Create an incident owned by this device (CP-31).
+     *
+     * Default implementations return NotConfigured so transport fakes used by
+     * existing tests keep compiling; only the real HTTPS transport supports it.
+     */
+    fun createIncident(): CreateIncidentResult = CreateIncidentResult.NotConfigured
+
+    /**
+     * Upload an audio evidence file to the backend for STT (CP-31).
+     *
+     * @param incidentId  The owned incident created via [createIncident].
+     * @param sourceFile  Temporary audio file. The implementor MUST NOT delete it;
+     *                    ownership stays with the caller ([AudioUploader] deletes it).
+     * @param contentType Multipart Content-Type for the file part.
+     * @param idempotencyKey Stable retry key so a repeat upload is deduplicated.
+     */
+    fun uploadAudio(
+        incidentId: String,
+        sourceFile: java.io.File,
+        contentType: String,
+        idempotencyKey: String,
+    ): AudioUploadResult = AudioUploadResult.NotConfigured
 }
 
 /**
@@ -317,6 +385,139 @@ class HttpsLuminaTransport(
         } catch (e: Exception) {
             Log.e(TAG, "Send response failed for session $sessionId", e)
             UserResponseResult.Failed(e.message ?: e.javaClass.simpleName)
+        }
+    }
+
+    override fun createIncident(): CreateIncidentResult {
+        if (!isAllowedToSend()) return CreateIncidentResult.NotConfigured
+        val endpoint = configuredEndpoint()
+        if (!isRealEndpoint(endpoint)) return CreateIncidentResult.NotConfigured
+
+        val path = "/api/incidents"
+        val url = "$endpoint$path"
+        return try {
+            val conn = URL(url).openConnection() as HttpURLConnection
+            conn.requestMethod = "POST"
+            conn.setRequestProperty("Content-Type", "application/json; charset=utf-8")
+            conn.setRequestProperty("Accept", "application/json")
+            conn.connectTimeout = CONNECT_TIMEOUT_MS
+            conn.readTimeout = READ_TIMEOUT_MS
+            conn.doOutput = true
+
+            if (!applyAuthHeaders(conn, "POST", path)) {
+                conn.disconnect()
+                return CreateIncidentResult.Failed("Device not registered")
+            }
+
+            conn.outputStream.use { it.write("{}".toByteArray(Charsets.UTF_8)) }
+
+            val code = conn.responseCode
+            if (code in 200..299) {
+                val responseBody = conn.inputStream.bufferedReader().use { it.readText() }
+                conn.disconnect()
+                val json = JSONObject(responseBody)
+                val incidentId = json.getString("incident_id")
+                CreateIncidentResult.Success(incidentId)
+            } else if (code == 401) {
+                val errorBody = conn.errorStream?.bufferedReader()?.use { it.readText() } ?: ""
+                conn.disconnect()
+                Log.w(TAG, "Incident creation auth failed: HTTP $code")
+                CreateIncidentResult.Failed("HTTP 401 (auth failed)")
+            } else {
+                val errorBody = conn.errorStream?.bufferedReader()?.use { it.readText() } ?: ""
+                conn.disconnect()
+                Log.w(TAG, "Incident creation failed: HTTP $code, body: $errorBody")
+                CreateIncidentResult.Failed("HTTP $code")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Incident creation failed", e)
+            CreateIncidentResult.Failed(e.message ?: e.javaClass.simpleName)
+        }
+    }
+
+    override fun uploadAudio(
+        incidentId: String,
+        sourceFile: File,
+        contentType: String,
+        idempotencyKey: String,
+    ): AudioUploadResult {
+        if (!isAllowedToSend()) return AudioUploadResult.NotConfigured
+        val endpoint = configuredEndpoint()
+        if (!isRealEndpoint(endpoint)) return AudioUploadResult.NotConfigured
+        if (!sourceFile.exists()) return AudioUploadResult.Invalid("Audio file does not exist")
+
+        val path = "/api/incidents/$incidentId/audio"
+        val url = "$endpoint$path"
+
+        // Build the multipart layout up front so Content-Length is exact.
+        val boundary = AudioMultipartBody.generateBoundary(DeviceAuth.generateNonce())
+        val header = AudioMultipartBody.filePartHeader(sourceFile.name, contentType, boundary)
+        val closing = AudioMultipartBody.closingBoundary(boundary)
+        val headerBytes = AudioMultipartBody.utf8Length(header)
+        val closingBytes = AudioMultipartBody.utf8Length(closing)
+        val fileSizeBytes = sourceFile.length()
+        val totalLength = AudioMultipartBody.contentLength(fileSizeBytes, headerBytes, closingBytes)
+
+        return try {
+            val conn = URL(url).openConnection() as HttpURLConnection
+            conn.requestMethod = "POST"
+            conn.setRequestProperty("Accept", "application/json")
+            conn.setRequestProperty("Content-Type", "multipart/form-data; boundary=$boundary")
+            conn.setRequestProperty("X-Idempotency-Key", idempotencyKey)
+            conn.connectTimeout = CONNECT_TIMEOUT_MS
+            conn.readTimeout = READ_TIMEOUT_MS
+            conn.doOutput = true
+            conn.setFixedLengthStreamingMode(totalLength)
+
+            if (!applyAuthHeaders(conn, "POST", path)) {
+                conn.disconnect()
+                return AudioUploadResult.Failed("Device not registered")
+            }
+
+            BufferedOutputStream(conn.outputStream).use { out ->
+                out.write(header.toByteArray(Charsets.UTF_8))
+                FileInputStream(sourceFile).use { input ->
+                    val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                    while (true) {
+                        val read = input.read(buffer)
+                        if (read < 0) break
+                        out.write(buffer, 0, read)
+                    }
+                }
+                out.write(closing.toByteArray(Charsets.UTF_8))
+            }
+
+            val code = conn.responseCode
+            if (code in 200..299) {
+                val responseBody = conn.inputStream.bufferedReader().use { it.readText() }
+                conn.disconnect()
+                val json = JSONObject(responseBody)
+                AudioUploadResult.Success(
+                    incidentId = json.getString("incident_id"),
+                    transcriptId = json.optString("transcript_id", ""),
+                    segmentsAccepted = json.optInt("segments_accepted", 0),
+                )
+            } else {
+                val errorBody = conn.errorStream?.bufferedReader()?.use { it.readText() } ?: ""
+                conn.disconnect()
+                when (code) {
+                    401 -> {
+                        Log.w(TAG, "Audio upload auth failed: HTTP 401")
+                        AudioUploadResult.AuthFailed("HTTP 401 (auth failed)")
+                    }
+                    422 -> {
+                        Log.w(TAG, "Audio upload rejected: HTTP 422, body: $errorBody")
+                        AudioUploadResult.Failed("HTTP 422 — $errorBody")
+                    }
+                    else -> {
+                        Log.w(TAG, "Audio upload failed: HTTP $code, body: $errorBody")
+                        AudioUploadResult.Failed("HTTP $code")
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Audio upload failed for incident $incidentId", e)
+            AudioUploadResult.Failed(e.message ?: e.javaClass.simpleName)
         }
     }
 

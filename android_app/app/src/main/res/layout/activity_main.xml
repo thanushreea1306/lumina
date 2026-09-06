@@ -305,6 +305,109 @@
             android:contentDescription="Observation submission status" />
 
         <!-- ============================================ -->
+        <!-- AUDIO SECTION (CP-31) -->
+        <!-- ============================================ -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/section_audio"
+            android:textSize="20sp"
+            android:textStyle="bold"
+            android:textColor="#1a237e"
+            android:layout_marginTop="24dp"
+            android:layout_marginBottom="4dp"
+            android:contentDescription="Audio evidence section" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/audio_privacy"
+            android:textSize="13sp"
+            android:layout_marginBottom="8dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/audio_capability_title"
+            android:textSize="15sp"
+            android:textStyle="bold"
+            android:layout_marginTop="8dp"
+            android:layout_marginBottom="4dp" />
+
+        <TextView
+            android:id="@+id/audioCapabilityMic"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/audio_capability_microphone"
+            android:textSize="13sp"
+            android:layout_marginBottom="4dp"
+            android:contentDescription="Microphone capability" />
+
+        <TextView
+            android:id="@+id/audioCapabilityUpload"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/audio_capability_upload"
+            android:textSize="13sp"
+            android:layout_marginBottom="4dp"
+            android:contentDescription="Uploaded recording capability" />
+
+        <TextView
+            android:id="@+id/audioCapabilityCallAudio"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/audio_capability_call_audio"
+            android:textSize="13sp"
+            android:layout_marginBottom="12dp"
+            android:contentDescription="Call audio capability is not available" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginBottom="8dp">
+
+            <Button
+                android:id="@+id/micRecordButton"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/audio_mic_button"
+                android:minHeight="48dp"
+                android:layout_marginEnd="4dp"
+                android:contentDescription="@string/audio_mic_button_desc" />
+
+            <Button
+                android:id="@+id/micStopButton"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/audio_mic_stop"
+                android:minHeight="48dp"
+                android:layout_marginStart="4dp"
+                android:enabled="false"
+                android:contentDescription="@string/audio_mic_stop_desc" />
+        </LinearLayout>
+
+        <Button
+            android:id="@+id/uploadAudioButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/audio_upload_button"
+            android:minHeight="48dp"
+            android:layout_marginBottom="8dp"
+            android:contentDescription="@string/audio_upload_button_desc" />
+
+        <TextView
+            android:id="@+id/audioStatusText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text=""
+            android:textSize="14sp"
+            android:layout_marginBottom="24dp"
+            android:contentDescription="Audio status" />
+
+        <!-- ============================================ -->
         <!-- DECISION SECTION -->
         <!-- ============================================ -->
         <TextView
