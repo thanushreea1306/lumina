@@ -715,6 +715,27 @@ def recalculate_incident(incident: Incident) -> None:
             metadata={"old_priority": old_priority.value, "new_priority": priority.value},
         )
 
+    # Intervention policy decision (deterministic, authoritative; CP-29).
+    # Computed last so it sees the FINAL status/priority/next_action. The
+    # decision is stored in metadata so the existing incident serialization
+    # carries it to the frontend without a new endpoint. resolve() dedupes
+    # identical decisions so replaying idempotent mutations never produces a
+    # fresh intervention.
+    from app.incident.intervention_policy import (
+        intervention_from_metadata,
+        resolve as resolve_intervention,
+    )
+    prev_intervention = intervention_from_metadata(incident.metadata)
+    intervention = resolve_intervention(incident, escalation=escalation, prev=prev_intervention)
+    incident.metadata["intervention"] = intervention.to_dict()
+
+    # Recovery snapshot (CP-30). Computed last so it sees the final status,
+    # exposure and next_action. Stored under metadata["recovery"] like the
+    # intervention decision so existing serialization carries it without a new
+    # endpoint. Deterministic and idempotent: rebuilding never duplicates tasks.
+    from app.incident.recovery import set_recovery_snapshot
+    set_recovery_snapshot(incident)
+
 
 def _extract_observations(incident: Incident) -> Set[UserObservationType]:
     """Extract all observation types from the incident timeline."""

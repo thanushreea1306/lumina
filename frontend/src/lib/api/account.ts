@@ -73,6 +73,22 @@ export interface TrustedContactResponse {
   automatic_help_enabled: boolean;
 }
 
+export interface TrustedContactDetail {
+  contact_id: string;
+  display_name: string;
+  delivery_channel: string;
+  enabled: boolean;
+  automatic_help_enabled: boolean;
+  configured_at: string;
+  updated_at: string;
+  destination_masked?: string;
+}
+
+export interface GetTrustedContactResponse {
+  configured: boolean;
+  contact: TrustedContactDetail | null;
+}
+
 // ---- Account ----
 
 export async function createAccount(
@@ -222,6 +238,22 @@ export async function saveTrustedContact(data: {
     },
     headers,
   );
+  if (!result.ok) throw new Error(result.error);
+  return result.data;
+}
+
+/**
+ * Read the currently configured trusted contact.
+ *
+ * Reads the existing GET /api/trusted-contact endpoint (no contract change).
+ * The backend redacts the destination when producing `destination_masked`,
+ * so the client never receives an unmasked number or address.
+ */
+export async function getTrustedContact(): Promise<GetTrustedContactResponse> {
+  const path = '/api/trusted-contact';
+  const method = 'GET';
+  const headers = await authHeaders(method, path);
+  const result = await apiGet<GetTrustedContactResponse>(path, headers);
   if (!result.ok) throw new Error(result.error);
   return result.data;
 }

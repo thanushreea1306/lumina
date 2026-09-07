@@ -920,18 +920,32 @@ class PostgresBackend(PersistenceBackend):
             with conn.cursor(row_factory=dict_row) as cur:
                 if owner_device_id is not None:
                     cur.execute(
-                        "SELECT incident_id, created_at, updated_at, status, priority "
+                        "SELECT incident_id, created_at, updated_at, status, "
+                        "priority, metadata_json "
                         "FROM incidents WHERE owner_device_id = %s "
                         "ORDER BY updated_at DESC LIMIT %s",
                         (owner_device_id, max(1, min(int(limit), 500))),
                     )
                 else:
                     cur.execute(
-                        "SELECT incident_id, created_at, updated_at, status, priority "
+                        "SELECT incident_id, created_at, updated_at, status, "
+                        "priority, metadata_json "
                         "FROM incidents ORDER BY updated_at DESC LIMIT %s",
                         (max(1, min(int(limit), 500)),),
                     )
-                return list(cur.fetchall())
+                rows = list(cur.fetchall())
+                result = []
+                for r in rows:
+                    row = dict(r)
+                    raw_meta = row.pop("metadata_json", None) or "{}"
+                    try:
+                        row["metadata"] = (
+                            json.loads(raw_meta) if isinstance(raw_meta, str) else raw_meta
+                        )
+                    except (ValueError, TypeError):
+                        row["metadata"] = {}
+                    result.append(row)
+                return result
         finally:
             conn.close()
 

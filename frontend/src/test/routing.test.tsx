@@ -66,9 +66,9 @@ describe('Routing - Page renders at correct path', () => {
     expect(screen.getByText(/evidence board/i)).toBeInTheDocument();
   });
 
-  it('HistoryPage renders', () => {
+  it('HistoryPage renders loading state initially', () => {
     renderAtRoute('/history', <HistoryPage />);
-    expect(screen.getByText(/no history available/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/loading your history/i).length).toBeGreaterThanOrEqual(1);
   });
 
   it('SettingsPage renders', () => {
@@ -104,6 +104,11 @@ describe('Routing - Page renders at correct path', () => {
 });
 
 describe('Routing - App.tsx route structure', () => {
+  it('preserves the legacy /session route for compatibility', () => {
+    expect(appTsxSource).toContain('"/session"');
+    expect(appTsxSource).toContain('SessionPage');
+  });
+
   it('has exactly one /privacy route', () => {
     const matches = appTsxSource.match(/path=["']\/privacy["']/g);
     expect(matches).toHaveLength(1);

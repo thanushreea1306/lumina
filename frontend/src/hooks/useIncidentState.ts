@@ -122,7 +122,7 @@ export const INCIDENT_PRIORITY_LABELS: Record<Priority, string> = {
 
 // ---- Hook ----
 
-export function useIncidentState(pollIntervalMs = 30_000) {
+export function useIncidentState(pollIntervalMs = 30_000, overrideIncidentId: string | null = null) {
   const [state, setState] = useState<IncidentState>({
     status: 'idle',
     credentials: null,
@@ -251,8 +251,13 @@ export function useIncidentState(pollIntervalMs = 30_000) {
   }, [fetchIncidentData]);
 
   // ---- Load existing incident ----
+  // An optional override (e.g. /incident?id=...) loads a specific past
+  // incident from History and adopts it as the current incident.
   const loadIncident = useCallback(async () => {
-    const incidentId = getStoredIncidentId();
+    let incidentId = overrideIncidentId ?? getStoredIncidentId();
+    if (overrideIncidentId) {
+      storeIncidentId(overrideIncidentId);
+    }
     if (!incidentId) {
       setState((prev) => ({ ...prev, status: 'idle', error: null }));
       return;
@@ -289,7 +294,7 @@ export function useIncidentState(pollIntervalMs = 30_000) {
         errorCode: 0,
       }));
     }
-  }, [fetchIncidentData]);
+  }, [fetchIncidentData, overrideIncidentId]);
 
   // ---- Submit transcript ----
   const submitTranscript = useCallback(async (

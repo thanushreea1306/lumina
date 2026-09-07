@@ -34,6 +34,7 @@ export {
   getMyAccount,
   getPrivacyPolicy,
   saveTrustedContact,
+  getTrustedContact,
 } from './account';
 export type {
   CreateAccountResponse,
@@ -42,4 +43,6 @@ export type {
   AccountResponse,
   PrivacyPolicy,
   TrustedContactResponse,
+  TrustedContactDetail,
+  GetTrustedContactResponse,
 } from './account';

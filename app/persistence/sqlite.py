@@ -850,19 +850,28 @@ class SQLiteBackend(PersistenceBackend):
         conn = self._connect()
         if owner_device_id is not None:
             rows = conn.execute(
-                "SELECT incident_id, created_at, updated_at, status, priority "
+                "SELECT incident_id, created_at, updated_at, status, priority, metadata_json "
                 "FROM incidents WHERE owner_device_id = ? "
                 "ORDER BY updated_at DESC LIMIT ?",
                 (owner_device_id, max(1, min(int(limit), 500))),
             ).fetchall()
         else:
             rows = conn.execute(
-                "SELECT incident_id, created_at, updated_at, status, priority "
+                "SELECT incident_id, created_at, updated_at, status, priority, metadata_json "
                 "FROM incidents ORDER BY updated_at DESC LIMIT ?",
                 (max(1, min(int(limit), 500)),),
             ).fetchall()
         conn.close()
-        return [dict(r) for r in rows]
+        result = []
+        for r in rows:
+            row = dict(r)
+            raw_meta = row.pop("metadata_json", None) or "{}"
+            try:
+                row["metadata"] = json.loads(raw_meta) if isinstance(raw_meta, str) else raw_meta
+            except (ValueError, TypeError):
+                row["metadata"] = {}
+            result.append(row)
+        return result
 
     def has_batch(self, batch_id: str) -> bool:
         if not batch_id:

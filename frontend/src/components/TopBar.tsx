@@ -53,6 +53,7 @@ export function TopBar() {
       <nav aria-label="Top navigation" style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-1)' }}>
         <IconButton
           aria-label="Settings"
+          aria-current={location.pathname === '/settings' ? 'page' : undefined}
           onClick={() => navigate('/settings')}
           style={{
             color: location.pathname === '/settings'

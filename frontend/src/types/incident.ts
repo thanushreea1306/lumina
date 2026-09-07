@@ -160,15 +160,19 @@ export interface GetIncidentNextActionResponse {
   message?: string;
 }
 
+export interface IncidentSummary {
+  incident_id: string;
+  created_at: string;
+  updated_at: string;
+  status: IncidentStatus;
+  priority: Priority;
+  /** Backend-derived recovery summary persisted on the incident row. */
+  metadata?: Record<string, unknown>;
+}
+
 export interface ListIncidentsResponse {
   total: number;
-  incidents: Array<{
-    incident_id: string;
-    created_at: string;
-    updated_at: string;
-    status: IncidentStatus;
-    priority: Priority;
-  }>;
+  incidents: IncidentSummary[];
 }
 
 // ---- Transcript Types ----
@@ -647,4 +651,104 @@ export interface HelpRequestResponse {
   delivery_status: string;
   trusted_contact_configured: boolean;
   delivery_channel?: string;
+}
+
+// ---- Intervention Policy Types (CP-29) ----
+//
+// The deterministic safety-engine decision persisted in
+// incident.metadata["intervention"]. Naming avoids the CP-20 advisory
+// "InterventionType" (conversation intelligence).
+
+export type InterventionLevel = 'NONE' | 'ATTENTION' | 'PAUSE' | 'URGENT' | 'HELP';
+
+export type PolicyInterventionType =
+  | 'NONE'
+  | 'PAUSE_AND_REVIEW'
+  | 'VERIFY_INDEPENDENTLY'
+  | 'STOP_SHARING'
+  | 'END_CONTACT'
+  | 'PROTECT_ACCOUNT'
+  | 'REQUEST_TRUSTED_HELP'
+  | 'RECOVERY_ACTION';
+
+export interface InterventionDecision {
+  intervention_id: string;
+  incident_id: string;
+  intervention_level: InterventionLevel;
+  intervention_type: PolicyInterventionType;
+  reason: string;
+  supporting_evidence_ids: string[];
+  next_action: string | null;
+  trusted_help_recommended: boolean;
+  auto_help_eligible: boolean;
+  trigger_stage: string;
+  epistemic_status: string;
+  is_new: boolean;
+  created_at: string;
+}
+
+// ---- Recovery State Types (CP-30) ----
+//
+// The deterministic, evidence-grounded recovery snapshot persisted in
+// incident.metadata["recovery"]. See app/incident/recovery.py.
+
+export type RecoveryPhase = 'BEFORE_DAMAGE' | 'AFTER_DAMAGE' | 'UNKNOWN';
+
+export type RecoveryStage =
+  | 'CONTAIN'
+  | 'SECURE'
+  | 'PRESERVE'
+  | 'REPORT'
+  | 'RECOVER'
+  | 'MONITOR';
+
+export type RecoveryTaskStatus =
+  | 'NOT_STARTED'
+  | 'IN_PROGRESS'
+  | 'COMPLETED'
+  | 'NOT_AVAILABLE'
+  | 'NOT_VERIFIED'
+  | 'NOT_APPLICABLE'
+  | 'UNKNOWN';
+
+export interface RecoveryConfirmedAction {
+  action_id: string;
+  action_type: string;
+  description: string; // sanitized fixed label — never echoes secrets
+  timestamp: string;
+  sequence: number;
+}
+
+export interface RecoveryTask {
+  task_id: string;
+  incident_id: string;
+  category: RecoveryStage;
+  title: string;
+  description: string;
+  priority: Priority;
+  status: RecoveryTaskStatus;
+  reason: string;
+  evidence_ids: string[];
+  created_at: string;
+  completed_at: string | null;
+}
+
+export interface RecoveryStageState {
+  stage: RecoveryStage;
+  status: 'NOT_APPLICABLE' | 'COMPLETED' | 'IN_PROGRESS' | 'UNKNOWN';
+  priority: Priority;
+  task_ids: string[];
+}
+
+export interface RecoverySnapshot {
+  incident_id: string;
+  phase: RecoveryPhase;
+  short_description: string;
+  confirmed_actions: RecoveryConfirmedAction[];
+  help_requested: boolean;
+  tasks: RecoveryTask[];
+  stages: RecoveryStageState[];
+  monitoring_note: string | null;
+  created_at: string;
+  updated_at: string;
 }

@@ -1,43 +1,84 @@
 /* ============================================================
-   LUMINA Home Screen Tests
+   LUMINA Home Page (Front Door) Tests
    ============================================================
    Tests for all Home screen states.
    Mocking is used ONLY inside isolated tests.
    ============================================================ */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
-import { BrowserRouter } from 'react-router-dom';
+import { render, screen, fireEvent } from '@testing-library/react';
+import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { HomePage } from '@/app/HomePage';
+import type { Incident, IncidentSummary } from '@/types/incident';
 
-// ---- Mock the API layer ----
+// ---- Mock the state hook ----
 vi.mock('@/hooks/useHomeState', () => ({
   useHomeState: vi.fn(),
 }));
 
 import { useHomeState } from '@/hooks/useHomeState';
+import { INCIDENT_STATUS_LABELS } from '@/hooks/useIncidentState';
 const mockUseHomeState = vi.mocked(useHomeState);
+
+const mockCredentials = { deviceId: 'test-device-1234abcd', deviceSecret: 'test-secret' };
+
+function baseHomeState(overrides: Record<string, unknown> = {}) {
+  return {
+    status: 'ready',
+    credentials: mockCredentials,
+    incidents: [],
+    incidentsStatus: 'ready' as const,
+    incidentsError: null,
+    activeIncident: null,
+    error: null,
+    errorCode: null,
+    refresh: vi.fn(),
+    ...overrides,
+  };
+}
+
+function mockIncident(overrides: Record<string, unknown> = {}): Incident {
+  return {
+    incident_id: 'inc-test-0001',
+    created_at: '2026-09-01T10:00:00.000Z',
+    updated_at: '2026-09-01T10:30:00.000Z',
+    status: 'ACTIVE',
+    priority: 'HIGH',
+    timeline: [],
+    user_actions: [],
+    exposure: {},
+    unknowns: [],
+    next_action: null,
+    ...overrides,
+  } as unknown as Incident;
+}
+
+function mockSummary(overrides: Partial<IncidentSummary> = {}): IncidentSummary {
+  return {
+    incident_id: 'inc-summary-0001',
+    created_at: '2026-09-01T10:00:00.000Z',
+    updated_at: '2026-09-01T10:30:00.000Z',
+    status: 'MONITORING',
+    priority: 'LOW',
+    ...overrides,
+  };
+}
 
 function renderHomePage() {
   return render(
-    <BrowserRouter>
-      <HomePage />
-    </BrowserRouter>,
+    <MemoryRouter initialEntries={['/home']}>
+      <Routes>
+        <Route path="/home" element={<HomePage />} />
+        <Route path="/incident/new" element={<span>PROBE-INCIDENT-NEW</span>} />
+        <Route path="/incident" element={<span>PROBE-INCIDENT</span>} />
+      </Routes>
+    </MemoryRouter>,
   );
 }
 
 describe('HomePage - Loading State', () => {
   beforeEach(() => {
-    mockUseHomeState.mockReturnValue({
-      status: 'loading',
-      credentials: null,
-      session: null,
-      decision: null,
-      error: null,
-      errorCode: null,
-      refresh: vi.fn(),
-      startSession: vi.fn(),
-    });
+    mockUseHomeState.mockReturnValue(baseHomeState({ status: 'loading' }) as never);
   });
 
   it('shows loading state', () => {
@@ -51,523 +92,245 @@ describe('HomePage - Loading State', () => {
   });
 });
 
-describe('HomePage - No Active Session', () => {
+describe('HomePage - Front Door (ready, no active incident)', () => {
   beforeEach(() => {
-    mockUseHomeState.mockReturnValue({
-      status: 'no_session',
-      credentials: { deviceId: 'test', deviceSecret: 'test' },
-      session: null,
-      decision: null,
-      error: null,
-      errorCode: null,
-      refresh: vi.fn(),
-      startSession: vi.fn(),
-    });
+    mockUseHomeState.mockReturnValue(baseHomeState() as never);
   });
 
   it('shows "All Clear" status', () => {
     renderHomePage();
-    expect(screen.getByText(/all clear/i)).toBeInTheDocument();
+    const status = screen.getByRole('status', { name: /clear/i });
+    expect(status).toHaveAttribute('aria-label', expect.stringContaining('clear'));
   });
 
-  it('shows calm message', () => {
+  it('shows the front door heading and call to action', () => {
     renderHomePage();
-    expect(screen.getByText(/nothing requires your attention/i)).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /something happened/i })).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: /start an incident/i }).length).toBeGreaterThanOrEqual(1);
   });
 
-  it('shows evidence-driven description', () => {
+  it('shows honest capability copy that never implies automatic recording', () => {
     renderHomePage();
-    expect(screen.getByText(/evidence/i)).toBeInTheDocument();
+    expect(screen.getByText(/never records your calls/i)).toBeInTheDocument();
   });
 
-  it('shows recent activity section with unavailable state', () => {
+  it('starts a new incident from the hero call to action', () => {
+    mockUseHomeState.mockReturnValue(
+      baseHomeState({ incidents: [mockSummary()], incidentsStatus: 'ready' }) as never,
+    );
     renderHomePage();
-    expect(screen.getByText(/recent activity/i)).toBeInTheDocument();
-    expect(screen.getByText(/session history unavailable/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /start an incident/i }));
+    expect(screen.getByText(/PROBE-INCIDENT-NEW/)).toBeInTheDocument();
   });
 
-  it('explains backend limitation honestly', () => {
+  it('shows the empty recent-incidents state with a start action', () => {
     renderHomePage();
-    expect(screen.getByText(/does not currently expose a session listing endpoint/i)).toBeInTheDocument();
+    expect(screen.getByText(/no incidents yet/i)).toBeInTheDocument();
   });
 
-  it('has role="status" on the clear indicator', () => {
+  it('does not leak engineering or backend detail', () => {
     renderHomePage();
-    const status = screen.getByRole('status');
-    expect(status).toHaveAttribute('aria-label', expect.stringContaining('Clear'));
+    expect(screen.queryByText(/backend/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/endpoint/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/forensic/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/session listing/i)).not.toBeInTheDocument();
   });
 });
 
-describe('HomePage - Active Session: CLEAR', () => {
+describe('HomePage - Recent Incidents', () => {
   beforeEach(() => {
-    mockUseHomeState.mockReturnValue({
-      status: 'active_session',
-      credentials: { deviceId: 'test', deviceSecret: 'test' },
-      session: {
-        sessionId: 'abc123def456',
-        startedAt: '2026-09-03T10:00:00.000Z',
-        eventCount: 3,
-        evidenceCount: 2,
-      },
-      decision: {
-        state: 'CLEAR',
-        stateLabel: 'Clear',
-        reasonCodes: [],
-        recommendedAction: 'No action needed.',
-        evidenceCount: 2,
-        missingInformation: [],
-        hasRequestedHighRiskAction: false,
-        hasPerformedHighRiskAction: false,
-        observations: [],
-      },
-      error: null,
-      errorCode: null,
-      refresh: vi.fn(),
-      startSession: vi.fn(),
-    });
+    mockUseHomeState.mockReturnValue(
+      baseHomeState({ incidents: [mockSummary()], incidentsStatus: 'ready' }) as never,
+    );
   });
 
-  it('shows safety assessment heading', () => {
+  it('shows a real incident from the list', () => {
     renderHomePage();
-    expect(screen.getByText(/safety assessment/i)).toBeInTheDocument();
+    expect(screen.getByText(INCIDENT_STATUS_LABELS.MONITORING)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /inc-summary-0001/i })).toBeInTheDocument();
   });
 
-  it('shows Clear state label (h1)', () => {
+  it('opens an incident from history', () => {
     renderHomePage();
-    const headings = screen.getAllByText('Clear');
-    // Should appear in h1, badge, and context row
-    expect(headings.length).toBeGreaterThanOrEqual(2);
+    fireEvent.click(screen.getByRole('button', { name: /inc-summary-0001/i }));
+    expect(screen.getByText(/PROBE-INCIDENT/)).toBeInTheDocument();
   });
 
-  it('shows recommended action', () => {
+  it('shows list credential failure honestly', () => {
+    mockUseHomeState.mockReturnValue(
+      baseHomeState({
+        incidentsStatus: 'unauthorized',
+        incidentsError: 'Not authorized',
+      }) as never,
+    );
     renderHomePage();
-    expect(screen.getByText(/no action needed/i)).toBeInTheDocument();
+    expect(screen.getByText(/incident history isn't available/i)).toBeInTheDocument();
   });
 
-  it('shows evidence count', () => {
+  it('shows a retry action when recent incidents fail to load', () => {
+    mockUseHomeState.mockReturnValue(
+      baseHomeState({
+        incidentsStatus: 'error',
+        incidentsError: 'HTTP 500',
+      }) as never,
+    );
     renderHomePage();
-    expect(screen.getByText(/2 pieces/i)).toBeInTheDocument();
-  });
-
-  it('shows case ID', () => {
-    renderHomePage();
-    expect(screen.getByRole('text', { name: /session abc123def456/i })).toBeInTheDocument();
-  });
-
-  it('shows recent activity section', () => {
-    renderHomePage();
-    expect(screen.getByText(/recent activity/i)).toBeInTheDocument();
-  });
-
-  it('has data-state attribute for CSS styling', () => {
-    renderHomePage();
-    const hero = document.querySelector('[data-state="CLEAR"]');
-    expect(hero).toBeInTheDocument();
+    expect(screen.getByText(/couldn't load your recent incidents/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /try again/i })).toBeInTheDocument();
   });
 });
 
-describe('HomePage - Active Session: WATCH', () => {
+describe('HomePage - Active Incident', () => {
   beforeEach(() => {
-    mockUseHomeState.mockReturnValue({
-      status: 'active_session',
-      credentials: { deviceId: 'test', deviceSecret: 'test' },
-      session: {
-        sessionId: 'watch-session-001',
-        startedAt: '2026-09-03T10:00:00.000Z',
-        eventCount: 5,
-        evidenceCount: 4,
-      },
-      decision: {
-        state: 'WATCH',
-        stateLabel: 'Watch',
-        reasonCodes: ['caller claimed to be from an authority', 'pressed for urgency'],
-        recommendedAction: 'Stay alert; do not act on unsolicited requests for money, codes, or access.',
-        evidenceCount: 4,
-        missingInformation: ['caller_identity unavailable'],
-        hasRequestedHighRiskAction: false,
-        hasPerformedHighRiskAction: false,
-        observations: ['AUTHORITY_CLAIM', 'URGENCY'],
-      },
-      error: null,
-      errorCode: null,
-      refresh: vi.fn(),
-      startSession: vi.fn(),
-    });
+    mockUseHomeState.mockReturnValue(
+      baseHomeState({
+        activeIncident: mockIncident({ next_action: { action: 'Verify independently before sharing anything.', urgency: 'HIGH', reason: 'A code was requested.', official_channel_guidance: null } }),
+      }) as never,
+    );
   });
 
-  it('shows Watch state', () => {
+  it('shows the active incident card', () => {
     renderHomePage();
-    const watchElements = screen.getAllByText('Watch');
-    expect(watchElements.length).toBeGreaterThanOrEqual(2);
+    expect(screen.getByText(/active incident/i)).toBeInTheDocument();
+    expect(screen.getByText(/verify independently before sharing anything/i)).toBeInTheDocument();
   });
 
-  it('shows reason codes', () => {
+  it('does not show "All Clear" when an incident is active', () => {
     renderHomePage();
-    expect(screen.getByText(/caller claimed to be from an authority/i)).toBeInTheDocument();
-    expect(screen.getByText(/pressed for urgency/i)).toBeInTheDocument();
+    expect(screen.queryByText(/all clear/i)).not.toBeInTheDocument();
   });
 
-  it('shows observations count', () => {
+  it('opens the incident view', () => {
     renderHomePage();
-    expect(screen.getByText(/2 observations/i)).toBeInTheDocument();
-  });
-
-  it('shows missing information', () => {
-    renderHomePage();
-    expect(screen.getByText(/1 item not yet available/i)).toBeInTheDocument();
-  });
-
-  it('has data-state="WATCH"', () => {
-    renderHomePage();
-    expect(document.querySelector('[data-state="WATCH"]')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /open incident/i }));
+    expect(screen.getByText(/PROBE-INCIDENT/)).toBeInTheDocument();
   });
 });
 
-describe('HomePage - Active Session: VERIFY', () => {
+describe('HomePage - Connection Error', () => {
   beforeEach(() => {
-    mockUseHomeState.mockReturnValue({
-      status: 'active_session',
-      credentials: { deviceId: 'test', deviceSecret: 'test' },
-      session: {
-        sessionId: 'verify-session-002',
-        startedAt: '2026-09-03T10:00:00.000Z',
-        eventCount: 6,
-        evidenceCount: 5,
-      },
-      decision: {
-        state: 'VERIFY',
-        stateLabel: 'Verify',
-        reasonCodes: ['asked for money'],
-        recommendedAction: 'VERIFY INDEPENDENTLY before proceeding with the requested action.',
-        evidenceCount: 5,
-        missingInformation: [],
-        hasRequestedHighRiskAction: true,
-        hasPerformedHighRiskAction: false,
-        observations: ['MONEY_REQUEST'],
-      },
-      error: null,
-      errorCode: null,
-      refresh: vi.fn(),
-      startSession: vi.fn(),
-    });
-  });
-
-  it('shows Verify state', () => {
-    renderHomePage();
-    const verifyElements = screen.getAllByText('Verify');
-    expect(verifyElements.length).toBeGreaterThanOrEqual(2);
-  });
-
-  it('shows action requested indicator', () => {
-    renderHomePage();
-    expect(screen.getByText(/action requested/i)).toBeInTheDocument();
-  });
-
-  it('has data-state="VERIFY"', () => {
-    renderHomePage();
-    expect(document.querySelector('[data-state="VERIFY"]')).toBeInTheDocument();
-  });
-});
-
-describe('HomePage - Active Session: PAUSE', () => {
-  beforeEach(() => {
-    mockUseHomeState.mockReturnValue({
-      status: 'active_session',
-      credentials: { deviceId: 'test', deviceSecret: 'test' },
-      session: {
-        sessionId: 'pause-session-003',
-        startedAt: '2026-09-03T10:00:00.000Z',
-        eventCount: 7,
-        evidenceCount: 6,
-      },
-      decision: {
-        state: 'PAUSE',
-        stateLabel: 'Pause',
-        reasonCodes: ['asked for an OTP/code'],
-        recommendedAction: 'PAUSE. Do not share OTPs, passwords, credentials, or send money. Verify independently.',
-        evidenceCount: 6,
-        missingInformation: [],
-        hasRequestedHighRiskAction: true,
-        hasPerformedHighRiskAction: false,
-        observations: ['OTP_REQUEST'],
-      },
-      error: null,
-      errorCode: null,
-      refresh: vi.fn(),
-      startSession: vi.fn(),
-    });
-  });
-
-  it('shows Pause state', () => {
-    renderHomePage();
-    const pauseElements = screen.getAllByText('Pause');
-    expect(pauseElements.length).toBeGreaterThanOrEqual(2);
-  });
-
-  it('shows action requested indicator', () => {
-    renderHomePage();
-    expect(screen.getByText(/action requested/i)).toBeInTheDocument();
-  });
-
-  it('has data-state="PAUSE"', () => {
-    renderHomePage();
-    expect(document.querySelector('[data-state="PAUSE"]')).toBeInTheDocument();
-  });
-});
-
-describe('HomePage - Active Session: PROTECT', () => {
-  beforeEach(() => {
-    mockUseHomeState.mockReturnValue({
-      status: 'active_session',
-      credentials: { deviceId: 'test', deviceSecret: 'test' },
-      session: {
-        sessionId: 'protect-session-004',
-        startedAt: '2026-09-03T10:00:00.000Z',
-        eventCount: 10,
-        evidenceCount: 8,
-      },
-      decision: {
-        state: 'PROTECT',
-        stateLabel: 'Protect',
-        reasonCodes: ['threatened with arrest', 'asked to keep the matter secret', 'asked for money'],
-        recommendedAction: 'STOP AND VERIFY INDEPENDENTLY. Do not send money, codes, or grant remote access.',
-        evidenceCount: 8,
-        missingInformation: [],
-        hasRequestedHighRiskAction: true,
-        hasPerformedHighRiskAction: false,
-        observations: ['THREAT_OF_ARREST', 'SECRECY_REQUEST', 'MONEY_REQUEST'],
-      },
-      error: null,
-      errorCode: null,
-      refresh: vi.fn(),
-      startSession: vi.fn(),
-    });
-  });
-
-  it('shows Protect state', () => {
-    renderHomePage();
-    const protectElements = screen.getAllByText('Protect');
-    expect(protectElements.length).toBeGreaterThanOrEqual(2);
-  });
-
-  it('shows multiple reason codes', () => {
-    renderHomePage();
-    expect(screen.getByText(/threatened with arrest/i)).toBeInTheDocument();
-    expect(screen.getByText(/asked to keep the matter secret/i)).toBeInTheDocument();
-    expect(screen.getByText(/asked for money/i)).toBeInTheDocument();
-  });
-
-  it('shows 3 observations', () => {
-    renderHomePage();
-    expect(screen.getByText(/3 observations/i)).toBeInTheDocument();
-  });
-
-  it('has data-state="PROTECT"', () => {
-    renderHomePage();
-    expect(document.querySelector('[data-state="PROTECT"]')).toBeInTheDocument();
-  });
-});
-
-describe('HomePage - Active Session: RECOVERY', () => {
-  beforeEach(() => {
-    mockUseHomeState.mockReturnValue({
-      status: 'active_session',
-      credentials: { deviceId: 'test', deviceSecret: 'test' },
-      session: {
-        sessionId: 'recovery-session-005',
-        startedAt: '2026-09-03T10:00:00.000Z',
-        eventCount: 12,
-        evidenceCount: 10,
-      },
-      decision: {
-        state: 'RECOVERY',
-        stateLabel: 'Recovery',
-        reasonCodes: ['a high-risk action was already performed'],
-        recommendedAction: 'SECURE YOUR ACCOUNTS NOW. Change passwords, contact the bank directly.',
-        evidenceCount: 10,
-        missingInformation: [],
-        hasRequestedHighRiskAction: true,
-        hasPerformedHighRiskAction: true,
-        observations: ['OTP_REQUEST', 'MONEY_REQUEST'],
-      },
-      error: null,
-      errorCode: null,
-      refresh: vi.fn(),
-      startSession: vi.fn(),
-    });
-  });
-
-  it('shows Recovery state', () => {
-    renderHomePage();
-    const recoveryElements = screen.getAllByText('Recovery');
-    expect(recoveryElements.length).toBeGreaterThanOrEqual(2);
-  });
-
-  it('shows action performed indicator', () => {
-    renderHomePage();
-    expect(screen.getByText(/action performed/i)).toBeInTheDocument();
-  });
-
-  it('shows both requested and performed indicators', () => {
-    renderHomePage();
-    expect(screen.getByText(/action requested/i)).toBeInTheDocument();
-    expect(screen.getByText(/action performed/i)).toBeInTheDocument();
-  });
-
-  it('has data-state="RECOVERY"', () => {
-    renderHomePage();
-    expect(document.querySelector('[data-state="RECOVERY"]')).toBeInTheDocument();
-  });
-});
-
-describe('HomePage - Backend Error', () => {
-  beforeEach(() => {
-    mockUseHomeState.mockReturnValue({
-      status: 'error',
-      credentials: null,
-      session: null,
-      decision: null,
-      error: 'Device registration failed: HTTP 500',
-      errorCode: 500,
-      refresh: vi.fn(),
-      startSession: vi.fn(),
-    });
+    mockUseHomeState.mockReturnValue(
+      baseHomeState({
+        status: 'error',
+        error: 'Device registration failed: HTTP 500',
+        errorCode: 500,
+      }) as never,
+    );
   });
 
   it('shows error state', () => {
     renderHomePage();
     expect(screen.getByText(/connection error/i)).toBeInTheDocument();
-  });
-
-  it('shows error message', () => {
-    renderHomePage();
     expect(screen.getByText(/device registration failed/i)).toBeInTheDocument();
   });
 
-  it('shows retry button', () => {
+  it('shows retry button and alert role', () => {
     renderHomePage();
     expect(screen.getByRole('button', { name: /retry/i })).toBeInTheDocument();
-  });
-
-  it('has role="alert"', () => {
-    renderHomePage();
     expect(screen.getByRole('alert')).toBeInTheDocument();
   });
 });
 
 describe('HomePage - Backend Unavailable', () => {
   beforeEach(() => {
-    mockUseHomeState.mockReturnValue({
-      status: 'unavailable',
-      credentials: null,
-      session: null,
-      decision: null,
-      error: 'Failed to fetch',
-      errorCode: 0,
-      refresh: vi.fn(),
-      startSession: vi.fn(),
-    });
+    mockUseHomeState.mockReturnValue(
+      baseHomeState({
+        status: 'unavailable',
+        error: 'Failed to fetch',
+        errorCode: 0,
+      }) as never,
+    );
   });
 
-  it('shows unavailable state', () => {
+  it('shows unavailable state with reconnect', () => {
     renderHomePage();
     expect(screen.getByText(/backend unavailable/i)).toBeInTheDocument();
-  });
-
-  it('shows reconnect button', () => {
-    renderHomePage();
     expect(screen.getByRole('button', { name: /reconnect/i })).toBeInTheDocument();
-  });
-
-  it('has role="alert"', () => {
-    renderHomePage();
     expect(screen.getByRole('alert')).toBeInTheDocument();
   });
 });
 
-describe('HomePage - Active Session without Decision', () => {
-  beforeEach(() => {
-    mockUseHomeState.mockReturnValue({
-      status: 'active_session',
-      credentials: { deviceId: 'test', deviceSecret: 'test' },
-      session: {
-        sessionId: 'pending-session-006',
-        startedAt: '2026-09-03T10:00:00.000Z',
-        eventCount: 2,
-        evidenceCount: 1,
-      },
-      decision: null,
-      error: 'Decision unavailable: HTTP 404',
-      errorCode: 404,
-      refresh: vi.fn(),
-      startSession: vi.fn(),
-    });
+describe('HomePage - Accessibility', () => {
+  it('all-clear status is announced', () => {
+    mockUseHomeState.mockReturnValue(baseHomeState() as never);
+    renderHomePage();
+    const status = screen.getByRole('status', { name: /clear/i });
+    expect(status).toHaveAttribute('aria-label', expect.stringContaining('clear'));
   });
 
-  it('shows decision unavailable warning', () => {
+  it('active incident status is announced', () => {
+    mockUseHomeState.mockReturnValue(
+      baseHomeState({
+        activeIncident: mockIncident(),
+      }) as never,
+    );
     renderHomePage();
-    // "Decision Unavailable" appears in the heading and the error message
-    expect(screen.getAllByText(/decision unavailable/i).length).toBeGreaterThanOrEqual(1);
-  });
-
-  it('shows session context with pending status', () => {
-    renderHomePage();
-    expect(screen.getByText(/decision pending/i)).toBeInTheDocument();
-  });
-
-  it('still shows case ID', () => {
-    renderHomePage();
-    expect(screen.getByRole('text', { name: /session pending-session-006/i })).toBeInTheDocument();
+    const status = screen.getByRole('status', { name: /active incident status/i });
+    expect(status).toHaveAttribute('aria-label', expect.stringContaining('Active incident'));
   });
 });
 
-describe('HomePage - Accessibility', () => {
-  it('no active session has accessible clear status', () => {
-    mockUseHomeState.mockReturnValue({
-      status: 'no_session',
-      credentials: { deviceId: 'test', deviceSecret: 'test' },
-      session: null,
-      decision: null,
-      error: null,
-      errorCode: null,
-      refresh: vi.fn(),
-      startSession: vi.fn(),
-    });
-
+describe('HomePage - CP-30 recovery continuity', () => {
+  it('shows a recovery record note on the active incident card', () => {
+    mockUseHomeState.mockReturnValue(
+      baseHomeState({
+        activeIncident: mockIncident({
+          status: 'RECOVERING',
+          next_action: {
+            action: 'Change the password on the affected account.',
+            urgency: 'HIGH',
+            reason: 'A code was shared.',
+            official_channel_guidance: null,
+          },
+          metadata: {
+            recovery: {
+              phase: 'AFTER_DAMAGE',
+              short_description: 'Recovery record: a code was shared, reporting remains.',
+            },
+          },
+        }),
+      }) as never,
+    );
     renderHomePage();
-    const status = screen.getByRole('status');
-    expect(status).toHaveAttribute('aria-label', expect.stringContaining('Clear'));
+    expect(screen.getByRole('status', { name: /recovery record/i })).toBeInTheDocument();
+    expect(screen.getByText(/Recovery record: a code was shared, reporting remains/)).toBeInTheDocument();
   });
 
-  it('active session has accessible status badge', () => {
-    mockUseHomeState.mockReturnValue({
-      status: 'active_session',
-      credentials: { deviceId: 'test', deviceSecret: 'test' },
-      session: {
-        sessionId: 'test',
-        startedAt: '2026-09-03T10:00:00.000Z',
-        eventCount: 1,
-        evidenceCount: 1,
-      },
-      decision: {
-        state: 'WATCH',
-        stateLabel: 'Watch',
-        reasonCodes: [],
-        recommendedAction: 'Stay alert.',
-        evidenceCount: 1,
-        missingInformation: [],
-        hasRequestedHighRiskAction: false,
-        hasPerformedHighRiskAction: false,
-        observations: [],
-      },
-      error: null,
-      errorCode: null,
-      refresh: vi.fn(),
-      startSession: vi.fn(),
-    });
-
+  it('shows the recovery continuity note on a recent incident row', () => {
+    mockUseHomeState.mockReturnValue(
+      baseHomeState({
+        incidents: [
+          mockSummary({
+            status: 'RECOVERING',
+            metadata: {
+              recovery: {
+                phase: 'AFTER_DAMAGE',
+                short_description: 'In recovery: reporting remains.',
+              },
+            },
+          }),
+        ],
+        incidentsStatus: 'ready',
+      }) as never,
+    );
     renderHomePage();
-    const badges = screen.getAllByRole('status');
-    expect(badges.length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText(/In recovery: reporting remains/)).toBeInTheDocument();
+  });
+
+  it('keeps pre-damage preventive incidents quiet in recent incidents', () => {
+    mockUseHomeState.mockReturnValue(
+      baseHomeState({
+        incidents: [
+          mockSummary({
+            metadata: {
+              recovery: { phase: 'BEFORE_DAMAGE', short_description: 'Preventive note' },
+            },
+          }),
+        ],
+        incidentsStatus: 'ready',
+      }) as never,
+    );
+    renderHomePage();
+    expect(screen.queryByText(/Preventive note/)).not.toBeInTheDocument();
   });
 });

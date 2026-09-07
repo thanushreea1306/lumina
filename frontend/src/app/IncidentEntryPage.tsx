@@ -134,17 +134,64 @@ export function IncidentEntryPage() {
           Start Incident
         </Button>
 
-        <p
+        <div
           style={{
-            fontSize: 'var(--text-xs)',
-            color: 'var(--lumina-text-muted)',
-            marginTop: 'var(--space-4)',
-            lineHeight: 'var(--leading-relaxed)',
+            marginTop: 'var(--space-6)',
+            textAlign: 'left',
+            background: 'rgba(0, 0, 0, 0.15)',
+            border: '1px solid var(--lumina-border-subtle)',
+            borderRadius: 'var(--radius-md)',
+            padding: 'var(--space-4)',
           }}
         >
-          You can then paste or type what was said, and LUMINA will help you
-          understand the situation.
-        </p>
+          <div
+            style={{
+              fontSize: 'var(--text-xs)',
+              fontWeight: 700,
+              letterSpacing: 'var(--tracking-widest)',
+              textTransform: 'uppercase',
+              color: 'var(--lumina-text-muted)',
+              marginBottom: 'var(--space-3)',
+            }}
+          >
+            What you can share
+          </div>
+          <ul
+            style={{
+              margin: 0,
+              padding: 0,
+              listStyle: 'none',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 'var(--space-2)',
+            }}
+          >
+            <li style={{ display: 'flex', alignItems: 'flex-start', gap: 'var(--space-2)', fontSize: 'var(--text-sm)', color: 'var(--lumina-text-secondary)', lineHeight: 'var(--leading-relaxed)' }}>
+              <span aria-hidden="true" style={{ color: 'var(--lumina-system)', flexShrink: 0 }}>◉</span>
+              Live recording from this device, only while you choose to record
+            </li>
+            <li style={{ display: 'flex', alignItems: 'flex-start', gap: 'var(--space-2)', fontSize: 'var(--text-sm)', color: 'var(--lumina-text-secondary)', lineHeight: 'var(--leading-relaxed)' }}>
+              <span aria-hidden="true" style={{ color: 'var(--lumina-system)', flexShrink: 0 }}>◉</span>
+              An audio file you already have
+            </li>
+            <li style={{ display: 'flex', alignItems: 'flex-start', gap: 'var(--space-2)', fontSize: 'var(--text-sm)', color: 'var(--lumina-text-secondary)', lineHeight: 'var(--leading-relaxed)' }}>
+              <span aria-hidden="true" style={{ color: 'var(--lumina-system)', flexShrink: 0 }}>◉</span>
+              A transcript you type or paste
+            </li>
+          </ul>
+          <p
+            style={{
+              fontSize: 'var(--text-xs)',
+              color: 'var(--lumina-text-muted)',
+              marginTop: 'var(--space-3)',
+              lineHeight: 'var(--leading-relaxed)',
+              marginBottom: 0,
+            }}
+          >
+            LUMINA never records your calls without asking — you choose what to
+            share, and everything stays on your device's private incident record.
+          </p>
+        </div>
       </Card>
     </div>
   );

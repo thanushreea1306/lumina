@@ -378,24 +378,19 @@ describe('SettingsPage', () => {
 describe('HistoryPage', () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it('renders history page with honest empty state', () => {
+  it('loads incident history', () => {
     renderWithRouter(<HistoryPage />);
-    expect(screen.getByRole('heading', { name: /case history/i })).toBeInTheDocument();
-    expect(screen.getByText(/no history available/i)).toBeInTheDocument();
-    expect(screen.getByText(/not available yet/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/loading your history/i).length).toBeGreaterThanOrEqual(1);
   });
 
-  it('explains what will be here', () => {
+  it('does not claim a session listing endpoint exists', () => {
     renderWithRouter(<HistoryPage />);
-    expect(screen.getByText(/what will be here/i)).toBeInTheDocument();
-    // "session listing endpoint" appears in both empty state and info card
-    const matches = screen.getAllByText(/session listing endpoint/i);
-    expect(matches.length).toBeGreaterThanOrEqual(1);
+    expect(screen.queryByText(/session listing endpoint/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/no history available/i)).not.toBeInTheDocument();
   });
 
   it('does not show fake history entries', () => {
     renderWithRouter(<HistoryPage />);
     expect(screen.queryByText(/case-\d+/i)).not.toBeInTheDocument();
-    expect(screen.queryByText(/incident/i)).not.toBeInTheDocument();
   });
 });

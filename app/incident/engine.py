@@ -207,8 +207,12 @@ class IncidentEngine:
         )
         incident.updated_at = entry.timestamp
 
-        # Persist status and the append-only closure entry atomically.
+# Persist status and the append-only closure entry atomically.
         with self.store.transaction() as conn:
+            # Refresh the recovery snapshot so the record reflects the closed
+            # status honestly ("record kept for your files", never "all safe").
+            from app.incident.recovery import set_recovery_snapshot
+            set_recovery_snapshot(incident)
             self.store.update_incident(incident, conn=conn)
             self.store.append_timeline_entry(incident_id, entry, conn=conn)
 

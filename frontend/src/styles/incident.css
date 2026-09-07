@@ -1,26 +1,1231 @@
 /* ============================================================
-   LUMINA Incident Copilot Styles
+   LUMINA Incident Copilot Styles — Live Incident Centerpiece
+   ============================================================
+   Cinematic, calm, premium. Deep graphite (never pure black),
+   restrained semantic palette: neutral, amber = caution,
+   crimson = danger, cyan = system/processing, green = recovery,
+   violet = investigation/context. Mobile-first.
    ============================================================ */
 
-/* ---- Incident-specific transitions ---- */
-@keyframes luminaIncidentFadeIn {
-  from {
-    opacity: 0;
-    transform: translateY(8px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+/* ---- Page shell ------------------------------------------------- */
+
+.incident-view {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  max-width: 48rem;
+  margin: 0 auto;
+  padding: var(--space-4) 0 var(--space-16);
 }
 
-.incident-fade-in {
-  animation: luminaIncidentFadeIn var(--duration-slow) var(--ease-out) both;
+/* ---- Base section card (replaces role="region" on every card) --- */
+
+.incident-section {
+  background: var(--lumina-surface);
+  border: 1px solid var(--lumina-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-5);
+  box-shadow: var(--shadow-sm);
+  animation: luminaFadeIn var(--duration-slow) var(--ease-out) both;
 }
 
-/* ---- Responsive adjustments ---- */
+.incident-section-body {
+  margin-top: var(--space-4);
+}
+
+/* ---- Typography scaffolding -------------------------------------- */
+
+.incident-eyebrow {
+  display: block;
+  font-size: var(--text-xs);
+  font-weight: 700;
+  letter-spacing: var(--tracking-widest);
+  text-transform: uppercase;
+  color: var(--lumina-text-muted);
+}
+
+.incident-h2 {
+  font-size: var(--text-lg);
+  font-weight: 800;
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+  line-height: var(--leading-tight);
+  color: var(--lumina-text);
+  margin-top: var(--space-1);
+}
+
+.incident-h3 {
+  font-size: var(--text-sm);
+  font-weight: 700;
+  letter-spacing: var(--tracking-wider);
+  text-transform: uppercase;
+  color: var(--lumina-text);
+  margin-bottom: var(--space-2);
+}
+
+.incident-subtitle {
+  font-size: var(--text-sm);
+  color: var(--lumina-text-muted);
+  line-height: var(--leading-relaxed);
+  margin-top: var(--space-1);
+}
+
+.incident-note {
+  font-size: var(--text-xs);
+  color: var(--lumina-text-muted);
+  font-style: italic;
+  line-height: var(--leading-relaxed);
+  margin-top: var(--space-3);
+}
+
+/* ---- Masthead (LIVE INCIDENT) ------------------------------------- */
+
+.incident-masthead {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--lumina-border-strong);
+  border-radius: var(--radius-xl);
+  padding: var(--space-6);
+  background:
+    radial-gradient(420px 200px at 105% -20%, rgba(224, 28, 43, 0.14), transparent 65%),
+    radial-gradient(360px 180px at -10% 110%, rgba(155, 123, 219, 0.10), transparent 60%),
+    linear-gradient(180deg, var(--lumina-surface-elevated) 0%, var(--lumina-surface) 100%);
+  box-shadow: var(--shadow-lg), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  animation: luminaFadeIn var(--duration-slow) var(--ease-out) both;
+}
+
+.incident-masthead-headline {
+  font-size: var(--text-3xl);
+  font-weight: 800;
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+  line-height: var(--leading-tight);
+  margin-top: var(--space-1);
+}
+
+.incident-masthead-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--lumina-text-muted);
+  margin-top: var(--space-2);
+  letter-spacing: var(--tracking-wide);
+}
+
+.incident-masthead-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
+}
+
+/* Yet unnamed helpers for surrounding content flow (used later) */
+.incident-masthead-headline-row {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  justify-content: space-between;
+}
+
+/* ---- Status accent colors ---------------------------------------- */
+
+.incident-status--active { color: var(--lumina-system); }
+.incident-status--monitoring { color: var(--lumina-warning); }
+.incident-status--action_required { color: var(--lumina-danger); }
+.incident-status--recovering { color: var(--lumina-investigation); }
+.incident-status--closed { color: var(--lumina-recovery); }
+.incident-status--unknown { color: var(--lumina-text-muted); }
+
+/* ---- Banners ------------------------------------------------------ */
+
+.incident-banner {
+  margin-top: var(--space-3);
+  padding: var(--space-3);
+  font-size: var(--text-sm);
+  color: var(--lumina-text-secondary);
+  line-height: var(--leading-relaxed);
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--lumina-border-subtle);
+}
+
+.incident-banner--closed {
+  border-left: 3px solid var(--lumina-recovery);
+}
+
+.incident-banner--error {
+  color: var(--lumina-danger);
+  border-color: rgba(224, 28, 43, 0.35);
+}
+
+/* ---- Current situation -------------------------------------------- */
+
+.incident-situation {
+  background: var(--lumina-surface-elevated);
+  border: 1px solid var(--lumina-border-subtle);
+  border-left: 3px solid var(--lumina-system);
+  border-radius: var(--radius-md);
+  padding: var(--space-4);
+  font-size: var(--text-base);
+  line-height: var(--leading-relaxed);
+  color: var(--lumina-text);
+}
+
+.incident-situation p + p {
+  margin-top: var(--space-2);
+}
+
+.incident-situation-evidence {
+  font-size: var(--text-sm);
+  color: var(--lumina-text-secondary);
+}
+
+.incident-situation-unknowns {
+  font-size: var(--text-sm);
+  color: var(--lumina-warning);
+}
+
+/* ---- Next Safe Action hero ---------------------------------------- */
+
+.incident-action-hero {
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--radius-xl);
+  padding: var(--space-6);
+  background:
+    radial-gradient(300px 150px at 100% -30%, var(--lumina-warning-glow), transparent 70%),
+    linear-gradient(180deg, var(--lumina-surface-elevated), var(--lumina-surface));
+  border: 1px solid var(--lumina-border-strong);
+  box-shadow: var(--shadow-lg);
+  animation: luminaFadeIn var(--duration-slow) var(--ease-out) both;
+}
+
+.incident-action-hero--immediate { border-top: 3px solid var(--lumina-danger); }
+.incident-action-hero--high { border-top: 3px solid var(--lumina-warning); }
+.incident-action-hero--medium { border-top: 3px solid var(--lumina-action); }
+.incident-action-hero--low,
+.incident-action-hero--none { border-top: 3px solid var(--lumina-border-strong); }
+
+.incident-action-text {
+  font-size: var(--text-lg);
+  font-weight: 700;
+  color: var(--lumina-text);
+  line-height: var(--leading-relaxed);
+  margin-top: var(--space-3);
+}
+
+.incident-action-reason {
+  font-size: var(--text-sm);
+  color: var(--lumina-text-secondary);
+  line-height: var(--leading-relaxed);
+  margin-top: var(--space-2);
+}
+
+.incident-callout {
+  font-size: var(--text-sm);
+  line-height: var(--leading-relaxed);
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
+  color: var(--lumina-system);
+  background: var(--lumina-system-soft);
+  border: 1px solid rgba(94, 196, 212, 0.25);
+  margin-top: var(--space-3);
+}
+
+/* ---- I'M TRAPPED — GET HELP --------------------------------------- */
+
+.incident-trapped {
+  border: 1px solid rgba(224, 28, 43, 0.45);
+  border-radius: var(--radius-xl);
+  padding: var(--space-5);
+  background:
+    radial-gradient(320px 150px at 110% -30%, var(--lumina-danger-glow), transparent 70%),
+    linear-gradient(180deg, rgba(224, 28, 43, 0.10), rgba(224, 28, 43, 0.03)),
+    var(--lumina-surface);
+  animation: luminaFadeIn var(--duration-slow) var(--ease-out) both;
+}
+
+.incident-trapped-header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  align-items: flex-start;
+}
+
+.incident-trapped-label {
+  font-size: var(--text-xl);
+  font-weight: 800;
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+  color: var(--lumina-danger);
+  margin-top: var(--space-1);
+}
+
+.incident-trapped-note {
+  font-size: var(--text-xs);
+  color: var(--lumina-text-muted);
+  line-height: var(--leading-relaxed);
+  margin-top: var(--space-1);
+}
+
+.incident-trapped-button {
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  font-weight: 800;
+  letter-spacing: var(--tracking-wider);
+  text-transform: uppercase;
+  color: #fff;
+  background: var(--lumina-danger);
+  border: 1px solid var(--lumina-danger);
+  border-radius: var(--radius-lg);
+  padding: var(--space-4) var(--space-6);
+  cursor: pointer;
+  box-shadow: 0 0 24px rgba(224, 28, 43, 0.35);
+  transition: transform var(--duration-normal) var(--ease-out),
+    box-shadow var(--duration-normal) var(--ease-out),
+    opacity var(--duration-normal) var(--ease-out);
+}
+
+.incident-trapped-button:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 0 36px rgba(224, 28, 43, 0.5);
+}
+
+.incident-trapped-button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.incident-help-state {
+  margin-top: var(--space-3);
+  font-size: var(--text-xs);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  background: rgba(0, 0, 0, 0.15);
+  line-height: var(--leading-relaxed);
+}
+
+.incident-help-state--sent { color: var(--lumina-system); }
+.incident-help-state--warn { color: var(--lumina-warning); }
+.incident-help-state--muted { color: var(--lumina-text-muted); }
+.incident-help-state--error { color: var(--lumina-danger); }
+
+.incident-help-story {
+  margin-top: var(--space-3);
+  padding: var(--space-4);
+  background: rgba(0, 0, 0, 0.18);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--lumina-border-subtle);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.incident-help-summary {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--lumina-text);
+  line-height: var(--leading-relaxed);
+}
+
+/* ---- Conversation (persisted live record) -------------------------- */
+
+.incident-conversation {
+  position: relative;
+  padding-left: var(--space-6);
+}
+
+.incident-conversation::before {
+  content: '';
+  position: absolute;
+  left: calc(var(--space-6) - 5px);
+  top: 6px;
+  bottom: 6px;
+  width: 1px;
+  background: linear-gradient(180deg, var(--lumina-border-strong), var(--lumina-border-subtle));
+}
+
+.incident-conv-item {
+  position: relative;
+  padding: var(--space-2) 0 var(--space-5) var(--space-4);
+}
+
+.incident-conv-item:last-child {
+  padding-bottom: var(--space-2);
+}
+
+.incident-conv-dot {
+  position: absolute;
+  left: calc(-1 * var(--space-6) + 7px);
+  top: 14px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--lumina-investigation);
+  box-shadow: 0 0 0 2px var(--lumina-surface);
+}
+
+.incident-conv-time {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--lumina-text-muted);
+}
+
+.incident-conv-meta {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.incident-conv-type-row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  margin-top: var(--space-1);
+}
+
+.incident-conv-type {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--lumina-text-secondary);
+}
+
+.incident-conv-summary {
+  font-size: var(--text-sm);
+  color: var(--lumina-text);
+  line-height: var(--leading-relaxed);
+  margin-top: var(--space-1);
+}
+
+.incident-conv-span {
+  margin-top: var(--space-2);
+  padding: var(--space-2);
+  background: rgba(0, 0, 0, 0.18);
+  border-radius: var(--radius-sm);
+  border-left: 2px solid var(--lumina-investigation);
+  font-size: var(--text-xs);
+  font-style: italic;
+  color: var(--lumina-text-muted);
+  line-height: var(--leading-relaxed);
+}
+
+.incident-conv-badge {
+  display: inline-block;
+  margin-top: var(--space-1);
+  margin-left: var(--space-2);
+  padding: 1px var(--space-2);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+  border-radius: var(--radius-sm);
+}
+
+.incident-conv-badge--caller {
+  color: var(--lumina-warning);
+  background: var(--lumina-warning-soft);
+}
+
+.incident-conv-badge--user {
+  color: var(--lumina-system);
+  background: var(--lumina-system-soft);
+}
+
+/* ---- What may be at risk ------------------------------------------- */
+
+.incident-risk-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  background: rgba(0, 0, 0, 0.15);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--lumina-border-subtle);
+}
+
+.incident-risk-label {
+  font-size: var(--text-sm);
+  color: var(--lumina-text);
+}
+
+.incident-risk-level {
+  font-size: var(--text-xs);
+  font-weight: 700;
+  letter-spacing: var(--tracking-wide);
+}
+
+.incident-risk-level--exposed { color: var(--lumina-danger); }
+.incident-risk-level--potential { color: var(--lumina-warning); }
+.incident-risk-level--unknown { color: var(--lumina-text-muted); }
+.incident-risk-level--none { color: var(--lumina-text-muted); }
+
+/* ---- What we know / don't know ------------------------------------- */
+
+.incident-known-item {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  color: var(--lumina-text);
+  font-size: var(--text-sm);
+  line-height: var(--leading-relaxed);
+  transition: background var(--duration-fast) var(--ease-out);
+}
+
+.incident-known-item:hover {
+  background: var(--lumina-surface-hover);
+}
+
+.incident-known-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--lumina-investigation);
+  flex-shrink: 0;
+  margin-top: 0.4rem;
+}
+
+.incident-known-chevron {
+  color: var(--lumina-text-muted);
+  font-size: var(--text-xs);
+  transform: none;
+  transition: transform var(--duration-fast) var(--ease-out);
+}
+
+.incident-known-chevron--open {
+  transform: rotate(90deg);
+}
+
+.incident-known-detail {
+  margin-left: var(--space-6);
+  margin-top: var(--space-1);
+  padding: var(--space-3);
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--lumina-border-subtle);
+  font-size: var(--text-xs);
+  color: var(--lumina-text-muted);
+  line-height: var(--leading-relaxed);
+}
+
+.incident-known-detail strong {
+  color: var(--lumina-text-secondary);
+  font-weight: 700;
+}
+
+.incident-unknown-item {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  font-size: var(--text-sm);
+  color: var(--lumina-text-secondary);
+  line-height: var(--leading-relaxed);
+}
+
+.incident-unknown-mark {
+  color: var(--lumina-text-muted);
+  flex-shrink: 0;
+  margin-top: 0.1rem;
+}
+
+/* ---- Chips --------------------------------------------------------- */
+
+.incident-chip {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+}
+
+.incident-chip--danger { color: var(--lumina-danger); background: var(--lumina-danger-soft); border: 1px solid rgba(224, 28, 43, 0.3); }
+.incident-chip--warning { color: var(--lumina-warning); background: var(--lumina-warning-soft); border: 1px solid rgba(217, 164, 65, 0.3); }
+.incident-chip--system { color: var(--lumina-system); background: var(--lumina-system-soft); border: 1px solid rgba(94, 196, 212, 0.25); }
+.incident-chip--recovery { color: var(--lumina-recovery); background: var(--lumina-recovery-soft); border: 1px solid rgba(90, 184, 122, 0.3); }
+.incident-chip--investigation { color: var(--lumina-investigation); background: var(--lumina-investigation-soft); border: 1px solid rgba(155, 123, 219, 0.3); }
+.incident-chip--muted { color: var(--lumina-text-muted); background: var(--lumina-surface-elevated); border: 1px solid var(--lumina-border); }
+
+.incident-chip--trial {
+  border-radius: var(--radius-sm);
+}
+
+/* ---- Layout utilities ---------------------------------------------- */
+
+.incident-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.incident-grid-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.incident-seg-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+/* ---- Form controls ------------------------------------------------- */
+
+.incident-field {
+  display: block;
+  font-size: var(--text-xs);
+  font-weight: 700;
+  letter-spacing: var(--tracking-wider);
+  text-transform: uppercase;
+  color: var(--lumina-text-muted);
+  margin-bottom: var(--space-2);
+}
+
+.incident-input,
+.incident-select,
+.incident-textarea {
+  width: 100%;
+  padding: var(--space-3);
+  background: var(--lumina-surface-elevated);
+  border: 1px solid var(--lumina-border-strong);
+  border-radius: var(--radius-md);
+  color: var(--lumina-text);
+  font-size: var(--text-sm);
+  font-family: var(--font-sans);
+}
+
+.incident-textarea {
+  line-height: var(--leading-relaxed);
+  resize: vertical;
+}
+
+.incident-field-hint {
+  font-size: var(--text-xs);
+  color: var(--lumina-text-muted);
+  margin-top: var(--space-2);
+  line-height: var(--leading-relaxed);
+}
+
+/* ---- Technical analysis disclosure --------------------------------- */
+
+.incident-details {
+  border: 1px solid var(--lumina-border);
+  border-radius: var(--radius-lg);
+  background: var(--lumina-surface);
+}
+
+.incident-details > summary {
+  list-style: none;
+  cursor: pointer;
+  padding: var(--space-4) var(--space-5);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  font-size: var(--text-sm);
+  font-weight: 700;
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+  color: var(--lumina-text);
+}
+
+.incident-details > summary::-webkit-details-marker {
+  display: none;
+}
+
+.incident-details[open] > summary {
+  border-bottom: 1px solid var(--lumina-border-subtle);
+}
+
+.incident-details-body {
+  padding: var(--space-4) var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  background: rgba(0, 0, 0, 0.18);
+  border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+}
+
+/* ---- Responsive adjustments ----------------------------------------- */
+
 @media (max-width: 640px) {
-  .incident-view-grid {
+  .incident-view {
     gap: var(--space-4);
+  }
+
+  .incident-masthead {
+    padding: var(--space-5);
+  }
+
+  .incident-masthead-headline {
+    font-size: var(--text-2xl);
+  }
+
+  .incident-trapped-button {
+    width: 100%;
+  }
+}
+
+/* ============================================================
+   CP-28C — Signature Live Incident Experience
+   ============================================================ */
+
+/* ---- Masthead hero states ------------------------------------ */
+
+.incident-masthead--calm { border-top: 3px solid var(--lumina-recovery); }
+.incident-masthead--attention { border-top: 3px solid var(--lumina-warning); }
+.incident-masthead--pressure { border-top: 3px solid var(--lumina-warning); }
+.incident-masthead--action_required { border-top: 3px solid var(--lumina-danger); }
+.incident-masthead--recovering { border-top: 3px solid var(--lumina-investigation); }
+.incident-masthead--closed { border-top: 3px solid var(--lumina-text-muted); }
+.incident-masthead--unknown { border-top: 3px solid var(--lumina-text-muted); }
+
+.incident-hero-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 12px;
+  border-radius: var(--radius-full);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  letter-spacing: var(--tracking-widest);
+  text-transform: uppercase;
+  border: 1px solid;
+  white-space: nowrap;
+  animation: luminaHeroPulse 3.5s var(--ease-in-out) infinite;
+}
+
+.incident-hero-chip--calm {
+  color: var(--lumina-recovery);
+  background: var(--lumina-recovery-soft);
+  border-color: rgba(90, 184, 122, 0.35);
+}
+
+.incident-hero-chip--attention,
+.incident-hero-chip--pressure {
+  color: var(--lumina-warning);
+  background: var(--lumina-warning-soft);
+  border-color: rgba(217, 164, 65, 0.35);
+}
+
+.incident-hero-chip--action_required {
+  color: var(--lumina-danger);
+  background: var(--lumina-danger-soft);
+  border-color: rgba(224, 28, 43, 0.4);
+}
+
+.incident-hero-chip--recovering {
+  color: var(--lumina-investigation);
+  background: var(--lumina-investigation-soft);
+  border-color: rgba(155, 123, 219, 0.35);
+}
+
+.incident-hero-chip--unknown {
+  color: var(--lumina-text-muted);
+  background: var(--lumina-surface-elevated);
+  border-color: var(--lumina-border);
+}
+
+.incident-hero-lead {
+  font-size: var(--text-base);
+  line-height: var(--leading-relaxed);
+  color: var(--lumina-text-secondary);
+  margin-top: var(--space-3);
+  max-width: 46ch;
+}
+
+/* ---- Motion: restrained, quiet ------------------------------- */
+
+@keyframes luminaHeroPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+
+@keyframes luminaAttentionPulse {
+  0%, 100% { box-shadow: 0 0 24px rgba(224, 28, 43, 0.35); }
+  50% { box-shadow: 0 0 38px rgba(224, 28, 43, 0.55); }
+}
+
+.incident-trapped-button {
+  min-height: 56px;
+  animation: luminaAttentionPulse 3.5s var(--ease-in-out) infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .incident-hero-chip,
+  .incident-trapped-button {
+    animation: none;
+  }
+}
+
+/* ---- Conversation: speaker attribution + quotes -------------- */
+
+.incident-conv-badge--unknown {
+  color: var(--lumina-text-muted);
+  background: var(--lumina-surface-elevated);
+}
+
+.incident-conv-quote {
+  margin-top: var(--space-2);
+  padding: var(--space-3);
+  background: rgba(0, 0, 0, 0.18);
+  border-radius: var(--radius-md);
+  border-left: 3px solid var(--lumina-investigation);
+  font-size: var(--text-sm);
+  font-style: italic;
+  color: var(--lumina-text);
+  line-height: var(--leading-relaxed);
+}
+
+/* ---- Pressure progression ------------------------------------ */
+
+.incident-pressure-headline {
+  font-size: var(--text-base);
+  font-weight: 700;
+  color: var(--lumina-text);
+  line-height: var(--leading-relaxed);
+}
+
+.incident-pressure-steps {
+  list-style: none;
+  margin: var(--space-4) 0 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.incident-pressure-step {
+  position: relative;
+  display: flex;
+  gap: var(--space-3);
+  padding-bottom: var(--space-4);
+}
+
+.incident-pressure-step::before {
+  content: '';
+  position: absolute;
+  left: 7px;
+  top: 20px;
+  bottom: 0;
+  width: 1px;
+  background: var(--lumina-border-strong);
+}
+
+.incident-pressure-step:last-child::before {
+  display: none;
+}
+
+.incident-pressure-node {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 3px solid var(--lumina-surface);
+  box-shadow: 0 0 0 1px var(--lumina-border-strong);
+  flex-shrink: 0;
+  margin-top: 2px;
+  background: var(--lumina-text-muted);
+}
+
+.incident-pressure-step--authority .incident-pressure-node { background: var(--lumina-investigation); }
+.incident-pressure-step--pressure .incident-pressure-node { background: var(--lumina-warning); }
+.incident-pressure-step--request .incident-pressure-node { background: var(--lumina-warning); }
+.incident-pressure-step--escalation .incident-pressure-node { background: var(--lumina-danger); }
+
+.incident-pressure-label {
+  font-size: var(--text-sm);
+  font-weight: 700;
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+  color: var(--lumina-text);
+}
+
+.incident-pressure-copy {
+  font-size: var(--text-sm);
+  color: var(--lumina-text-secondary);
+  line-height: var(--leading-relaxed);
+  margin-top: 2px;
+}
+
+/* ---- Trusted human connection --------------------------------- */
+
+.incident-trusted-card {
+  background:
+    linear-gradient(180deg, var(--lumina-recovery-soft), transparent 140%),
+    var(--lumina-surface-elevated);
+  border: 1px solid var(--lumina-border);
+  border-left: 3px solid var(--lumina-recovery);
+  border-radius: var(--radius-md);
+  padding: var(--space-4);
+}
+
+.incident-trusted-name {
+  font-size: var(--text-base);
+  font-weight: 800;
+  color: var(--lumina-text);
+}
+
+.incident-trusted-detail {
+  font-size: var(--text-xs);
+  color: var(--lumina-text-muted);
+  margin-top: var(--space-1);
+  line-height: var(--leading-relaxed);
+}
+
+.incident-trusted-status {
+  font-size: var(--text-xs);
+  color: var(--lumina-text-secondary);
+  line-height: var(--leading-relaxed);
+  margin-top: var(--space-2);
+}
+
+/* ---- Explicit confirmation ------------------------------------ */
+
+.incident-confirmed-item {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  background: rgba(0, 0, 0, 0.15);
+  border: 1px solid var(--lumina-border-subtle);
+  border-radius: var(--radius-md);
+}
+
+.incident-confirmed-mark {
+  color: var(--lumina-recovery);
+  font-weight: 800;
+  flex-shrink: 0;
+}
+
+.incident-confirmed-label {
+  font-size: var(--text-sm);
+  color: var(--lumina-text);
+}
+
+.incident-confirmed-note {
+  font-size: var(--text-xs);
+  color: var(--lumina-text-muted);
+  margin-top: 2px;
+}
+
+/* ---- Accessibility: keyboard focus ----------------------------- */
+
+.incident-view :focus-visible {
+  outline: 2px solid var(--lumina-system);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+/* ---- Mobile refinements ----------------------------------------- */
+
+@media (max-width: 640px) {
+  .incident-hero-lead {
+    font-size: var(--text-sm);
+  }
+
+  .incident-hero-chip {
+    white-space: normal;
+  }
+
+  .incident-pressure-step {
+    padding-bottom: var(--space-3);
+  }
+}
+
+/* ============================================================
+   CP-29 — LUMINA Guidance (deterministic intervention)
+   ============================================================
+   A calm, evidence-grounded intervention rendered from the backend
+   decision stored in incident.metadata["intervention"]. It never
+   declares scams, never uses numeric scores, and never judges the
+   person on the other side. Only quiet, actionable guidance.
+   ============================================================ */
+
+.incident-intervention {
+  border-left: 3px solid var(--lumina-investigation);
+  background: linear-gradient(
+    to right,
+    var(--lumina-investigation-soft),
+    transparent 70%
+  );
+}
+
+.incident-intervention--help {
+  border-left-color: var(--lumina-recovery);
+  background: linear-gradient(
+    to right,
+    var(--lumina-recovery-soft),
+    transparent 70%
+  );
+}
+
+.incident-intervention--urgent {
+  border-left-color: var(--lumina-danger);
+  background: linear-gradient(
+    to right,
+    var(--lumina-danger-soft),
+    transparent 70%
+  );
+}
+
+.incident-intervention--pause {
+  border-left-color: var(--lumina-warning);
+  background: linear-gradient(
+    to right,
+    var(--lumina-warning-soft),
+    transparent 70%
+  );
+}
+
+.incident-intervention--attention {
+  border-left-color: var(--lumina-investigation);
+  background: linear-gradient(
+    to right,
+    var(--lumina-investigation-soft),
+    transparent 70%
+  );
+}
+
+.incident-intervention-lead {
+  font-size: var(--text-lg);
+  font-weight: var(--font-semibold);
+  color: var(--lumina-text);
+  margin: var(--space-2) 0 var(--space-2);
+  letter-spacing: var(--tracking-tight);
+}
+
+.incident-intervention-reason {
+  color: var(--lumina-text-secondary);
+  font-size: var(--text-sm);
+  max-width: 60ch;
+  line-height: var(--leading-relaxed);
+}
+
+.incident-intervention-reason strong {
+  color: var(--lumina-text);
+  font-weight: var(--font-semibold);
+}
+
+.incident-intervention-actions {
+  list-style: none;
+  margin: var(--space-4) 0 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.incident-intervention-actions a {
+  display: inline-block;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--lumina-border-strong);
+  border-radius: var(--radius-full);
+  background: var(--lumina-surface-elevated);
+  color: var(--lumina-text);
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+  text-decoration: none;
+  transition: background var(--duration-fast) var(--ease-out),
+              border-color var(--duration-fast) var(--ease-out);
+}
+
+.incident-intervention-actions a:hover {
+  background: var(--lumina-surface-hover);
+  border-color: var(--lumina-system);
+}
+
+.incident-intervention-actions a:focus-visible {
+  outline: 2px solid var(--lumina-system);
+  outline-offset: 2px;
+}
+
+@media (max-width: 640px) {
+  .incident-intervention-lead {
+    font-size: var(--text-base);
+  }
+
+  .incident-intervention-actions {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
+
+/* Motion stays quiet and honouring prefers-reduced-motion: no pulsing or
+   attention-grabbing animation on the intervention itself. */
+
+/* ============================================================
+   CP-30 — Recovery & Continuity
+   ============================================================
+   The recovery board renders the deterministic backend snapshot stored in
+   incident.metadata["recovery"]. Calm-progress aesthetic: green only for
+   verified completion, amber for attention, no numeric bars, no celebration.
+   ============================================================ */
+
+.incident-recovery-board {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+
+.incident-recovery-lead {
+  color: var(--lumina-text);
+  font-size: var(--text-base);
+  line-height: var(--leading-relaxed);
+}
+
+.incident-recovery-block {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.incident-recovery-done-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.incident-recovery-done-list li {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  color: var(--lumina-text-secondary);
+  font-size: var(--text-sm);
+  line-height: var(--leading-relaxed);
+}
+
+.incident-recovery-done-list li::before {
+  content: "✓";
+  color: var(--lumina-recovery);
+  font-weight: var(--font-bold);
+  flex-shrink: 0;
+}
+
+.incident-recovery-stages {
+  display: grid;
+  grid-template-columns: repeat(6, auto);
+  gap: var(--space-2) var(--space-4);
+  align-items: center;
+  margin-top: var(--space-2);
+}
+
+.incident-recovery-stage {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--lumina-text-secondary);
+  white-space: nowrap;
+}
+
+.incident-recovery-stage-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--lumina-text-muted);
+}
+
+.incident-recovery-stage-dot--completed {
+  background: var(--lumina-recovery);
+}
+
+.incident-recovery-stage-dot--in_progress {
+  background: var(--lumina-warning);
+}
+
+.incident-recovery-stage-dot--unknown {
+  background: var(--lumina-text-muted);
+}
+
+.incident-recovery-stage-dot--not_applicable {
+  background: var(--lumina-border-strong);
+}
+
+.incident-recovery-stage-name {
+  font-weight: var(--font-semibold);
+  color: var(--lumina-text);
+}
+
+.incident-recovery-stage-status {
+  color: var(--lumina-text-muted);
+}
+
+.incident-recovery-task {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-lg);
+  background: var(--lumina-surface);
+  border: 1px solid var(--lumina-border);
+  border-left: 3px solid var(--lumina-warning);
+}
+
+.incident-recovery-task--done {
+  border-left-color: var(--lumina-recovery);
+}
+
+.incident-recovery-task--muted {
+  border-left-color: var(--lumina-border-strong);
+}
+
+.incident-recovery-task--attention {
+  border-left-color: var(--lumina-warning);
+}
+
+.incident-recovery-task-title {
+  font-weight: var(--font-semibold);
+  color: var(--lumina-text);
+  font-size: var(--text-sm);
+}
+
+.incident-recovery-task-desc {
+  color: var(--lumina-text-secondary);
+  font-size: var(--text-sm);
+  line-height: var(--leading-relaxed);
+}
+
+.incident-recovery-task-reason {
+  color: var(--lumina-text-muted);
+  font-size: var(--text-xs);
+  line-height: var(--leading-normal);
+}
+
+.incident-recovery-monitoring {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-lg);
+  background: var(--lumina-warning-soft);
+  border: 1px solid var(--lumina-warning);
+  color: var(--lumina-text);
+  font-size: var(--text-sm);
+  line-height: var(--leading-relaxed);
+}
+
+.incident-recovery-monitoring span {
+  color: var(--lumina-warning);
+  flex-shrink: 0;
+}
+
+@media (max-width: 640px) {
+  .incident-recovery-stages {
+    grid-template-columns: repeat(2, auto);
   }
 }

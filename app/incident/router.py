@@ -91,6 +91,10 @@ from app.incident.delivery import (
     DeliveryResultStatus,
     attempt_delivery,
 )
+from app.incident.intervention_policy import (
+    InterventionLevel,
+    automatic_help_allowed,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -307,6 +311,8 @@ def add_evidence(
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
+    _run_automatic_help_if_needed(incident)
+
     return {
         "incident_id": incident.incident_id,
         "status": incident.status.value,
@@ -337,6 +343,8 @@ def record_action(
         incident = _engine.record_user_action(incident_id, action_type, req.description)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
+
+    _run_automatic_help_if_needed(incident)
 
     return {
         "incident_id": incident.incident_id,
@@ -411,6 +419,8 @@ def add_transcript(
         )
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
+
+    _run_automatic_help_if_needed(incident)
 
     return {
         "incident_id": incident.incident_id,
@@ -491,6 +501,8 @@ def add_transcript_segments(
         )
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
+
+    _run_automatic_help_if_needed(incident)
 
     # Track segment arrivals for semantic analysis trigger policy
     try:
@@ -659,6 +671,8 @@ async def upload_audio(
         incident, extraction = _engine.add_transcript_batch(incident_id, batch)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
+
+    _run_automatic_help_if_needed(incident)
 
     # 7. Return structured response
     response = {
@@ -843,9 +857,11 @@ async def upload_stream_chunk(
             metadata={"streaming_session": session_id, "chunk_sequence": sequence},
         )
         try:
-            _engine.add_transcript_batch(incident_id, batch)
+            incident, _extraction = _engine.add_transcript_batch(incident_id, batch)
         except ValueError as exc:
             raise HTTPException(status_code=404, detail=str(exc))
+
+        _run_automatic_help_if_needed(incident)
 
     session.add_segments(segments, new_observations, new_actions)
     session.status = session.status.CAPTURING
@@ -1166,6 +1182,10 @@ def request_help(
     with _engine.store.transaction() as conn:
         for entry in incident.timeline[-1:]:
             _engine.store.append_timeline_entry(incident_id, entry, conn=conn)
+        # Refresh the recovery snapshot so it reflects the help request that
+        # was just appended (help_requested is derived from the timeline).
+        from app.incident.recovery import set_recovery_snapshot
+        set_recovery_snapshot(incident)
         _engine._save_incident_state(incident, conn=conn)
 
     # Generate Help Story
@@ -1229,6 +1249,197 @@ def request_help(
         "trusted_contact_configured": trusted_contact is not None and trusted_contact.is_configured(),
         "delivery_channel": help_request.delivery_channel.value,
     }
+
+
+# ---- Automatic Trusted Help (CP-29) ----
+
+
+def _resolve_emergency_consent(device_id: str) -> str:
+    """Resolve the emergency-consent gate for automatic help.
+
+    Returns "" when no account is bound to the device (automatic help is a
+    device-vetoable surface; with no account there is no account-consent to
+    violate). Returns "UNKNOWN" and fails closed on identity-service outage.
+    """
+    try:
+        device = get_device(device_id)
+    except Exception:
+        logger.exception("identity service unavailable during automatic-consent gate")
+        return "UNKNOWN"
+    if device is None:
+        return ""
+    try:
+        user = get_user(device.user_id)
+    except Exception:
+        logger.exception("identity service unavailable during automatic-consent gate")
+        return "UNKNOWN"
+    if user is None:
+        return ""
+    consent = user.emergency_consent
+    if consent in (EmergencyConsentStatus.GIVEN, "GIVEN"):
+        return "GIVEN"
+    if consent in (EmergencyConsentStatus.WITHDRAWN, "WITHDRAWN"):
+        return "WITHDRAWN"
+    return "NOT_GIVEN"
+
+
+def _is_delivery_capable(contact: Optional[TrustedContact]) -> bool:
+    """Whether the configured contact's delivery provider is currently usable.
+
+    Resolves the provider exactly like attempt_delivery(): SMS falls back to
+    the console provider in development when no live SMS provider is
+    available. Otherwise the delivery channel maps directly to a provider.
+    """
+    if contact is None or not contact.is_configured():
+        return False
+    from app.incident.delivery import get_delivery_provider
+    try:
+        channel = contact.delivery_channel.value
+        if channel == "SMS":
+            sms_provider = get_delivery_provider("sms")
+            provider = sms_provider if sms_provider.is_available else get_delivery_provider("console")
+        else:
+            provider = get_delivery_provider(channel)
+    except Exception:
+        return False
+    return bool(provider.is_available)
+
+
+def _run_automatic_help_if_needed(incident: Any) -> None:
+    """After a mutation, request trusted help if the intervention policy allows.
+
+    This runs the same HelpRequest model, help story and delivery path as the
+    manual I'M TRAPPED flow so automatic help is honest and auditable. It NEVER
+    creates a user action — automatic help is not an account of what the victim
+    did. The existing per-incident HelpRequest idempotency guarantees at most
+    one request, and the existing rate limiter bounds abuse.
+    """
+    if incident is None:
+        return
+    metadata = getattr(incident, "metadata", None) or {}
+    intervention = metadata.get("intervention")
+    if not isinstance(intervention, dict):
+        return
+    if intervention.get("intervention_level") != InterventionLevel.HELP.value:
+        return
+    if not intervention.get("is_new"):
+        return
+
+    # Idempotency before any side effect: replaying a mutation must never
+    # create a second request.
+    if get_help_request_for_incident(incident.incident_id) is not None:
+        return
+
+    device_id = incident.owner_device_id
+    if not device_id:
+        return
+
+    if not _check_help_request_rate_limit(device_id):
+        logger.info("automatic help skipped: rate-limited device=%s", device_id)
+        return
+
+    policy = get_help_policy(device_id)
+    trusted_contact = get_trusted_contact(device_id)
+    emergency_consent = _resolve_emergency_consent(device_id)
+    delivery_capable = _is_delivery_capable(trusted_contact)
+
+    allowed, why = automatic_help_allowed(
+        intervention,
+        policy,
+        trusted_contact,
+        emergency_consent,
+        delivery_capable,
+    )
+    if not allowed:
+        logger.info("automatic help skipped: %s device=%s", why, device_id)
+        return
+
+    help_request = HelpRequest(
+        incident_id=incident.incident_id,
+        owner_device_id=device_id,
+        status=HelpRequestStatus.REQUESTED,
+        reason="LUMINA recommended automatic trusted help (intervention policy)",
+    )
+    if trusted_contact is not None and trusted_contact.is_configured():
+        help_request.contact_id = trusted_contact.contact_id
+        help_request.delivery_channel = trusted_contact.delivery_channel
+    else:
+        help_request.delivery_channel = DeliveryChannel.NONE
+
+    # Append HELP_REQUESTED as a FACT timeline entry within a transaction,
+    # mirroring the manual path but WITHOUT record_user_action: automatic help
+    # must not fabricate a victim action.
+    incident.add_timeline_entry(
+        entry_type=TimelineEntryType.USER_ACTION_RECORDED,
+        summary="Help requested automatically",
+        epistemic_status=EpistemicStatus.FACT,
+        metadata={
+            "action_type": "HELP_REQUESTED",
+            "reason": help_request.reason,
+            "request_id": help_request.request_id,
+            "delivery_channel": help_request.delivery_channel.value,
+            "trusted_contact_configured": help_request.contact_id is not None,
+            "source": "AUTOMATIC",
+        },
+    )
+    with _engine.store.transaction() as conn:
+        for entry in incident.timeline[-1:]:
+            _engine.store.append_timeline_entry(incident.incident_id, entry, conn=conn)
+        # Refresh the recovery snapshot so it reflects the automatic help request.
+        from app.incident.recovery import set_recovery_snapshot
+        set_recovery_snapshot(incident)
+        _engine._save_incident_state(incident, conn=conn)
+
+    # Generate the help story from the current incident state.
+    from app.incident.help_story import generate_help_story
+    from app.incident.escalation import detect_escalation
+
+    escalation = detect_escalation(incident)
+    help_story = generate_help_story(incident, escalation)
+
+    delivery_status = HelpRequestStatus.NOT_CONFIGURED
+    if trusted_contact is not None and trusted_contact.is_configured():
+        help_request.status = HelpRequestStatus.QUEUED
+        save_help_request(help_request)
+
+        delivery_destination = trusted_contact.destination
+        if trusted_contact.delivery_channel == DeliveryChannel.SMS:
+            sms_dest = trusted_contact.get_sms_destination()
+            if sms_dest:
+                delivery_destination = sms_dest
+
+        delivery_result = attempt_delivery(
+            help_story_text=help_story.to_readable_text(),
+            help_story_data=help_story.to_dict(),
+            request_id=help_request.request_id,
+            delivery_channel=trusted_contact.delivery_channel.value,
+            destination=delivery_destination,
+        )
+
+        if delivery_result.status == DeliveryResultStatus.SENT:
+            update_help_request_status(help_request.request_id, HelpRequestStatus.SENT)
+            delivery_status = HelpRequestStatus.SENT
+        elif delivery_result.status == DeliveryResultStatus.DELIVERED:
+            update_help_request_status(help_request.request_id, HelpRequestStatus.DELIVERED)
+            delivery_status = HelpRequestStatus.DELIVERED
+        elif delivery_result.status == DeliveryResultStatus.FAILED:
+            update_help_request_status(
+                help_request.request_id, HelpRequestStatus.FAILED,
+                failure_reason=delivery_result.message,
+            )
+            delivery_status = HelpRequestStatus.FAILED
+        else:
+            update_help_request_status(help_request.request_id, HelpRequestStatus.UNKNOWN)
+            delivery_status = HelpRequestStatus.UNKNOWN
+    else:
+        save_help_request(help_request)
+        delivery_status = HelpRequestStatus.NOT_CONFIGURED
+
+    logger.info(
+        "automatic trusted help requested incident=%s status=%s",
+        incident.incident_id,
+        delivery_status.value,
+    )
 
 
 # ---- Delivery Webhook Endpoint (CP-19) ----

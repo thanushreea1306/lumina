@@ -144,13 +144,18 @@ describe('TopBar', () => {
 });
 
 describe('BottomNav', () => {
-  it('renders all navigation items', () => {
+  it('renders Home, Incident, Evidence, and History navigation items', () => {
     renderWithRouter(<BottomNav />);
     expect(screen.getByRole('navigation', { name: /main navigation/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /home/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /session/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /incident/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /evidence/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /history/i })).toBeInTheDocument();
+  });
+
+  it('does not expose the legacy Session item in the primary nav', () => {
+    renderWithRouter(<BottomNav />);
+    expect(screen.queryByRole('button', { name: /session/i })).not.toBeInTheDocument();
   });
 });
 
