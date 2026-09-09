@@ -218,9 +218,16 @@ class IncidentEngine:
 
         return incident
 
-    def get_incident(self, incident_id: str) -> Optional[Incident]:
-        """Retrieve an incident with all its state."""
-        return self.store.get_incident(incident_id)
+    def get_incident(
+        self, incident_id: str, owner_device_id: Optional[str] = None
+    ) -> Optional[Incident]:
+        """Retrieve an incident with all its state.
+
+        When ``owner_device_id`` is supplied the backing store filters by owner,
+        so a non-owner never retrieves another device's incident (defense in
+        depth; callers still enforce the 404/403 gate via ``_require_owner``).
+        """
+        return self.store.get_incident(incident_id, owner_device_id=owner_device_id)
 
     def add_transcript(
         self,

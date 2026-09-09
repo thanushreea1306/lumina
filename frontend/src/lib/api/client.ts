@@ -105,6 +105,14 @@ export async function apiPost<T>(
   return request<T>('POST', path, { body, headers });
 }
 
+export async function apiPut<T>(
+  path: string,
+  body?: unknown,
+  headers?: Record<string, string>,
+): Promise<ApiResponse<T>> {
+  return request<T>('PUT', path, { body, headers });
+}
+
 // ---- Convenience error type guards ----
 export function isApiError(result: ApiResponse<unknown>): result is { ok: false; status: number; error: string } {
   return !result.ok;

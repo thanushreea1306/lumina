@@ -352,6 +352,7 @@ describe('SettingsPage', () => {
   it('shows all settings sections', () => {
     renderWithRouter(<SettingsPage />);
     // Use headings for section labels to disambiguate from button text
+    expect(screen.getByRole('heading', { name: 'Account' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Safety' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Privacy' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Accessibility' })).toBeInTheDocument();

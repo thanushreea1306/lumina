@@ -74,7 +74,7 @@ LUMINA keeps every piece of information labeled with how much it can be trusted:
 
 Unknown or unavailable signals are represented as missing. The platform's answer to "can you see this signal?" may be `NOT_AVAILABLE`, `NOT_PERMITTED`, or `NOT_VERIFIED` — and that answer is preserved.
 
-The **deterministic safety engine is authoritative**. It maps evidence to safety states (`CLEAR`, `WATCH`, `PAUSE`, `VERIFY`, `PROTECT`, `RECOVERY`) through non-random, explainable rules. ML output, when present, can corroborate but can never override the safety engine or force a risk level. LUMINA avoids pretending uncertainty is certainty; a `CLEAR` state means "no concerning indicators observed or reported", not "this call is safe".
+The **deterministic safety engine is authoritative**. It maps evidence to safety states (`CLEAR`, `WATCH`, `PAUSE`, `VERIFY`, `PROTECT`, `RECOVERY`) through non-random, explainable rules. There is no ML output in the inference path, so there is nothing that can override the safety engine or force a risk level. LUMINA avoids pretending uncertainty is certainty; a `CLEAR` state means "no concerning indicators observed or reported", not "this call is safe".
 
 ---
 
@@ -223,7 +223,7 @@ Deterministic Safety Engine   (authoritative)
 SQLite / PostgreSQL           (swappable via one backend)
 ```
 
-A legacy scoring/dashboard surface (`/api/score`, Streamlit dashboard, optional XGBoost artifacts) remains mounted but is subordinate: the deterministic safety engine is the decision authority.
+The entire analysis surface is **deterministic only** — there is no ML inference, no numeric risk score, and no separate scoring/dashboard surface. The deterministic safety engine is the sole decision authority.
 
 ---
 
@@ -235,7 +235,7 @@ A legacy scoring/dashboard surface (`/api/score`, Streamlit dashboard, optional 
 - **faster-whisper** — local speech-to-text.
 - **React / TypeScript / Vite / Vitest** — frontend with custom CSS (no UI framework dependency).
 - **HMAC-SHA256 authentication** — device and API request signing.
-- **scikit-learn / XGBoost** — optional legacy model artifacts (synthetic-data only, see Limitations).
+- **Encryption-at-rest** — trusted-contact destinations encrypted with Fernet (AES-128-CBC + HMAC-SHA256), keyed by `LUMINA_ENCRYPTION_KEY`.
 
 ---
 
@@ -246,15 +246,11 @@ lumina/
 ├── android_app/            # Android client (Kotlin, Gradle)
 │   └── app/src/            #   main/ + test/ (JVM unit tests)
 ├── app/                    # FastAPI backend
-│   ├── api/                #   panic detection endpoint
-│   ├── core/               #   legacy risk/features pipeline
 │   ├── evidence/           #   evidence model, deterministic safety engine,
 │   │                       #   HMAC auth, session endpoints
 │   ├── incident/           #   incidents, conversation intelligence, transcript,
 │   │                       #   streaming, trusted contact, help, account, recovery
-│   ├── persistence/        #   SQLite / PostgreSQL backends + migration
-│   └── services/           #   alert, panic trigger, report generator
-├── dashboard/              # Streamlit dashboard (legacy)
+│   └── persistence/        #   SQLite / PostgreSQL backends + migration
 ├── frontend/               # React + TypeScript + Vite web app
 │   ├── src/app/            #   page components
 │   ├── src/components/     #   UI primitives
@@ -262,8 +258,6 @@ lumina/
 │   ├── src/lib/api/        #   API clients (sessions, incidents, account, help, …)
 │   ├── src/types/          #   domain types
 │   └── src/test/           #   Vitest tests
-├── models/saved/           # Optional ML artifacts (synthetic-data only)
-├── notebooks/              # Model training experiments
 ├── scripts/                # Small utility scripts
 ├── tests/                  # Backend pytest suite
 ├── config/                 # Package marker
@@ -325,8 +319,8 @@ cd android_app
 | `DATABASE_URL` | PostgreSQL/Supabase connection string (Postgres backend only) | none |
 | `LUMINA_CORS_ORIGINS` | Allowed CORS origins (comma-separated) | localhost origins |
 | `WHISPER_MODEL_SIZE` | Local STT model size | `small` |
+| `LUMINA_ENCRYPTION_KEY` | Fernet key for trusted-contact encryption-at-rest | none (encryption fails closed) |
 | `VITE_API_BASE_URL` | Backend origin for the frontend (no `/api` prefix) | `''` (dev proxy) |
-| `LUMINA_API_BASE` | API base for the legacy Streamlit dashboard | `http://localhost:8000` |
 | `OPENAI_API_KEY` / `OPENAI_API_BASE` | Optional semantic-provider credentials | none |
 
 See `.env.example` and `frontend/.env.production.example` for the full contract.
@@ -339,8 +333,8 @@ Automated test state (current, verified):
 
 | Surface | Result |
 |---------|--------|
-| Backend (`pytest -q`) | **1274 passed, 14 skipped** |
-| Frontend (`vitest run`) | **359 passed across 16 test files** |
+| Backend (`pytest -q`) | **1096 passed, 14 skipped** |
+| Frontend (`vitest run`) | **344 passed across 15 test files** |
 | Android JVM unit tests | **117 passed, 0 failed, 0 skipped** (10 suites) |
 | Android build (`assembleDebug`) | **PASS** |
 
@@ -364,7 +358,7 @@ Caveats that are documented in config rather than hidden: Render free tier has n
 Explicit engineering boundaries, not hidden gaps:
 
 - **Cellular call audio** is not captured (no public Android API for it; no hidden-recording workaround).
-- **Conversation ML model** — no trained model in production inference; analysis is deterministic. ML artifacts present in `models/saved/` are trained on **synthetic data only** and are explicitly disclaimed as not real-world validated; they serve only as corroboration and cannot force a safety state.
+- **Conversation analysis** — there is no ML model in production inference; analysis is entirely deterministic keyword/rule logic. No ML training artifacts or synthetic-dataset components are shipped.
 - **Delivery providers** — SMS/email delivery exists as an abstraction; the working provider is console/stub only. Trusted-contact and help flows send nothing real until an external provider is configured.
 - **Streaming STT** is batched chunk processing, not neural streaming; diarization is not implemented.
 - **PhoneStateListener** is deprecated on API 31+ (functional; migration to `TelephonyCallback` pending).

@@ -73,6 +73,27 @@ export function SettingsPage() {
         subtitle="Configure your LUMINA experience"
       />
 
+      {/* Account */}
+      <div style={{ marginBottom: 'var(--space-6)' }}>
+        <h3 style={{
+          fontSize: 'var(--text-xs)',
+          fontWeight: 700,
+          letterSpacing: 'var(--tracking-widest)',
+          textTransform: 'uppercase',
+          color: 'var(--lumina-text)',
+          marginBottom: 'var(--space-3)',
+        }}>
+          Account
+        </h3>
+        <Card>
+          <SettingsLink
+            label="Profile"
+            description="View and edit your account information"
+            path="/profile"
+          />
+        </Card>
+      </div>
+
       {/* Safety */}
       <div style={{ marginBottom: 'var(--space-6)' }}>
         <h3 style={{
@@ -89,7 +110,7 @@ export function SettingsPage() {
           <SettingsLink
             label="Trusted Contacts"
             description="Manage alert recipients for safety situations"
-            path="/trusted-contact"
+            path="/onboarding"
             badge="NOT CONFIGURED"
             badgeColor="var(--lumina-warning)"
           />

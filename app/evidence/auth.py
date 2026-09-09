@@ -132,12 +132,22 @@ def is_timestamp_valid(timestamp_str: str) -> bool:
 class NonceTracker:
     """Tracks recently used nonces per device to prevent replay attacks.
 
-    Uses an in-memory set with bounded size. Old nonces are evicted
-    when the cache exceeds NONCE_CACHE_SIZE.
+    Uses an in-memory bounded set for the hot path and (optionally) a durable
+    persistence backend so that used nonces survive process restarts. When a
+    ``persistence`` backend is provided, replay checks are authoritative there:
+    the in-memory set is only a fast-path cache.
+
+    Design:
+      - Fast path: if the nonce is already in the in-memory set → replay.
+      - Durable path: atomically record the (device, nonce) pair in the
+        persistence layer (``use_nonce``). If the pair was already recorded by
+        any worker, the nonce is a replay.
+      - A fresh or restarted worker cannot forget a nonce once it is durable.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, persistence=None) -> None:
         self._nonces: dict[str, Set[str]] = {}  # device_id -> set of nonces
+        self._persistence = persistence
 
     def is_replay(self, device_id: str, nonce: str) -> bool:
         """Check if a nonce has been used before for this device.
@@ -153,8 +163,24 @@ class NonceTracker:
             keep = NONCE_CACHE_SIZE // 2
             device_nonces_list = list(device_nonces)
             self._nonces[device_id] = set(device_nonces_list[-keep:])
+        # Durable check-and-record (atomic): if the pair already exists the
+        # nonce has been used before, possibly by another worker or a prior
+        # process lifetime.
+        if self._persistence is not None:
+            try:
+                if not self._persistence.use_nonce(device_id, nonce):
+                    device_nonces.add(nonce)
+                    return True
+            except Exception:
+                # If the durable layer fails, fall back to in-memory only so an
+                # availability problem does not block legitimate traffic.
+                pass
         device_nonces.add(nonce)
         return False
+
+    def clear(self) -> None:
+        """Clear in-memory state (for tests). Doesn't touch durable storage."""
+        self._nonces.clear()
 
 
 # ---- Authentication verification ----

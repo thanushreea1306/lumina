@@ -12,10 +12,10 @@ import { SettingsPage } from '@/app/SettingsPage';
 import { VerifyPage } from '@/app/VerifyPage';
 import { PausePage } from '@/app/PausePage';
 import { ProtectPage } from '@/app/ProtectPage';
-import { TrustedContactPage } from '@/app/TrustedContactPage';
 import { RecoveryPage } from '@/app/RecoveryPage';
 import { AccessibilityPage } from '@/app/AccessibilityPage';
 import { SecurityPage } from '@/app/SecurityPage';
+import { ProfilePage } from '@/app/ProfilePage';
 import { IncidentEntryPage } from '@/app/IncidentEntryPage';
 import { IncidentViewPage } from '@/app/IncidentViewPage';
 
@@ -88,14 +88,6 @@ export function App() {
           }
         />
         <Route
-          path="/trusted-contact"
-          element={
-            <AppShell>
-              <TrustedContactPage />
-            </AppShell>
-          }
-        />
-        <Route
           path="/recovery"
           element={
             <AppShell>
@@ -116,6 +108,14 @@ export function App() {
           element={
             <AppShell>
               <SecurityPage />
+            </AppShell>
+          }
+        />
+        <Route
+          path="/profile"
+          element={
+            <AppShell>
+              <ProfilePage />
             </AppShell>
           }
         />

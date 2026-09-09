@@ -65,6 +65,14 @@ export type IncidentStatus =
   | 'CLOSED'
   | 'UNKNOWN';
 
+// An incident is "open" only while it is being actively worked. CLOSED and
+// UNKNOWN are historical/indeterminate and must never be treated as the
+// current active incident.
+export function isOpenIncident(status: IncidentStatus): boolean {
+  return status === 'ACTIVE' || status === 'MONITORING' ||
+    status === 'ACTION_REQUIRED' || status === 'RECOVERING';
+}
+
 // ---- Priority ----
 export type Priority = 'IMMEDIATE' | 'HIGH' | 'MEDIUM' | 'LOW' | 'NONE';
 

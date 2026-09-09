@@ -92,8 +92,10 @@ class IncidentStore:
 
     # ---- incident reads ----
 
-    def get_incident(self, incident_id: str) -> Optional[Incident]:
-        return self.backend.get_incident(incident_id)
+    def get_incident(
+        self, incident_id: str, owner_device_id: Optional[str] = None
+    ) -> Optional[Incident]:
+        return self.backend.get_incident(incident_id, owner_device_id=owner_device_id)
 
     def list_incidents(
         self, limit: int = 50, owner_device_id: Optional[str] = None

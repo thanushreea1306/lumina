@@ -79,6 +79,13 @@ CREATE TABLE IF NOT EXISTS device_sessions (
     PRIMARY KEY (device_id, session_id)
 );
 
+CREATE TABLE IF NOT EXISTS used_nonces (
+    device_id TEXT NOT NULL,
+    nonce TEXT NOT NULL,
+    used_at TEXT NOT NULL,
+    PRIMARY KEY (device_id, nonce)
+);
+
 CREATE TABLE IF NOT EXISTS sessions (
     session_id TEXT PRIMARY KEY,
     started_at TEXT NOT NULL,
@@ -302,6 +309,7 @@ _FRESH_MIGRATIONS = [
     "incidents.owner_device_id",
     "identity.lumina_phone_verifications.device_id",
     "identity.lumina_users.phone_number_unique",
+    "auth.used_nonces_table",
 ]
 
 
@@ -462,6 +470,51 @@ class PostgresBackend(PersistenceBackend):
         finally:
             conn.close()
         return None if row is None else row["device_id"]
+
+    # ---- durable nonce replay protection ----
+
+    def use_nonce(self, device_id: str, nonce: str) -> bool:
+        conn = self._connect()
+        try:
+            with conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "INSERT INTO used_nonces (device_id, nonce, used_at) "
+                        "VALUES (%s, %s, %s) ON CONFLICT (device_id, nonce) DO NOTHING",
+                        (device_id, nonce, datetime.now().isoformat()),
+                    )
+                    inserted = cur.rowcount == 1
+        finally:
+            conn.close()
+        return inserted
+
+    def is_nonce_used(self, device_id: str, nonce: str) -> bool:
+        conn = self._connect()
+        try:
+            with conn.cursor(row_factory=dict_row) as cur:
+                cur.execute(
+                    "SELECT 1 FROM used_nonces WHERE device_id = %s AND nonce = %s",
+                    (device_id, nonce),
+                )
+                row = cur.fetchone()
+        finally:
+            conn.close()
+        return row is not None
+
+    def prune_nonces(self, older_than: Optional[str] = None) -> int:
+        conn = self._connect()
+        try:
+            with conn:
+                with conn.cursor() as cur:
+                    if older_than is None:
+                        cur.execute("DELETE FROM used_nonces")
+                    else:
+                        cur.execute(
+                            "DELETE FROM used_nonces WHERE used_at < %s", (older_than,)
+                        )
+                return cur.rowcount
+        finally:
+            conn.close()
 
     # ---- evidence foundation ----
 
@@ -844,11 +897,22 @@ class PostgresBackend(PersistenceBackend):
 
     # ---- incident reads ----
 
-    def get_incident(self, incident_id: str) -> Optional[Incident]:
+    def get_incident(
+        self, incident_id: str, owner_device_id: Optional[str] = None
+    ) -> Optional[Incident]:
         conn = self._connect()
         try:
             with conn.cursor(row_factory=dict_row) as cur:
-                cur.execute("SELECT * FROM incidents WHERE incident_id = %s", (incident_id,))
+                if owner_device_id is not None:
+                    cur.execute(
+                        "SELECT * FROM incidents "
+                        "WHERE incident_id = %s AND owner_device_id = %s",
+                        (incident_id, owner_device_id),
+                    )
+                else:
+                    cur.execute(
+                        "SELECT * FROM incidents WHERE incident_id = %s", (incident_id,)
+                    )
                 row = cur.fetchone()
                 if row is None:
                     return None

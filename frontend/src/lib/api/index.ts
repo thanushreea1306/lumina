@@ -1,4 +1,4 @@
-export { apiGet, apiPost, isApiError, isNetworkError, isUnauthorized, isForbidden, isNotFound } from './client';
+export { apiGet, apiPost, apiPut, isApiError, isNetworkError, isUnauthorized, isForbidden, isNotFound } from './client';
 export {
   generateAuthHeaders,
   registerDevice,
@@ -20,10 +20,6 @@ export {
   userResponse,
 } from './sessions';
 export {
-  sendAlert,
-} from './alert';
-export type { SendAlertRequest, SendAlertResponse } from './alert';
-export {
   createAccount,
   requestPhoneVerification,
   confirmPhoneVerification,
@@ -41,8 +37,10 @@ export type {
   VerifyPhoneRequestResponse,
   VerifyPhoneConfirmResponse,
   AccountResponse,
+  ProfileResponse,
   PrivacyPolicy,
   TrustedContactResponse,
   TrustedContactDetail,
   GetTrustedContactResponse,
 } from './account';
+export { getProfile, updateProfile } from './account';

@@ -5,7 +5,7 @@ This is the structured representation of "what we know and how we know it".
 It deliberately does NOT decide anything — it only records typed, timestamped
 evidence that higher layers (decision context, safety state) can reason over.
 
-Missing-value philosophy (mirrors app/core/features.py):
+Missing-value philosophy:
   - A field that was not observed is represented by an explicit status
     (UNKNOWN / NOT_AVAILABLE / NOT_PERMITTED), never by 0 / False / "".
   - confidence is None unless a source genuinely produced a number. We never

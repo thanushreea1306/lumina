@@ -117,6 +117,29 @@ class PersistenceBackend:
     def get_session_owner(self, session_id: str) -> Optional[str]:
         raise NotImplementedError
 
+    # ---- durable nonce replay protection ----
+
+    def use_nonce(self, device_id: str, nonce: str) -> bool:
+        """Atomically record a device nonce as used.
+
+        Returns True if the nonce was newly inserted, False if the pair already
+        exists (i.e. the nonce is a replay). The check-and-insert is atomic so
+        concurrent requests cannot both "win".
+        """
+        raise NotImplementedError
+
+    def is_nonce_used(self, device_id: str, nonce: str) -> bool:
+        """Return True if the device nonce was already recorded."""
+        raise NotImplementedError
+
+    def prune_nonces(self, older_than: Optional[str] = None) -> int:
+        """Delete recorded nonces older than ``older_than`` (ISO timestamp).
+
+        Used opportunistically to bound storage growth. Returns the number of
+        rows deleted.
+        """
+        raise NotImplementedError
+
     # ---- evidence foundation ----
 
     def create_session(self, session_id: str, started_at: str) -> None:
@@ -196,7 +219,9 @@ class PersistenceBackend:
 
     # ---- incident reads ----
 
-    def get_incident(self, incident_id: str) -> Optional[Incident]:
+    def get_incident(
+        self, incident_id: str, owner_device_id: Optional[str] = None
+    ) -> Optional[Incident]:
         raise NotImplementedError
 
     def list_incidents(

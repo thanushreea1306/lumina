@@ -9,12 +9,45 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Optional
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
 from app.evidence import router as evidence_router
 from app.evidence.auth import NonceTracker, compute_signature, generate_device_credentials
 from app.evidence.db import EvidenceStore
+from app.incident import crypto
+
+
+def _set_test_encryption_key() -> None:
+    """Provide a stable, non-committed encryption key for test runs.
+
+    The key is generated in-memory (never persisted to the repo) so the
+    trusted-contact encryption-at-rest path can be exercised by the full
+    test suite without requiring an operator-provided env var.
+    """
+    import os
+
+    if not os.environ.get("LUMINA_ENCRYPTION_KEY"):
+        os.environ["LUMINA_ENCRYPTION_KEY"] = crypto.generate_encryption_key()
+
+
+_set_test_encryption_key()
+
+
+@pytest.fixture(autouse=True)
+def _reset_trusted_contact_memory_fallback():
+    """Prevent test-file state leakage between modules.
+
+    Some test files switch the trusted-contact layer into its in-memory
+    fallback for unit testing. That global flag must never leak into other
+    files (which exercise the real persistence path). We restore the safe
+    default after every test.
+    """
+    from app.incident import trusted_contact as tc
+
+    yield
+    tc.set_memory_fallback(False)
 
 
 class AuthClient:
@@ -35,7 +68,8 @@ class AuthClient:
     def from_test(cls, tmp_path, store_name: str = "evidence.db") -> "AuthClient":
         """Create a fully isolated AuthClient for a single test."""
         evidence_router.store = EvidenceStore(path=str(tmp_path / store_name))
-        evidence_router._nonce_tracker = NonceTracker()
+        # Durable nonce tracking backed by the isolated per-test store.
+        evidence_router._nonce_tracker = NonceTracker(persistence=evidence_router.store.backend)
 
         client = TestClient(app)
         device_id, device_secret = generate_device_credentials()

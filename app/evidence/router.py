@@ -53,9 +53,11 @@ router = APIRouter()
 store = EvidenceStore()
 
 # ---- Global auth state ----
-# In production, nonce_tracker should be shared across workers.
-# For single-process deployment, this is sufficient.
-_nonce_tracker = NonceTracker()
+# Durable nonce replay protection: _nonce_tracker records used nonces in the
+# persistence layer (used_nonces table), so replay detection survives process
+# restarts and is correct across workers. The in-memory cache is only a
+# fast path.
+_nonce_tracker = NonceTracker(persistence=store.backend)
 _registration_limiter = RegistrationRateLimiter()
 
 

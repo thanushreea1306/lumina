@@ -85,6 +85,28 @@ _migration(
 )
 
 
+def _needs_used_nonces_table(conn: sqlite3.Connection) -> bool:
+    return not _table_exists(conn, "used_nonces")
+
+
+def _create_used_nonces_table(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS used_nonces ("
+        "  device_id TEXT NOT NULL,"
+        "  nonce TEXT NOT NULL,"
+        "  used_at TEXT NOT NULL,"
+        "  PRIMARY KEY (device_id, nonce)"
+        ")"
+    )
+
+
+_migration(
+    "auth.used_nonces_table",
+    _needs_used_nonces_table,
+    _create_used_nonces_table,
+)
+
+
 def _needs_phone_unique_index(conn: sqlite3.Connection) -> bool:
     if not _table_exists(conn, "lumina_users"):
         return False

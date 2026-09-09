@@ -39,9 +39,10 @@ export function ConsentPage() {
             marginBottom: 'var(--space-6)',
           }}
         >
-          LUMINA collects only the evidence you explicitly provide during safety sessions.
-          No conversations are recorded. No personal data is sold.
-          Your device is identified by a secure credential — your identity remains private.
+          LUMINA stores only the evidence you explicitly provide during safety
+          sessions. No conversations are recorded. No personal data is sold.
+          Your device is identified by a secure authenticated credential, and data is
+          scoped to that device.
         </p>
 
         <div
@@ -53,10 +54,10 @@ export function ConsentPage() {
           }}
         >
           {[
-            'Evidence you submit stays on this device',
-            'Sessions are encrypted and device-bound',
+            'Evidence you submit is device-bound and stored on the LUMINA backend',
+            'Sessions are device-bound and protected by authenticated device credentials',
             'No background monitoring or tracking',
-            'You can delete your data at any time',
+            'Account data can be deleted via the account deletion flow',
           ].map((item) => (
             <div
               key={item}

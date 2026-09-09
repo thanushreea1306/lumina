@@ -36,6 +36,8 @@ services:
         value: "3.11"
       - key: LUMINA_CORS_ORIGINS
         sync: false
+      - key: LUMINA_ENCRYPTION_KEY
+        sync: false
       - key: LUMINA_DB_BACKEND
         value: "postgres"
       # DATABASE_URL must be provided as a secret on the production service.

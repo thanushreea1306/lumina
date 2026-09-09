@@ -23,6 +23,7 @@ import type {
   ExtractionResult,
   TranscriptSource,
 } from '@/types/incident';
+import { isOpenIncident } from '@/types/incident';
 
 // ---- State Types ----
 
@@ -174,6 +175,12 @@ export function useIncidentState(pollIntervalMs = 30_000, overrideIncidentId: st
       }
 
       if (!controller.signal.aborted) {
+        // A CLOSED or UNKNOWN incident is historical: keep it visible for this
+        // view (read-only), but never let it masquerade as the *current*
+        // active incident in sessionStorage.
+        if (!isOpenIncident(result.data.status)) {
+          clearStoredIncidentId();
+        }
         setState((prev) => ({
           ...prev,
           status: 'active',

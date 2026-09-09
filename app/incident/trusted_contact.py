@@ -332,13 +332,42 @@ def save_trusted_contact(contact: TrustedContact) -> None:
         owner_device_id=contact.owner_device_id,
         display_name=contact.display_name,
         delivery_channel=contact.delivery_channel.value,
-        destination=contact.destination,
+        destination=_encrypt_contact_destination(
+            contact.destination, contact.delivery_channel
+        ),
         enabled=contact.enabled,
         automatic_help_enabled=contact.automatic_help_enabled,
         configured_at=contact.configured_at,
         updated_at=contact.updated_at,
         created_at=contact.created_at,
     )
+
+
+def _encrypt_contact_destination(destination: str, channel: DeliveryChannel) -> str:
+    """Encrypt a contact destination before it is written to persistent storage.
+
+    The destination (phone/email) is PII. NONE-delivery contacts carry no real
+    destination and pass through unchanged. Delegates to the centralized crypto
+    boundary which fails closed when no encryption key is configured.
+    """
+    from app.incident.crypto import encrypt_contact_field
+
+    if channel == DeliveryChannel.NONE or not destination:
+        return destination
+    return encrypt_contact_field(destination)
+
+
+def _decrypt_contact_destination(destination: str) -> str:
+    """Decrypt a stored contact destination read from persistent storage.
+
+    Legacy plaintext rows (written before encryption was enabled) are returned
+    unchanged so existing configurations keep working.
+    """
+    from app.incident.crypto import decrypt_contact_field
+
+    if not destination:
+        return destination
+    return decrypt_contact_field(destination)
 
 
 def get_trusted_contact(owner_device_id: str) -> Optional[TrustedContact]:
@@ -371,7 +400,7 @@ def _row_to_contact(row: Dict) -> TrustedContact:
         owner_device_id=row["owner_device_id"],
         display_name=row["display_name"],
         delivery_channel=DeliveryChannel(row["delivery_channel"]),
-        destination=row["destination"],
+        destination=_decrypt_contact_destination(row["destination"]),
         enabled=bool(row["enabled"]),
         automatic_help_enabled=bool(row["automatic_help_enabled"]),
         configured_at=row["configured_at"],

@@ -11,6 +11,7 @@ import { ensureDeviceIdentity } from '@/lib/api/device';
 import { listIncidents, getIncident } from '@/lib/api/incidents';
 import type { DeviceCredentials } from '@/lib/api/device';
 import type { Incident, IncidentSummary } from '@/types/incident';
+import { isOpenIncident } from '@/types/incident';
 
 // ---- Home State Types ----
 
@@ -129,7 +130,14 @@ export function useHomeState(pollIntervalMs = 30_000) {
         const incidentResult = await getIncident(credentials, incidentId);
         if (!mountedRef.current || controller.signal.aborted) return;
         if (incidentResult.ok) {
-          activeIncident = incidentResult.data;
+          // A CLOSED/UNKNOWN incident is historical, not "currently active".
+          // Clear the stored id so the front door reads "all clear"; the
+          // record itself remains in Recent Incidents.
+          if (isOpenIncident(incidentResult.data.status)) {
+            activeIncident = incidentResult.data;
+          } else {
+            clearActiveIncidentId();
+          }
         } else if (incidentResult.status === 404 || incidentResult.status === 401) {
           // Stale stored id — clear it so the front door reads "all clear"
           clearActiveIncidentId();

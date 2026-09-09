@@ -3,25 +3,32 @@
    ============================================================
    Authentication abstraction for backend requests.
 
-   SECURITY LIMITATION:
+   SECURITY MODEL:
    The Android app stores device_secret in Android Keystore (encrypted).
    A browser-based React app does NOT have an equivalent secure storage
-   mechanism that matches the Android credential model.
+   mechanism that matches the Android credential model, so the web product
+   persists its device credentials in localStorage.
 
    This module provides:
    1. An interface/contract for device authentication
    2. HMAC signature computation (matching backend exactly)
-   3. A localStorage-based demo store with clear security warnings
-   4. A clean interface that can later be swapped for a real web credential mechanism
+   3. localStorage-based credential persistence (the web product's actual
+      device identity store)
+   4. A clean interface that can later be swapped for a stronger web
+      credential mechanism (e.g., WebCrypto + IndexedDB)
+
+   SECURITY LIMITATION (stated honestly, not hidden):
+   - localStorage is not a hardened credential store: it is readable by
+     scripts from the same origin and can be exfiltrated by an XSS. This is a
+     browser-platform limitation, distinct from Android Keystore.
+   - The backend treats the device secret as a shared secret; anyone holding it
+     can act as the device. The web store should be treated accordingly.
+   - A production web implementation needs a stronger mechanism; the interface
+     below is intentionally small so the storage backend can be swapped.
 
    DO NOT:
    - Hardcode device IDs or secrets in source code
-   - Assume localStorage is secure for production
-   - Use this for real device authentication without a proper web credential store
-
-   The Android credential model uses Android Keystore for encryption.
-   A production web implementation needs an equivalent mechanism
-   (e.g., WebCrypto API + IndexedDB, or a server-mediated credential flow).
+   - Assume localStorage is equivalent to Android Keystore security
    ============================================================ */
 
 import { apiPost } from './client';
@@ -115,18 +122,18 @@ export async function registerDevice(): Promise<
   return { ok: true, data: credentials };
 }
 
-// ---- Demo Device Store (localStorage) ----
-// SECURITY WARNING: This is a DEMO implementation for development only.
-// localStorage is NOT secure for production device credentials.
-// A real implementation should use WebCrypto + IndexedDB or a server-mediated flow.
+// ---- Web Device Credential Store (localStorage) ----
+// The React web product's device identity store. localStorage is more
+// accessible to same-origin scripts than Android Keystore — this is a stated
+// browser-platform limitation, and the store interface is small so a stronger
+// backing store (WebCrypto + IndexedDB) can replace it without touching the
+// API layer.
 
 const STORAGE_KEY_DEVICE_ID = 'lumina_device_id';
 const STORAGE_KEY_DEVICE_SECRET = 'lumina_device_secret';
 
 /**
- * Check if credentials are available in the demo store.
- *
- * SECURITY: This is a development convenience, NOT a production auth solution.
+ * Check if credentials are available in the web credential store.
  */
 export function hasStoredCredentials(): boolean {
   try {
@@ -141,9 +148,10 @@ export function hasStoredCredentials(): boolean {
 }
 
 /**
- * Store credentials in the demo store.
+ * Store credentials in the web credential store.
  *
- * SECURITY WARNING: localStorage is NOT secure for production.
+ * LIMITATION: localStorage is not equivalent to Android Keystore; anyone with
+ * script access to this origin can read these values.
  */
 export function storeCredentials(credentials: DeviceCredentials): void {
   try {
@@ -156,8 +164,6 @@ export function storeCredentials(credentials: DeviceCredentials): void {
 
 /**
  * Retrieve stored credentials.
- *
- * SECURITY WARNING: localStorage is NOT secure for production.
  */
 export function getStoredCredentials(): DeviceCredentials | null {
   try {

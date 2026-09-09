@@ -283,7 +283,7 @@ def get_incident(
 ) -> Dict[str, Any]:
     """Get full incident state."""
     _require_owner(incident_id, device_id)
-    incident = _engine.get_incident(incident_id)
+    incident = _engine.get_incident(incident_id, owner_device_id=device_id)
     if incident is None:
         raise HTTPException(status_code=404, detail=f"Incident not found: {incident_id}")
     return incident.to_dict()
@@ -599,7 +599,7 @@ async def upload_audio(
 
     # 2. Validate incident exists and ownership
     _require_owner(incident_id, device_id)
-    incident = _engine.get_incident(incident_id)
+    incident = _engine.get_incident(incident_id, owner_device_id=device_id)
     if incident is None:
         raise HTTPException(status_code=404, detail=f"Incident not found: {incident_id}")
 
@@ -1110,7 +1110,7 @@ def request_help(
     """
     _require_owner(incident_id, device_id)
 
-    incident = _engine.get_incident(incident_id)
+    incident = _engine.get_incident(incident_id, owner_device_id=device_id)
     if incident is None:
         raise HTTPException(status_code=404, detail=f"Incident not found: {incident_id}")
 
@@ -1670,6 +1670,7 @@ def _require_account_owner(
     if user.account_status in (
         AccountStatus.UNVERIFIED,
         AccountStatus.DISABLED,
+        AccountStatus.REVOKED,
         AccountStatus.DELETED,
     ):
         raise HTTPException(
@@ -1939,6 +1940,7 @@ def get_my_account(
     if user.account_status in (
         AccountStatus.UNVERIFIED,
         AccountStatus.DISABLED,
+        AccountStatus.REVOKED,
         AccountStatus.DELETED,
     ) or not user.phone_verified:
         raise HTTPException(
@@ -2054,6 +2056,87 @@ def delete_account_endpoint(
     return {
         "status": "deleted",
         "message": "Account identity data has been removed. Incident evidence is retained for safety continuity.",
+    }
+
+
+# ================================================================
+# PROFILE ENDPOINTS
+# ================================================================
+
+class UpdateProfileRequest(BaseModel):
+    """Request to update the user profile."""
+    display_name: str = Field(..., min_length=1, max_length=100)
+
+
+def _resolve_account_from_device(device_id: str):
+    """Resolve account from the authenticated device, raising appropriate HTTP errors."""
+    device = _get_device_or_503(device_id)
+    if device is None:
+        raise HTTPException(
+            status_code=401, detail="No account is bound to this device"
+        )
+    if not device.is_active():
+        raise HTTPException(status_code=401, detail="Device revoked")
+    user = get_user(device.user_id)
+    if user is None:
+        raise HTTPException(status_code=404, detail="Account not found")
+    if user.account_status in (
+        AccountStatus.UNVERIFIED,
+        AccountStatus.DISABLED,
+        AccountStatus.REVOKED,
+        AccountStatus.DELETED,
+    ) or not user.phone_verified:
+        raise HTTPException(
+            status_code=403, detail="Account is not eligible for this operation"
+        )
+    return user
+
+
+@router.get("/api/profile")
+def get_profile(
+    device_id: str = Depends(require_auth),
+) -> Dict[str, Any]:
+    """Get the authenticated user's profile.
+
+    Profile belongs to exactly one account (resolved via device binding).
+    Enforces authentication and ownership.
+    """
+    user = _resolve_account_from_device(device_id)
+    return {
+        "account_id": user.user_id,
+        "display_name": user.display_name,
+        "phone_masked": mask_phone(user.phone_number) if user.phone_number else "",
+        "phone_verified": user.phone_verified,
+        "account_status": user.account_status.value,
+        "emergency_consent": user.emergency_consent.value,
+        "created_at": user.created_at,
+        "updated_at": user.updated_at,
+    }
+
+
+@router.put("/api/profile")
+def update_profile(
+    req: UpdateProfileRequest,
+    device_id: str = Depends(require_auth),
+) -> Dict[str, Any]:
+    """Update the authenticated user's profile.
+
+    Profile belongs to exactly one account (resolved via device binding).
+    Only display_name is mutable. Enforces authentication and ownership.
+    User A MUST NOT access or modify User B's profile.
+    """
+    user = _resolve_account_from_device(device_id)
+    updated = update_user(user.user_id, display_name=req.display_name)
+    if updated is None:
+        raise HTTPException(status_code=500, detail="Profile update failed")
+    return {
+        "account_id": updated.user_id,
+        "display_name": updated.display_name,
+        "phone_masked": mask_phone(updated.phone_number) if updated.phone_number else "",
+        "phone_verified": updated.phone_verified,
+        "account_status": updated.account_status.value,
+        "created_at": updated.created_at,
+        "updated_at": updated.updated_at,
     }
 
 

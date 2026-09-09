@@ -41,8 +41,11 @@ from app.incident.trusted_contact import (
     update_help_request_status,
 )
 
-# Enable memory fallback for all tests in this file
-set_memory_fallback(True)
+# The domain tests in this file run against the in-memory fallback. A module
+# scoped autouse fixture flips the global toggle on for these tests and restores
+# the real persistence path afterwards, so it never leaks into other files.
+import pytest
+
 from app.incident.delivery import (
     ConsoleDeliveryProvider,
     DeliveryResult,
@@ -51,6 +54,13 @@ from app.incident.delivery import (
     attempt_delivery,
     get_delivery_provider,
 )
+
+
+@pytest.fixture(autouse=True)
+def _use_memory_fallback():
+    set_memory_fallback(True)
+    yield
+    set_memory_fallback(False)
 
 
 # ---- Trusted Contact Configuration Tests ----

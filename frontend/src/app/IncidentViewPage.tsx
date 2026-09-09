@@ -1290,7 +1290,7 @@ export function IncidentViewPage() {
                 <Button
                   variant="secondary"
                   size="sm"
-                  onClick={() => { window.location.href = '/trusted-contact'; }}
+                  onClick={() => { window.location.href = '/onboarding'; }}
                 >
                   Set up a trusted contact
                 </Button>

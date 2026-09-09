@@ -127,6 +127,8 @@ class EmergencyConsentStatus(str, Enum):
 class AccountStatus(str, Enum):
     """Account lifecycle states.
 
+    Lifecycle: UNVERIFIED → ACTIVE (phone verified) → REVOKED/DELETED
+
     UNVERIFIED is the initial state of every newly claimed account: the
     account exists (so the phone is unique) but its owner has not yet proven
     possession of the phone. It becomes ACTIVE only after an OTP confirm.
@@ -134,6 +136,7 @@ class AccountStatus(str, Enum):
     UNVERIFIED = "UNVERIFIED"
     ACTIVE = "ACTIVE"
     DISABLED = "DISABLED"
+    REVOKED = "REVOKED"
     DELETION_REQUESTED = "DELETION_REQUESTED"
     DELETED = "DELETED"
 
@@ -479,6 +482,7 @@ def bind_device(user_id: str, device_id: str, device_label: str = "") -> UserDev
     if user.account_status in (
         AccountStatus.UNVERIFIED,
         AccountStatus.DISABLED,
+        AccountStatus.REVOKED,
         AccountStatus.DELETED,
     ):
         raise ValueError("Account is not eligible for device binding")

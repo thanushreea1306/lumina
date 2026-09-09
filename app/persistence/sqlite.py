@@ -257,6 +257,13 @@ CREATE TABLE IF NOT EXISTS lumina_users (
     updated_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS used_nonces (
+    device_id TEXT NOT NULL,
+    nonce TEXT NOT NULL,
+    used_at TEXT NOT NULL,
+    PRIMARY KEY (device_id, nonce)
+);
+
 CREATE TABLE IF NOT EXISTS lumina_user_devices (
     device_id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL,
@@ -417,6 +424,41 @@ class SQLiteBackend(PersistenceBackend):
         ).fetchone()
         conn.close()
         return None if row is None else row["device_id"]
+
+    # ---- durable nonce replay protection ----
+
+    def use_nonce(self, device_id: str, nonce: str) -> bool:
+        conn = self._connect()
+        with conn:
+            cur = conn.execute(
+                "INSERT OR IGNORE INTO used_nonces (device_id, nonce, used_at) "
+                "VALUES (?, ?, ?)",
+                (device_id, nonce, datetime.now().isoformat()),
+            )
+            inserted = cur.rowcount == 1
+        conn.close()
+        return inserted
+
+    def is_nonce_used(self, device_id: str, nonce: str) -> bool:
+        conn = self._connect()
+        row = conn.execute(
+            "SELECT 1 FROM used_nonces WHERE device_id = ? AND nonce = ?",
+            (device_id, nonce),
+        ).fetchone()
+        conn.close()
+        return row is not None
+
+    def prune_nonces(self, older_than: Optional[str] = None) -> int:
+        conn = self._connect()
+        with conn:
+            if older_than is None:
+                cur = conn.execute("DELETE FROM used_nonces")
+            else:
+                cur = conn.execute(
+                    "DELETE FROM used_nonces WHERE used_at < ?", (older_than,)
+                )
+        conn.close()
+        return cur.rowcount
 
     # ---- evidence foundation ----
 
@@ -782,9 +824,19 @@ class SQLiteBackend(PersistenceBackend):
 
     # ---- incident reads ----
 
-    def get_incident(self, incident_id: str) -> Optional[Incident]:
+    def get_incident(
+        self, incident_id: str, owner_device_id: Optional[str] = None
+    ) -> Optional[Incident]:
         conn = self._connect()
-        row = conn.execute("SELECT * FROM incidents WHERE incident_id = ?", (incident_id,)).fetchone()
+        if owner_device_id is not None:
+            row = conn.execute(
+                "SELECT * FROM incidents WHERE incident_id = ? AND owner_device_id = ?",
+                (incident_id, owner_device_id),
+            ).fetchone()
+        else:
+            row = conn.execute(
+                "SELECT * FROM incidents WHERE incident_id = ?", (incident_id,)
+            ).fetchone()
         if row is None:
             conn.close()
             return None

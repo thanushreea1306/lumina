@@ -8,7 +8,7 @@
    no simulated timeouts, no fabricated data.
    ============================================================ */
 
-import { apiGet, apiPost } from './client';
+import { apiGet, apiPost, apiPut } from './client';
 import { generateAuthHeaders, ensureDeviceIdentity } from './device';
 
 async function authHeaders(method: string, path: string): Promise<Record<string, string>> {
@@ -51,6 +51,17 @@ export interface AccountResponse {
   emergency_consent: string;
   account_status: string;
   created_at: string;
+}
+
+export interface ProfileResponse {
+  account_id: string;
+  display_name: string;
+  phone_masked: string;
+  phone_verified: boolean;
+  account_status: string;
+  emergency_consent: string;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface PrivacyPolicy {
@@ -195,6 +206,30 @@ export async function deleteAccount(userId: string): Promise<{ status: string }>
   const method = 'POST';
   const headers = await authHeaders(method, path);
   const result = await apiPost<{ status: string }>(path, undefined, headers);
+  if (!result.ok) throw new Error(result.error);
+  return result.data;
+}
+
+// ---- Profile ----
+
+export async function getProfile(): Promise<ProfileResponse> {
+  const path = '/api/profile';
+  const method = 'GET';
+  const headers = await authHeaders(method, path);
+  const result = await apiGet<ProfileResponse>(path, headers);
+  if (!result.ok) throw new Error(result.error);
+  return result.data;
+}
+
+export async function updateProfile(displayName: string): Promise<ProfileResponse> {
+  const path = '/api/profile';
+  const method = 'PUT';
+  const headers = await authHeaders(method, path);
+  const result = await apiPut<ProfileResponse>(
+    path,
+    { display_name: displayName },
+    headers,
+  );
   if (!result.ok) throw new Error(result.error);
   return result.data;
 }

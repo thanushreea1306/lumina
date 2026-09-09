@@ -11,13 +11,15 @@ import { SettingsPage } from '@/app/SettingsPage';
 import { RecoveryPage } from '@/app/RecoveryPage';
 import { AccessibilityPage } from '@/app/AccessibilityPage';
 import { SecurityPage } from '@/app/SecurityPage';
-import { TrustedContactPage } from '@/app/TrustedContactPage';
+import { ProfilePage } from '@/app/ProfilePage';
 import { PrivacyCenterPage } from '@/app/PrivacyCenterPage';
 import appTsxSource from '../App.tsx?raw';
 
 vi.mock('@/lib/api/account', () => ({
   getPrivacyPolicy: vi.fn(),
   getMyAccount: vi.fn(),
+  getProfile: vi.fn(),
+  updateProfile: vi.fn(),
   createAccount: vi.fn(),
   requestPhoneVerification: vi.fn(),
   confirmPhoneVerification: vi.fn(),
@@ -96,10 +98,9 @@ describe('Routing - Page renders at correct path', () => {
     expect(screen.getByRole('heading', { name: /security/i })).toBeInTheDocument();
   });
 
-  it('TrustedContactPage renders', () => {
-    renderAtRoute('/trusted-contact', <TrustedContactPage />);
-    expect(screen.getByRole('heading', { name: 'Trusted Contact' })).toBeInTheDocument();
-    expect(screen.getByText(/not yet fully configured/i)).toBeInTheDocument();
+  it('ProfilePage renders', () => {
+    renderAtRoute('/profile', <ProfilePage />);
+    expect(screen.getByRole('heading', { name: /profile/i })).toBeInTheDocument();
   });
 });
 
